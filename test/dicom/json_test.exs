@@ -104,13 +104,13 @@ defmodule Dicom.JsonTest do
       assert map["00080121"] == %{"vr" => "UR", "Value" => ["https://example.com"]}
     end
 
-    test "encodes DS as string Value (not number per spec)" do
+    test "encodes DS as string Value" do
       ds = DataSet.new() |> DataSet.put({0x0018, 0x0050}, :DS, "1.5")
       map = Json.to_map(ds)
       assert map["00180050"] == %{"vr" => "DS", "Value" => ["1.5"]}
     end
 
-    test "encodes IS as string Value (not number per spec)" do
+    test "encodes IS as string Value" do
       ds = DataSet.new() |> DataSet.put({0x0020, 0x0013}, :IS, "42")
       map = Json.to_map(ds)
       assert map["00200013"] == %{"vr" => "IS", "Value" => ["42"]}
@@ -498,8 +498,20 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x0018, 0x0050}) == "1.5"
     end
 
+    test "decodes DS as number" do
+      json = %{"00180050" => %{"vr" => "DS", "Value" => [1.5]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0018, 0x0050}) == "1.5"
+    end
+
     test "decodes IS as string" do
       json = %{"00200013" => %{"vr" => "IS", "Value" => ["42"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0020, 0x0013}) == "42"
+    end
+
+    test "decodes IS as number" do
+      json = %{"00200013" => %{"vr" => "IS", "Value" => [42]}}
       assert {:ok, ds} = Json.from_map(json)
       assert DataSet.get(ds, {0x0020, 0x0013}) == "42"
     end
@@ -940,6 +952,14 @@ defmodule Dicom.JsonTest do
       ds = DataSet.new() |> DataSet.put({0x0028, 0x0010}, :US, binary)
       map = Json.to_map(ds)
       assert map["00280010"]["Value"] == [1, 2, 3]
+    end
+
+    test "raises when numeric VR binary cannot be decoded cleanly" do
+      ds = DataSet.new() |> DataSet.put({0x0028, 0x0010}, :US, <<1>>)
+
+      assert_raise ArgumentError, ~r/invalid binary value for numeric VR US/, fn ->
+        Json.to_map(ds)
+      end
     end
   end
 

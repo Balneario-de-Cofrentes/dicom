@@ -191,7 +191,7 @@ defmodule Dicom.P10.Writer do
 
       %DataElement{vr: vr, value: {:encapsulated, fragments}} ->
         with :ok <- validate_compressed_transfer_syntax(transfer_syntax_uid),
-             :ok <- validate_encapsulated_pixel_data(vr, fragments) do
+             :ok <- validate_encapsulated_pixel_data(vr, fragments, data_set) do
           :ok
         end
 
@@ -214,9 +214,13 @@ defmodule Dicom.P10.Writer do
     end
   end
 
-  defp validate_encapsulated_pixel_data(:OB, [bot | fragments]) when is_binary(bot) do
+  defp validate_encapsulated_pixel_data(:OB, [bot | fragments], %DataSet{} = data_set)
+       when is_binary(bot) do
     cond do
       rem(byte_size(bot), 4) != 0 ->
+        {:error, :invalid_basic_offset_table}
+
+      not valid_basic_offset_table_count?(bot, data_set) ->
         {:error, :invalid_basic_offset_table}
 
       true ->
@@ -224,12 +228,35 @@ defmodule Dicom.P10.Writer do
     end
   end
 
-  defp validate_encapsulated_pixel_data(vr, _fragments) when vr != :OB do
+  defp validate_encapsulated_pixel_data(vr, _fragments, _data_set) when vr != :OB do
     {:error, {:invalid_encapsulated_pixel_data_vr, vr}}
   end
 
-  defp validate_encapsulated_pixel_data(:OB, _fragments) do
+  defp validate_encapsulated_pixel_data(:OB, _fragments, _data_set) do
     {:error, :invalid_encapsulated_pixel_data}
+  end
+
+  defp valid_basic_offset_table_count?(<<>>, _data_set), do: true
+
+  defp valid_basic_offset_table_count?(bot, data_set) do
+    offsets = div(byte_size(bot), 4)
+
+    case DataSet.get(data_set, {0x0028, 0x0008}) do
+      nil ->
+        true
+
+      value when is_binary(value) ->
+        case Integer.parse(String.trim(value)) do
+          {num_frames, ""} -> offsets == num_frames
+          _ -> true
+        end
+
+      value when is_integer(value) ->
+        offsets == value
+
+      _ ->
+        true
+    end
   end
 
   defp validate_fragment_lengths([], _index), do: :ok

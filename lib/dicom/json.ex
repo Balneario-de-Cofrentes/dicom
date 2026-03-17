@@ -118,8 +118,17 @@ defmodule Dicom.Json do
   defp encode_value(base, _tag, vr, value, _bulk_fn)
        when vr in @numeric_vrs and is_binary(value) do
     decoded = Value.decode(value, vr)
-    values = if is_list(decoded), do: decoded, else: [decoded]
-    Map.put(base, "Value", values)
+
+    cond do
+      is_list(decoded) and Enum.all?(decoded, &is_number/1) ->
+        Map.put(base, "Value", decoded)
+
+      is_number(decoded) ->
+        Map.put(base, "Value", [decoded])
+
+      true ->
+        raise ArgumentError, "invalid binary value for numeric VR #{vr}"
+    end
   end
 
   defp encode_value(base, _tag, vr, value, _bulk_fn)
@@ -325,6 +334,14 @@ defmodule Dicom.Json do
 
   defp decode_json_value(_tag, vr, [], _opts) when vr in @string_vrs, do: {:ok, nil}
 
+  defp decode_json_value(tag, :DS, values, _opts) when is_list(values) do
+    decode_decimal_string_values(tag, values)
+  end
+
+  defp decode_json_value(tag, :IS, values, _opts) when is_list(values) do
+    decode_integer_string_values(tag, values)
+  end
+
   defp decode_json_value(tag, vr, values, _opts)
        when vr in @string_vrs and is_list(values) do
     if Enum.all?(values, &is_binary/1) do
@@ -450,6 +467,40 @@ defmodule Dicom.Json do
   defp validate_pn_component(nil), do: :ok
   defp validate_pn_component(value) when is_binary(value), do: :ok
   defp validate_pn_component(_value), do: :error
+
+  defp decode_decimal_string_values(tag, values) do
+    Enum.reduce_while(values, {:ok, []}, fn
+      value, {:ok, acc} when is_binary(value) ->
+        {:cont, {:ok, [value | acc]}}
+
+      value, {:ok, acc} when is_number(value) ->
+        {:cont, {:ok, [to_string(value) | acc]}}
+
+      _value, _acc ->
+        {:halt, {:error, {:invalid_value, tag, :DS, :expected_number_or_string_values}}}
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, Enum.reverse(decoded) |> Enum.join("\\")}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp decode_integer_string_values(tag, values) do
+    Enum.reduce_while(values, {:ok, []}, fn
+      value, {:ok, acc} when is_binary(value) ->
+        {:cont, {:ok, [value | acc]}}
+
+      value, {:ok, acc} when is_integer(value) ->
+        {:cont, {:ok, [Integer.to_string(value) | acc]}}
+
+      _value, _acc ->
+        {:halt, {:error, {:invalid_value, tag, :IS, :expected_number_or_string_values}}}
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, Enum.reverse(decoded) |> Enum.join("\\")}
+      {:error, _} = error -> error
+    end
+  end
 
   defp normalize_binary_value({0x7FE0, 0x0010} = tag, binary, opts) do
     case Keyword.get(opts, :transfer_syntax_uid) do
