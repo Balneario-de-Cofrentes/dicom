@@ -106,12 +106,14 @@ defmodule Dicom.CharacterSet do
   end
 
   @doc """
-  Decodes a binary value, returning the raw binary on failure instead of an error.
+  Decodes a binary value, returning the original binary on failure instead of an error.
 
   This is a convenience function for use in the parser where we want to
-  attempt charset decoding but fall back to raw binary rather than failing.
+  attempt charset decoding but fall back to the undecoded bytes rather than
+  failing. Successful decodes return a UTF-8 Elixir string; failed decodes
+  return the original binary unchanged.
   """
-  @spec decode_lossy(binary(), charset() | nil) :: String.t()
+  @spec decode_lossy(binary(), charset() | nil) :: binary()
   def decode_lossy(binary, charset) when is_binary(binary) do
     case decode(binary, charset) do
       {:ok, string} -> string
