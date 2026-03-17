@@ -120,7 +120,11 @@ defmodule Dicom.CharacterSet do
   end
 
   @doc """
-  Returns true if the given character set is supported.
+  Returns true if the given character set label is recognized by the decoder.
+
+  For `ISO 2022 IR 6` and `ISO 2022 IR 100`, this means only the non-switching
+  single-byte subset is accepted. Values containing ISO 2022 escape sequences
+  still return an error from `decode/2`.
   """
   @spec supported?(charset() | nil) :: boolean()
   def supported?(charset) do
@@ -128,18 +132,33 @@ defmodule Dicom.CharacterSet do
   end
 
   @doc """
-  Extracts the character set from a parsed data set's elements map.
+  Extracts the primary character set from a parsed data set's elements map.
 
   Returns the first (or only) character set value, or nil if absent.
+  Use `extract_all/1` when you need the full Specific Character Set list.
   """
   @spec extract(map()) :: charset() | nil
   def extract(elements) when is_map(elements) do
+    case extract_all(elements) do
+      [charset | _] -> charset
+      [] -> nil
+    end
+  end
+
+  @doc """
+  Extracts all Specific Character Set values from a parsed data set's elements map.
+  """
+  @spec extract_all(map()) :: [charset()]
+  def extract_all(elements) when is_map(elements) do
     case Map.get(elements, {0x0008, 0x0005}) do
       %Dicom.DataElement{value: value} when is_binary(value) ->
-        value |> String.trim() |> String.split("\\") |> hd()
+        value
+        |> String.trim()
+        |> String.split("\\", trim: true)
+        |> Enum.map(&String.trim/1)
 
       _ ->
-        nil
+        []
     end
   end
 

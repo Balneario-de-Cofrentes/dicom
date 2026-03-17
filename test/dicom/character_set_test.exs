@@ -281,6 +281,19 @@ defmodule Dicom.CharacterSetTest do
     end
   end
 
+  describe "extract_all/1" do
+    test "returns all charsets from a multi-valued element" do
+      elem = Dicom.DataElement.new({0x0008, 0x0005}, :CS, "ISO_IR 100\\ISO_IR 101")
+      elements = %{{0x0008, 0x0005} => elem}
+
+      assert CharacterSet.extract_all(elements) == ["ISO_IR 100", "ISO_IR 101"]
+    end
+
+    test "returns an empty list when charset tag absent" do
+      assert CharacterSet.extract_all(%{}) == []
+    end
+  end
+
   describe "decode/2 — charset with leading/trailing whitespace" do
     test "trims whitespace from charset before lookup" do
       assert {:ok, "ÄÖÜ"} = CharacterSet.decode(<<0xC4, 0xD6, 0xDC>>, " ISO_IR 100 ")

@@ -298,6 +298,17 @@ defmodule Dicom.P10.InteropTest do
       assert charset == "ISO_IR 100"
     end
 
+    test "CharacterSet.extract_all preserves the full charset list" do
+      ds =
+        minimal_data_set()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100\\ISO_IR 101")
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      assert Dicom.CharacterSet.extract_all(parsed.elements) == ["ISO_IR 100", "ISO_IR 101"]
+    end
+
     test "CharacterSet.decode works on raw values from parsed data" do
       ds =
         minimal_data_set()

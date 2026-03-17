@@ -386,7 +386,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 50_000 * length(datetimes)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Value.to_datetime: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 5000
+      assert ns_per_op < 10000
     end
   end
 

@@ -9,7 +9,7 @@ defmodule Dicom.TransferSyntax do
   (34 active + 15 retired).
   Unknown transfer syntaxes are rejected by default — use `encoding/2` with
   `lenient: true` to fall back to Explicit VR Little Endian for
-  unrecognized compressed transfer syntaxes.
+  unrecognized UIDs.
 
   Reference: DICOM PS3.5 Section 10, PS3.6 Table A-1.
   """
