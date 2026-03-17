@@ -15,6 +15,9 @@ defmodule Dicom.P10.Writer do
 
   alias Dicom.{DataElement, DataSet, TransferSyntax, VR}
 
+  @compile {:inline,
+            encode_tag: 2, encode_u32: 2, encode_u16: 2, to_binary: 1, ensure_meta_element: 4}
+
   @implementation_class_uid "1.2.826.0.1.3680043.10.1137"
   @implementation_version_name "DICOM_EX_0.1.0"
 
@@ -76,30 +79,30 @@ defmodule Dicom.P10.Writer do
     preamble = Dicom.P10.FileMeta.preamble()
     file_meta = ensure_required_meta(data_set.file_meta)
 
-    # Encode all file meta elements except group length first
+    # Encode all file meta elements except group length first (as iodata)
     meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
-    meta_binary = encode_elements(meta_without_group_length, :explicit, :little)
+    meta_iodata = encode_elements(meta_without_group_length, :explicit, :little)
 
-    # Compute and prepend group length
+    # Compute and prepend group length (iolist_size avoids intermediate binary)
     group_length_elem =
-      DataElement.new({0x0002, 0x0000}, :UL, <<byte_size(meta_binary)::little-32>>)
+      DataElement.new({0x0002, 0x0000}, :UL, <<:erlang.iolist_size(meta_iodata)::little-32>>)
 
-    group_length_binary = encode_element(group_length_elem, :explicit, :little)
+    group_length_iodata = encode_element(group_length_elem, :explicit, :little)
 
-    # Encode main data set
+    # Encode main data set (as iodata)
     transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
     {vr_encoding, endianness} = TransferSyntax.encoding(transfer_syntax_uid)
-    data_set_binary = encode_elements(data_set.elements, vr_encoding, endianness)
+    data_set_iodata = encode_elements(data_set.elements, vr_encoding, endianness)
 
     # Deflate if transfer syntax requires it (PS3.5 Section 10)
     final_data_set =
       if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
-        :zlib.compress(data_set_binary)
+        :zlib.compress(data_set_iodata)
       else
-        data_set_binary
+        data_set_iodata
       end
 
-    {:ok, preamble <> group_length_binary <> meta_binary <> final_data_set}
+    {:ok, IO.iodata_to_binary([preamble, group_length_iodata, meta_iodata, final_data_set])}
   end
 
   defp ensure_required_meta(file_meta) do
@@ -113,100 +116,123 @@ defmodule Dicom.P10.Writer do
     Map.put_new(file_meta, tag, DataElement.new(tag, vr, default_value))
   end
 
+  # Returns iodata — no intermediate binary allocation. Single IO.iodata_to_binary at serialize/1.
   defp encode_elements(elements, vr_encoding, endianness) do
     elements
-    |> Map.values()
-    |> Enum.sort_by(& &1.tag)
-    |> Enum.map(&encode_element(&1, vr_encoding, endianness))
-    |> IO.iodata_to_binary()
+    |> Enum.sort()
+    |> Enum.map(fn {_tag, elem} -> encode_element(elem, vr_encoding, endianness) end)
   end
 
-  # Explicit VR: Sequence
+  # Explicit VR: Sequence (LE and BE)
   defp encode_element(
-         %DataElement{tag: {group, element}, vr: :SQ, value: items},
+         %DataElement{tag: tag, vr: :SQ, value: items},
          :explicit,
-         :little
+         endian
        )
        when is_list(items) do
-    tag_bytes = <<group::little-16, element::little-16>>
-    items_binary = encode_sequence_items(items, :explicit, :little)
-    # Use defined length for sequences
-    tag_bytes <> "SQ" <> <<0::16, byte_size(items_binary)::little-32>> <> items_binary
+    items_iodata = encode_sequence_items(items, :explicit, endian)
+
+    [
+      encode_tag(tag, endian),
+      "SQ",
+      <<0::16>>,
+      encode_u32(:erlang.iolist_size(items_iodata), endian),
+      items_iodata
+    ]
   end
 
-  # Explicit VR: Encapsulated pixel data
+  # Explicit VR: Encapsulated pixel data (LE only per DICOM standard)
   defp encode_element(
-         %DataElement{tag: {group, element}, vr: vr, value: {:encapsulated, fragments}},
+         %DataElement{tag: tag, vr: vr, value: {:encapsulated, fragments}},
          :explicit,
          :little
        ) do
-    tag_bytes = <<group::little-16, element::little-16>>
     vr_bytes = VR.to_binary(vr)
-    fragments_binary = encode_encapsulated_fragments(fragments)
-    seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+    fragments_iodata = encode_encapsulated_fragments(fragments)
 
-    tag_bytes <> vr_bytes <> <<0::16, 0xFFFFFFFF::little-32>> <> fragments_binary <> seq_delim
+    [
+      encode_tag(tag, :little),
+      vr_bytes,
+      <<0::16, 0xFFFFFFFF::little-32>>,
+      fragments_iodata,
+      <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+    ]
   end
 
-  # Explicit VR: Normal element
+  # Explicit VR: Normal element (LE and BE)
   defp encode_element(
-         %DataElement{tag: {group, element}, vr: vr, value: value},
+         %DataElement{tag: tag, vr: vr, value: value},
          :explicit,
-         :little
+         endian
        ) do
-    tag_bytes = <<group::little-16, element::little-16>>
+    tag_bytes = encode_tag(tag, endian)
     vr_bytes = VR.to_binary(vr)
-    value_binary = to_binary(value)
-    padded_value = VR.pad_value(value_binary, vr)
+    padded_value = value |> to_binary() |> VR.pad_value(vr)
 
     if VR.long_length?(vr) do
-      tag_bytes <> vr_bytes <> <<0::16, byte_size(padded_value)::little-32>> <> padded_value
+      [tag_bytes, vr_bytes, <<0::16>>, encode_u32(byte_size(padded_value), endian), padded_value]
     else
-      tag_bytes <> vr_bytes <> <<byte_size(padded_value)::little-16>> <> padded_value
+      [tag_bytes, vr_bytes, encode_u16(byte_size(padded_value), endian), padded_value]
     end
   end
 
   # Implicit VR: Sequence
   defp encode_element(
-         %DataElement{tag: {group, element}, vr: :SQ, value: items},
+         %DataElement{tag: tag, vr: :SQ, value: items},
          :implicit,
          :little
        )
        when is_list(items) do
-    items_binary = encode_sequence_items(items, :implicit, :little)
-    <<group::little-16, element::little-16, byte_size(items_binary)::little-32>> <> items_binary
+    items_iodata = encode_sequence_items(items, :implicit, :little)
+
+    [
+      encode_tag(tag, :little),
+      encode_u32(:erlang.iolist_size(items_iodata), :little),
+      items_iodata
+    ]
   end
 
   # Implicit VR: Normal element
   defp encode_element(
-         %DataElement{tag: {group, element}, vr: vr, value: value},
+         %DataElement{tag: tag, vr: vr, value: value},
          :implicit,
          :little
        ) do
-    value_binary = to_binary(value)
-    padded_value = VR.pad_value(value_binary, vr)
-    <<group::little-16, element::little-16, byte_size(padded_value)::little-32>> <> padded_value
+    padded_value = value |> to_binary() |> VR.pad_value(vr)
+
+    [encode_tag(tag, :little), encode_u32(byte_size(padded_value), :little), padded_value]
   end
 
   defp encode_sequence_items(items, vr_enc, endian) do
-    items
-    |> Enum.map(&encode_sequence_item(&1, vr_enc, endian))
-    |> IO.iodata_to_binary()
+    Enum.map(items, &encode_sequence_item(&1, vr_enc, endian))
   end
 
   defp encode_sequence_item(item_elements, vr_enc, endian) when is_map(item_elements) do
-    item_binary = encode_elements(item_elements, vr_enc, endian)
-    # Item tag + defined length
-    <<0xFE, 0xFF, 0x00, 0xE0, byte_size(item_binary)::little-32>> <> item_binary
+    item_iodata = encode_elements(item_elements, vr_enc, endian)
+
+    [
+      encode_tag({0xFFFE, 0xE000}, endian),
+      encode_u32(:erlang.iolist_size(item_iodata), endian),
+      item_iodata
+    ]
   end
 
   defp encode_encapsulated_fragments(fragments) do
-    fragments
-    |> Enum.map(fn fragment ->
-      <<0xFE, 0xFF, 0x00, 0xE0, byte_size(fragment)::little-32>> <> fragment
+    Enum.map(fragments, fn fragment ->
+      [<<0xFE, 0xFF, 0x00, 0xE0, byte_size(fragment)::little-32>>, fragment]
     end)
-    |> IO.iodata_to_binary()
   end
+
+  # Endian-aware binary encoding helpers
+
+  defp encode_tag({group, element}, :little), do: <<group::little-16, element::little-16>>
+  defp encode_tag({group, element}, :big), do: <<group::big-16, element::big-16>>
+
+  defp encode_u32(value, :little), do: <<value::little-32>>
+  defp encode_u32(value, :big), do: <<value::big-32>>
+
+  defp encode_u16(value, :little), do: <<value::little-16>>
+  defp encode_u16(value, :big), do: <<value::big-16>>
 
   defp to_binary(value) when is_binary(value), do: value
   defp to_binary(value) when is_integer(value), do: <<value::little-32>>

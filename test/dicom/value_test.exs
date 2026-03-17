@@ -141,11 +141,37 @@ defmodule Dicom.ValueTest do
     end
   end
 
+  describe "decode/2 multi-value numerics" do
+    test "SS multi-value decodes signed 16-bit list" do
+      assert Value.decode(<<-1::little-signed-16, 42::little-signed-16>>, :SS) == [-1, 42]
+    end
+
+    test "UL multi-value decodes unsigned 32-bit list" do
+      assert Value.decode(<<100::little-32, 200::little-32>>, :UL) == [100, 200]
+    end
+
+    test "SL multi-value decodes signed 32-bit list" do
+      assert Value.decode(<<-50::little-signed-32, 50::little-signed-32>>, :SL) == [-50, 50]
+    end
+
+    test "FL multi-value decodes 32-bit float list" do
+      result = Value.decode(<<1.0::little-float-32, 2.0::little-float-32>>, :FL)
+      assert is_list(result)
+      assert length(result) == 2
+      assert_in_delta hd(result), 1.0, 0.001
+    end
+
+    test "FD multi-value decodes 64-bit float list" do
+      result = Value.decode(<<1.0::little-float-64, 2.0::little-float-64>>, :FD)
+      assert is_list(result)
+      assert length(result) == 2
+      assert_in_delta hd(result), 1.0, 0.00001
+    end
+  end
+
   describe "decode/2 edge cases" do
     test "DS with whitespace-only returns nil-like" do
-      # Whitespace-only DS should parse as empty string which Float.parse returns :error
       result = Value.decode("   ", :DS)
-      # Empty string after trim -> parse fails -> returns original
       assert result == ""
     end
 
@@ -176,6 +202,55 @@ defmodule Dicom.ValueTest do
 
     test "SV encodes signed 64-bit" do
       assert Value.encode(-100, :SV) == <<-100::little-signed-64>>
+    end
+  end
+
+  describe "encode/2 fallback" do
+    test "non-binary non-integer falls back to to_string" do
+      assert Value.encode(42, :LO) == "42"
+    end
+  end
+
+  describe "decode/2 remaining string VRs" do
+    test "LO trims padding" do
+      assert Value.decode("SOME_VALUE  ", :LO) == "SOME_VALUE"
+    end
+
+    test "SH trims padding" do
+      assert Value.decode("SHORT ", :SH) == "SHORT"
+    end
+
+    test "LT trims padding" do
+      assert Value.decode("Long text value  ", :LT) == "Long text value"
+    end
+
+    test "ST trims padding" do
+      assert Value.decode("Short text  ", :ST) == "Short text"
+    end
+
+    test "AE trims padding" do
+      assert Value.decode("MY_AET  ", :AE) == "MY_AET"
+    end
+
+    test "DT trims padding" do
+      assert Value.decode("20240101120000.000000+0000 ", :DT) ==
+               "20240101120000.000000+0000"
+    end
+
+    test "UC trims padding" do
+      assert Value.decode("unlimited chars  ", :UC) == "unlimited chars"
+    end
+
+    test "UR trims padding" do
+      assert Value.decode("https://example.com  ", :UR) == "https://example.com"
+    end
+
+    test "UT trims padding" do
+      assert Value.decode("unlimited text  ", :UT) == "unlimited text"
+    end
+
+    test "AS trims padding" do
+      assert Value.decode("045Y ", :AS) == "045Y"
     end
   end
 end

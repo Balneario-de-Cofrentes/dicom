@@ -4,7 +4,8 @@ defmodule Dicom.P10.Reader do
 
   Parses a binary DICOM P10 stream into a `Dicom.DataSet`. Handles the
   preamble, File Meta Information, and the main data set with support
-  for both Implicit VR and Explicit VR Little Endian transfer syntaxes.
+  for Implicit VR Little Endian, Explicit VR Little Endian, and
+  Explicit VR Big Endian (retired) transfer syntaxes.
 
   Supports:
   - Sequences (SQ) with defined and undefined length
@@ -16,6 +17,12 @@ defmodule Dicom.P10.Reader do
   """
 
   alias Dicom.{DataElement, DataSet, TransferSyntax, VR}
+
+  @compile {:inline, peek_tag: 2, lookup_implicit_vr: 1}
+
+  # Raw byte patterns for hot-path trailing padding check (avoids peek_tag + tuple allocation)
+  @trailing_padding_bytes_le <<0xFC, 0xFF, 0xFC, 0xFF>>
+  @trailing_padding_bytes_be <<0xFF, 0xFC, 0xFF, 0xFC>>
 
   @item_tag {0xFFFE, 0xE000}
   @item_delim_tag {0xFFFE, 0xE00D}
@@ -52,7 +59,7 @@ defmodule Dicom.P10.Reader do
         binary
       end
 
-    read_all_elements(data, vr_encoding, endianness, %{})
+    read_all_elements(data, vr_encoding, endianness, [])
   end
 
   defp read_elements_while(<<>>, _vr_enc, _endian, _pred, acc) do
@@ -79,25 +86,30 @@ defmodule Dicom.P10.Reader do
     end
   end
 
-  defp read_all_elements(<<>>, _vr_enc, _endian, acc), do: {:ok, acc}
+  # List accumulator: collect {tag, element} pairs, convert to map once at the end.
+  # Avoids N intermediate map allocations from per-element Map.put.
+  defp read_all_elements(<<>>, _vr_enc, _endian, acc), do: {:ok, Map.new(acc)}
 
   defp read_all_elements(binary, _vr_enc, _endian, acc) when byte_size(binary) < 4 do
-    {:ok, acc}
+    {:ok, Map.new(acc)}
+  end
+
+  # Stop at trailing padding — direct binary check avoids peek_tag + tuple allocation
+  defp read_all_elements(<<@trailing_padding_bytes_le, _::binary>>, _vr_enc, :little, acc) do
+    {:ok, Map.new(acc)}
+  end
+
+  defp read_all_elements(<<@trailing_padding_bytes_be, _::binary>>, _vr_enc, :big, acc) do
+    {:ok, Map.new(acc)}
   end
 
   defp read_all_elements(binary, vr_enc, endian, acc) do
-    case peek_tag(binary, endian) do
-      {:ok, @trailing_padding_tag} ->
-        {:ok, acc}
+    case read_element(binary, vr_enc, endian) do
+      {:ok, element, rest} ->
+        read_all_elements(rest, vr_enc, endian, [{element.tag, element} | acc])
 
-      _ ->
-        case read_element(binary, vr_enc, endian) do
-          {:ok, element, rest} ->
-            read_all_elements(rest, vr_enc, endian, Map.put(acc, element.tag, element))
-
-          {:error, _} = error ->
-            error
-        end
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -190,52 +202,36 @@ defmodule Dicom.P10.Reader do
     read_encapsulated_pixel_data(rest, tag, vr)
   end
 
-  defp read_long_value(
-         <<_reserved::16, length::little-32, rest::binary>>,
-         tag,
-         vr,
-         _vr_enc,
-         :little
-       ) do
-    read_value_by_length(rest, tag, vr, length)
+  defp read_long_value(binary, tag, vr, _vr_enc, endian) do
+    case read_reserved_and_length(binary, endian) do
+      {:ok, length, rest} -> read_value_by_length(rest, tag, vr, length)
+      :error -> {:error, :unexpected_end}
+    end
   end
 
-  defp read_long_value(
-         <<_reserved::16, length::big-32, rest::binary>>,
-         tag,
-         vr,
-         _vr_enc,
-         :big
-       ) do
-    read_value_by_length(rest, tag, vr, length)
+  # Sequence reading (Explicit VR) — length encoding follows transfer syntax endianness
+  defp read_sequence_value(binary, tag, vr_enc, endian) do
+    case read_reserved_and_length(binary, endian) do
+      {:ok, raw_length, rest} ->
+        length = if raw_length == 0xFFFFFFFF, do: :undefined, else: raw_length
+
+        read_sequence_items(rest, length, vr_enc, endian)
+        |> wrap_sequence(tag)
+
+      :error ->
+        {:error, :unexpected_end}
+    end
   end
 
-  defp read_long_value(_, _, _, _, _), do: {:error, :unexpected_end}
-
-  # Sequence reading (Explicit VR)
-  defp read_sequence_value(
-         <<_reserved::16, 0xFFFFFFFF::little-32, rest::binary>>,
-         tag,
-         vr_enc,
-         endian
-       ) do
-    # Undefined length sequence — read items until sequence delimiter
-    read_sequence_items(rest, :undefined, vr_enc, endian)
-    |> wrap_sequence(tag)
+  defp read_reserved_and_length(<<_reserved::16, length::little-32, rest::binary>>, :little) do
+    {:ok, length, rest}
   end
 
-  defp read_sequence_value(
-         <<_reserved::16, length::little-32, rest::binary>>,
-         tag,
-         vr_enc,
-         endian
-       ) do
-    # Defined length sequence — read items from the bounded binary
-    read_sequence_items(rest, length, vr_enc, endian)
-    |> wrap_sequence(tag)
+  defp read_reserved_and_length(<<_reserved::16, length::big-32, rest::binary>>, :big) do
+    {:ok, length, rest}
   end
 
-  defp read_sequence_value(_, _, _, _), do: {:error, :unexpected_end}
+  defp read_reserved_and_length(_, _), do: :error
 
   # Read items from a sequence
   defp read_sequence_items(binary, 0, _vr_enc, _endian) do
@@ -300,35 +296,44 @@ defmodule Dicom.P10.Reader do
     end
   end
 
-  # Read a single item
-  defp read_item(
-         <<0xFE, 0xFF, 0x00, 0xE0, 0xFFFFFFFF::little-32, rest::binary>>,
-         vr_enc,
-         endian
-       ) do
-    # Undefined length item — read until item delimiter
-    read_item_elements_until_delimiter(rest, vr_enc, endian, %{})
-  end
+  # Read a single item — item tags follow transfer syntax byte ordering (PS3.5 7.5)
+  defp read_item(binary, vr_enc, endian) do
+    case read_item_tag_and_length(binary, endian) do
+      {:ok, 0xFFFFFFFF, rest} ->
+        read_item_elements_until_delimiter(rest, vr_enc, endian, %{})
 
-  defp read_item(
-         <<0xFE, 0xFF, 0x00, 0xE0, length::little-32, rest::binary>>,
-         vr_enc,
-         endian
-       ) do
-    # Defined length item
-    if byte_size(rest) >= length do
-      <<item_data::binary-size(length), remaining::binary>> = rest
+      {:ok, length, rest} ->
+        if byte_size(rest) >= length do
+          <<item_data::binary-size(length), remaining::binary>> = rest
 
-      case read_all_elements(item_data, vr_enc, endian, %{}) do
-        {:ok, elements} -> {:ok, elements, remaining}
-        {:error, _} = error -> error
-      end
-    else
-      {:error, :unexpected_end}
+          case read_all_elements(item_data, vr_enc, endian, []) do
+            {:ok, elements} -> {:ok, elements, remaining}
+            {:error, _} = error -> error
+          end
+        else
+          {:error, :unexpected_end}
+        end
+
+      :error ->
+        {:error, :unexpected_end}
     end
   end
 
-  defp read_item(_, _, _), do: {:error, :unexpected_end}
+  defp read_item_tag_and_length(
+         <<0xFE, 0xFF, 0x00, 0xE0, length::little-32, rest::binary>>,
+         :little
+       ) do
+    {:ok, length, rest}
+  end
+
+  defp read_item_tag_and_length(
+         <<0xFF, 0xFE, 0xE0, 0x00, length::big-32, rest::binary>>,
+         :big
+       ) do
+    {:ok, length, rest}
+  end
+
+  defp read_item_tag_and_length(_, _), do: :error
 
   # Read elements until item delimiter
   defp read_item_elements_until_delimiter(binary, _vr_enc, _endian, acc)

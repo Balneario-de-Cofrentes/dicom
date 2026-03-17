@@ -47,10 +47,178 @@ defmodule Dicom.VRTest do
   end
 
   describe "from_binary/1" do
-    test "parses OV, UV, SV VR types" do
-      assert {:ok, :OV} = Dicom.VR.from_binary("OV")
-      assert {:ok, :UV} = Dicom.VR.from_binary("UV")
-      assert {:ok, :SV} = Dicom.VR.from_binary("SV")
+    test "parses all 34 standard VR types" do
+      all_vrs = [
+        {"AE", :AE},
+        {"AS", :AS},
+        {"AT", :AT},
+        {"CS", :CS},
+        {"DA", :DA},
+        {"DS", :DS},
+        {"DT", :DT},
+        {"FL", :FL},
+        {"FD", :FD},
+        {"IS", :IS},
+        {"LO", :LO},
+        {"LT", :LT},
+        {"OB", :OB},
+        {"OD", :OD},
+        {"OF", :OF},
+        {"OL", :OL},
+        {"OV", :OV},
+        {"OW", :OW},
+        {"PN", :PN},
+        {"SH", :SH},
+        {"SL", :SL},
+        {"SQ", :SQ},
+        {"SS", :SS},
+        {"ST", :ST},
+        {"SV", :SV},
+        {"TM", :TM},
+        {"UC", :UC},
+        {"UI", :UI},
+        {"UL", :UL},
+        {"UN", :UN},
+        {"UR", :UR},
+        {"US", :US},
+        {"UT", :UT},
+        {"UV", :UV}
+      ]
+
+      for {binary, expected} <- all_vrs do
+        assert {:ok, ^expected} = Dicom.VR.from_binary(binary), "Failed to parse VR #{binary}"
+      end
+    end
+
+    test "rejects unknown VR strings" do
+      assert {:error, :unknown_vr} = Dicom.VR.from_binary("XX")
+      assert {:error, :unknown_vr} = Dicom.VR.from_binary("ZZ")
+      assert {:error, :unknown_vr} = Dicom.VR.from_binary("00")
+    end
+  end
+
+  describe "to_binary/1" do
+    test "converts all VR atoms to 2-byte strings" do
+      for vr <- [
+            :AE,
+            :AS,
+            :AT,
+            :CS,
+            :DA,
+            :DS,
+            :DT,
+            :FL,
+            :FD,
+            :IS,
+            :LO,
+            :LT,
+            :OB,
+            :OD,
+            :OF,
+            :OL,
+            :OV,
+            :OW,
+            :PN,
+            :SH,
+            :SL,
+            :SQ,
+            :SS,
+            :ST,
+            :SV,
+            :TM,
+            :UC,
+            :UI,
+            :UL,
+            :UN,
+            :UR,
+            :US,
+            :UT,
+            :UV
+          ] do
+        binary = Dicom.VR.to_binary(vr)
+        assert byte_size(binary) == 2, "VR #{vr} should be 2 bytes"
+        assert {:ok, ^vr} = Dicom.VR.from_binary(binary), "Roundtrip failed for #{vr}"
+      end
+    end
+  end
+
+  describe "string?/1" do
+    test "identifies all string VRs" do
+      string_vrs = [
+        :AE,
+        :AS,
+        :CS,
+        :DA,
+        :DS,
+        :DT,
+        :IS,
+        :LO,
+        :LT,
+        :PN,
+        :SH,
+        :ST,
+        :TM,
+        :UC,
+        :UI,
+        :UR,
+        :UT
+      ]
+
+      for vr <- string_vrs do
+        assert Dicom.VR.string?(vr), "#{vr} should be a string VR"
+      end
+    end
+
+    test "rejects non-string VRs" do
+      for vr <- [
+            :OB,
+            :OW,
+            :UN,
+            :US,
+            :SS,
+            :UL,
+            :SL,
+            :FL,
+            :FD,
+            :SQ,
+            :AT,
+            :SV,
+            :UV,
+            :OV,
+            :OD,
+            :OF,
+            :OL
+          ] do
+        refute Dicom.VR.string?(vr), "#{vr} should not be a string VR"
+      end
+    end
+  end
+
+  describe "binary?/1" do
+    test "identifies all binary VRs" do
+      for vr <- [:OB, :OD, :OF, :OL, :OV, :OW, :UN] do
+        assert Dicom.VR.binary?(vr), "#{vr} should be a binary VR"
+      end
+    end
+
+    test "rejects non-binary VRs" do
+      refute Dicom.VR.binary?(:PN)
+      refute Dicom.VR.binary?(:US)
+      refute Dicom.VR.binary?(:SQ)
+    end
+  end
+
+  describe "numeric?/1" do
+    test "identifies all numeric VRs" do
+      for vr <- [:FL, :FD, :SL, :SS, :SV, :UL, :US, :UV] do
+        assert Dicom.VR.numeric?(vr), "#{vr} should be a numeric VR"
+      end
+    end
+
+    test "rejects non-numeric VRs" do
+      refute Dicom.VR.numeric?(:PN)
+      refute Dicom.VR.numeric?(:OB)
+      refute Dicom.VR.numeric?(:SQ)
     end
   end
 

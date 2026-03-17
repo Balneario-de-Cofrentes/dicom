@@ -9,6 +9,9 @@ defmodule Dicom.P10.ComplianceTest do
 
   alias Dicom.DataSet
 
+  import Dicom.TestHelpers,
+    only: [minimal_data_set: 0, pad_to_even: 1, build_p10_with_data: 1]
+
   # PS3.10 Section 7 — DICOM File Format
 
   describe "PS3.10 Section 7 — DICOM File Format" do
@@ -128,6 +131,64 @@ defmodule Dicom.P10.ComplianceTest do
         assert group == 0x0002, "File meta contains non-0002 group: #{inspect(tag)}"
       end
     end
+
+    test "Group Length accurate with many meta elements (PS3.10 Table 7.1-1)" do
+      ds =
+        minimal_data_set()
+        |> DataSet.put({0x0002, 0x0016}, :AE, "SCANNER_AE")
+        |> DataSet.put({0x0002, 0x0017}, :AE, "SENDING_AE")
+        |> DataSet.put({0x0002, 0x0018}, :AE, "RECEIVING_AE")
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      # Parse group length directly from binary
+      <<_preamble::binary-size(132), rest::binary>> = binary
+
+      <<0x02, 0x00, 0x00, 0x00, "UL", 4::little-16, group_length::little-32, meta_rest::binary>> =
+        rest
+
+      # Find where file meta ends (first non-0002 group)
+      {meta_bytes, _data_rest} = split_at_non_group2(meta_rest)
+      assert group_length == byte_size(meta_bytes)
+    end
+
+    test "File Meta Version (0002,0001) is exactly <<0x00, 0x01>> (PS3.10 Table 7.1-1)" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      version_elem = DataSet.get_element(parsed, {0x0002, 0x0001})
+      assert version_elem.vr == :OB
+      assert version_elem.value == <<0x00, 0x01>>
+    end
+
+    test "Implementation Version Name max 16 chars (PS3.10 Table 7.1-1)" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      impl_name = DataSet.get(parsed, {0x0002, 0x0013})
+      assert is_binary(impl_name)
+      assert byte_size(String.trim(impl_name)) <= 16
+    end
+
+    test "reader handles inaccurate group length gracefully (uses group boundary, not length)" do
+      # Build file meta with a deliberately wrong group length
+      ts_uid = pad_to_even("1.2.840.10008.1.2.1")
+      ts_elem = <<0x02, 0x00, 0x10, 0x00, "UI", byte_size(ts_uid)::little-16>> <> ts_uid
+
+      # Set group length to 9999 (way too large)
+      wrong_length = <<0x02, 0x00, 0x00, 0x00, "UL", 4::little-16, 9999::little-32>>
+
+      patient = <<0x10, 0x00, 0x10, 0x00, "PN", 8::little-16, "DOE^JOHN">>
+
+      binary = <<0::1024, "DICM">> <> wrong_length <> ts_elem <> patient
+
+      # Reader uses group boundary (non-0002 tag) rather than group length value
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+      assert DataSet.get(ds, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+    end
   end
 
   # PS3.10 Section 7.2 — Data Set Encapsulation
@@ -147,7 +208,7 @@ defmodule Dicom.P10.ComplianceTest do
     end
 
     test "trailing padding (FFFC,FFFC) is ignored by reader" do
-      ts_uid = pad_even("1.2.840.10008.1.2.1")
+      ts_uid = pad_to_even("1.2.840.10008.1.2.1")
       ts_elem = <<0x02, 0x00, 0x10, 0x00, "UI", byte_size(ts_uid)::little-16>> <> ts_uid
 
       group_length_value = <<byte_size(ts_elem)::little-32>>
@@ -296,6 +357,37 @@ defmodule Dicom.P10.ComplianceTest do
     test "Deflated Explicit VR Little Endian roundtrip" do
       assert_transfer_syntax_roundtrip(Dicom.UID.deflated_explicit_vr_little_endian())
     end
+
+    test "Explicit VR Big Endian roundtrip (retired)" do
+      assert_transfer_syntax_roundtrip(Dicom.UID.explicit_vr_big_endian())
+    end
+
+    test "Explicit VR Big Endian sequence roundtrip" do
+      item = %{
+        {0x0008, 0x1150} =>
+          Dicom.DataElement.new({0x0008, 0x1150}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+      }
+
+      seq_elem = Dicom.DataElement.new({0x0008, 0x1115}, :SQ, [item])
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_big_endian())
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, seq_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+
+      seq = DataSet.get(parsed, {0x0008, 0x1115})
+      assert is_list(seq)
+      assert length(seq) == 1
+    end
   end
 
   # Property-based tests
@@ -338,18 +430,9 @@ defmodule Dicom.P10.ComplianceTest do
 
   # Helpers
 
-  defp minimal_data_set do
-    DataSet.new()
-    |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
-    |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
-    |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_little_endian())
-  end
-
   defp assert_transfer_syntax_roundtrip(ts_uid) do
     ds =
-      DataSet.new()
-      |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
-      |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+      minimal_data_set()
       |> DataSet.put({0x0002, 0x0010}, :UI, ts_uid)
       |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
       |> DataSet.put({0x0010, 0x0020}, :LO, "12345")
@@ -411,20 +494,4 @@ defmodule Dicom.P10.ComplianceTest do
     <<meta::binary-size(offset), rest::binary>> = binary
     {meta, rest}
   end
-
-  defp build_p10_with_data(data_binary) do
-    ts_uid = pad_even("1.2.840.10008.1.2.1")
-    ts_elem = <<0x02, 0x00, 0x10, 0x00, "UI", byte_size(ts_uid)::little-16>> <> ts_uid
-
-    group_length_value = <<byte_size(ts_elem)::little-32>>
-
-    group_length =
-      <<0x02, 0x00, 0x00, 0x00, "UL", byte_size(group_length_value)::little-16>> <>
-        group_length_value
-
-    <<0::1024, "DICM">> <> group_length <> ts_elem <> data_binary
-  end
-
-  defp pad_even(value) when rem(byte_size(value), 2) == 1, do: value <> <<0>>
-  defp pad_even(value), do: value
 end

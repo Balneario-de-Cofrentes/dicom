@@ -26,15 +26,11 @@ defmodule Dicom.DataElement do
   Creates a new data element.
   """
   @spec new(tag(), Dicom.VR.t(), term()) :: t()
-  def new(tag, vr, value) do
-    %__MODULE__{
-      tag: tag,
-      vr: vr,
-      value: value,
-      length: byte_length(value)
-    }
+  def new(tag, vr, value) when is_binary(value) do
+    %__MODULE__{tag: tag, vr: vr, value: value, length: byte_size(value)}
   end
 
-  defp byte_length(value) when is_binary(value), do: byte_size(value)
-  defp byte_length(_), do: 0
+  def new(tag, vr, value) do
+    %__MODULE__{tag: tag, vr: vr, value: value, length: 0}
+  end
 end

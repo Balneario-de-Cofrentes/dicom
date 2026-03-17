@@ -44,6 +44,8 @@ defmodule Dicom.VR do
           | :UT
           | :UV
 
+  @compile {:inline, long_length?: 1, to_binary: 1, padding_byte: 1, pad_value: 2}
+
   @string_vrs [
     :AE,
     :AS,

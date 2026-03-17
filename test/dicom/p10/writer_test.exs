@@ -3,6 +3,8 @@ defmodule Dicom.P10.WriterTest do
 
   alias Dicom.{DataElement, DataSet}
 
+  import Dicom.TestHelpers, only: [minimal_data_set: 0]
+
   describe "serialize/1" do
     test "produces valid P10 binary with preamble and DICM prefix" do
       ds = minimal_data_set()
@@ -165,14 +167,60 @@ defmodule Dicom.P10.WriterTest do
     end
   end
 
-  # Helpers
+  describe "implicit VR encoding" do
+    test "roundtrips sequence in Implicit VR Little Endian" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.implicit_vr_little_endian())
 
-  defp minimal_data_set do
-    DataSet.new()
-    |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
-    |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
-    |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_little_endian())
+      # Add a sequence element
+      inner_elem = DataElement.new({0x0008, 0x1150}, :UI, "1.2.3")
+      sq_items = [%{{0x0008, 0x1150} => inner_elem}]
+      sq_elem = DataElement.new({0x0008, 0x1140}, :SQ, sq_items)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1140}, sq_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      seq = DataSet.get(parsed, {0x0008, 0x1140})
+      assert is_list(seq)
+      assert length(seq) == 1
+    end
   end
+
+  describe "to_binary value encoding" do
+    test "encodes integer values to 32-bit little-endian binary" do
+      ds =
+        minimal_data_set()
+
+      # Put a DataElement with raw integer value
+      int_elem = DataElement.new({0x0028, 0x0010}, :US, 512)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x0010}, int_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      raw = parsed.elements[{0x0028, 0x0010}].value
+      assert is_binary(raw)
+    end
+
+    test "encodes non-binary non-integer values via to_string" do
+      ds = minimal_data_set()
+
+      # Put a DataElement with an atom value — to_string will convert
+      atom_elem = DataElement.new({0x0010, 0x0010}, :PN, :test_name)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0010, 0x0010}, atom_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "test_name"
+    end
+  end
+
+  # Helpers
 
   defp get_raw_element(%DataSet{} = ds, tag) do
     {group, _} = tag
