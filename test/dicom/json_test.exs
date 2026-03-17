@@ -610,6 +610,22 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
 
+    test "decodes encapsulated pixel data InlineBinary back into fragments" do
+      encapsulated =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => Base.encode64(encapsulated)}}
+
+      assert {:ok, ds} = Json.from_map(json)
+
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
+               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+    end
+
     test "returns an error for unresolved BulkDataURI by default" do
       json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "http://example.com/pixel"}}
 
@@ -629,6 +645,27 @@ defmodule Dicom.JsonTest do
                )
 
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
+    end
+
+    test "resolves encapsulated pixel data BulkDataURI back into fragments" do
+      encapsulated =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "memory://pixel"}}
+
+      assert {:ok, ds} =
+               Json.from_map(json,
+                 bulk_data_resolver: fn {0x7FE0, 0x0010}, :OB, "memory://pixel" ->
+                   {:ok, encapsulated}
+                 end
+               )
+
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
+               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
     end
   end
 
@@ -905,6 +942,15 @@ defmodule Dicom.JsonTest do
       map = Json.to_map(ds)
       assert {:ok, ds2} = Json.from_map(map)
       assert DataSet.get(ds2, {0x7FE0, 0x0010}) == binary
+    end
+
+    test "roundtrips encapsulated pixel data without flattening fragments" do
+      value = {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+      ds = DataSet.new() |> DataSet.put({0x7FE0, 0x0010}, :OB, value)
+      map = Json.to_map(ds)
+
+      assert {:ok, ds2} = Json.from_map(map)
+      assert DataSet.get(ds2, {0x7FE0, 0x0010}) == value
     end
 
     test "roundtrips sequence elements" do

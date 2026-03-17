@@ -359,7 +359,7 @@ defmodule Dicom.Json do
 
   defp decode_inline_binary(tag, vr, b64) when vr in @binary_vrs and is_binary(b64) do
     case Base.decode64(b64) do
-      {:ok, binary} -> {:ok, binary}
+      {:ok, binary} -> {:ok, normalize_binary_value(tag, binary)}
       :error -> {:error, {:invalid_value, tag, vr, :invalid_base64}}
     end
   end
@@ -375,7 +375,7 @@ defmodule Dicom.Json do
 
       resolver when is_function(resolver, 3) ->
         case resolver.(tag, vr, uri) do
-          {:ok, binary} when is_binary(binary) -> {:ok, binary}
+          {:ok, binary} when is_binary(binary) -> {:ok, normalize_binary_value(tag, binary)}
           {:error, reason} -> {:error, {:bulk_data_resolution_failed, tag, vr, uri, reason}}
           other -> {:error, {:invalid_bulk_data_resolution, tag, vr, uri, other}}
         end
@@ -418,6 +418,40 @@ defmodule Dicom.Json do
   defp split_multi_string(value) do
     String.split(value, "\\")
   end
+
+  defp normalize_binary_value({0x7FE0, 0x0010}, binary) do
+    case parse_encapsulated_value(binary) do
+      {:ok, fragments} -> {:encapsulated, fragments}
+      :error -> binary
+    end
+  end
+
+  defp normalize_binary_value(_tag, binary), do: binary
+
+  defp parse_encapsulated_value(binary) do
+    case parse_encapsulated_fragments(binary, []) do
+      {:ok, fragments, <<>>} when fragments != [] -> {:ok, fragments}
+      _ -> :error
+    end
+  end
+
+  defp parse_encapsulated_fragments(
+         <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32, rest::binary>>,
+         acc
+       ) do
+    {:ok, Enum.reverse(acc), rest}
+  end
+
+  defp parse_encapsulated_fragments(
+         <<0xFE, 0xFF, 0x00, 0xE0, length::little-32, rest::binary>>,
+         acc
+       )
+       when byte_size(rest) >= length do
+    <<fragment::binary-size(length), remaining::binary>> = rest
+    parse_encapsulated_fragments(remaining, [fragment | acc])
+  end
+
+  defp parse_encapsulated_fragments(_, _acc), do: :error
 
   defp decode_item(item_map, opts) when is_map(item_map) do
     Enum.reduce_while(item_map, {:ok, %{}}, fn {tag_hex, elem_map}, {:ok, acc} ->
