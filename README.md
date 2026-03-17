@@ -163,31 +163,41 @@ verify encode/decode roundtrips across all VR types and streaming parser equival
 
 ## Comparison with Other BEAM DICOM Libraries
 
-| Feature | **dicom** | dicom\_ex 0.3.0 | ex\_dicom 0.2.0 | DCMfx 0.43.0 | WolfPACS 0.4.0 |
-|---------|-----------|-----------------|-----------------|--------------|----------------|
+Five DICOM libraries exist for the BEAM. Only three are published to Hex.pm.
+
+| Feature | **dicom** | dicom\_ex 0.3.0 | ex\_dicom 0.2.0 | DCMfx 0.43.0 | WolfPACS |
+|---------|-----------|-----------------|-----------------|--------------|----------|
 | **Language** | Elixir | Elixir | Elixir | Gleam + Rust | Erlang |
-| **License** | MIT | Apache-2.0 | Unknown | AGPL-3.0 | AGPL-3.0 |
+| **License** | MIT | Apache-2.0 | MIT | AGPL-3.0 | AGPL-3.0 |
 | **On Hex.pm** | Yes | Yes | Yes | No (git only) | No (git only) |
-| **Runtime deps** | 0 | 6 | 0 | Rust NIFs | 2 |
-| **P10 parse** | Yes | Yes | Yes | Yes | No |
-| **P10 write** | Yes | Yes | Stub only | Yes | No |
-| **Transfer syntaxes** | 29 | Unknown | Unknown | Full | N/A |
-| **Sequences (SQ)** | Yes | Yes | Unknown | Yes | N/A |
-| **Tag dictionary** | 5,032 tags | 5,249 tags | None | Full PS3.6 | None |
-| **UID generation** | Yes | No | No | No | No |
+| **Runtime deps** | 0 | 0 | 0 | 6 | 2 |
+| **P10 parse** | Yes | Yes | Yes | Yes | Basic |
+| **P10 write** | Yes | Yes | No | Yes | No |
+| **Transfer syntaxes** | 29 | 3 | 3 | 47 | 3 |
+| **Sequences (SQ)** | Yes | Yes | Yes | Yes | Yes |
+| **Tag dictionary** | 5,032 tags | 5,249 tags | None | 13,689 tags | None |
+| **UID generation** | Yes | Yes | No | No | No |
 | **UID validation** | Yes | No | No | No | No |
-| **File Meta validation** | Yes | No | No | No | No |
+| **File Meta validation** | Yes | Partial | Partial | Yes | Yes |
+| **Character sets** | Partial (Latin, UTF-8) | No | No | Full (CJK, GB18030) | No |
+| **Value decoding** | Yes (36 VRs) | Yes | Basic | Yes | Yes (25 VRs) |
+| **Streaming parser** | Yes | No | No | Yes | No |
 | **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
-| **Streaming** | Yes | No | No | Yes | No |
 | **DICOM JSON** | No | No | No | Yes | No |
 | **Anonymization** | No | No | No | Yes | No |
-| **Test suite** | 448 tests, 91%+ coverage | Unknown | 5 tests | Unknown | 3 tests |
+| **Pixel data frames** | No | No | No | Yes | No |
+| **Test suite** | 448 tests, 91%+ cov | Unknown | 1 test file | 39 test files | 80+ tests |
 | **CI** | Passing | None | None | Failing | Failing |
-| **Docs** | Full @doc + @moduledoc | None | None | HexDocs | None |
+| **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
+| **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |
+| **Gleam toolchain** | Not required | Not required | Not required | Required | Not required |
 
-**dicom** prioritizes correctness, zero dependencies, and production readiness.
-For projects that need the full PS3.6 tag dictionary or DIMSE networking, consider
-combining `dicom` with complementary libraries.
+**dicom** is the most complete pure-Elixir DICOM library: zero dependencies,
+streaming + read + write, 29 transfer syntaxes, and MIT-licensed. DCMfx has the
+richest feature set overall (DICOM JSON, anonymization, pixel data extraction,
+47 transfer syntaxes) but requires the Gleam toolchain, carries AGPL-3.0
+licensing, and is not published to Hex.pm. For DIMSE networking, `dicom_ex`
+provides C-ECHO/C-FIND/C-STORE SCP support.
 
 ## AI-Assisted Development
 
