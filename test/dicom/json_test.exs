@@ -620,10 +620,23 @@ defmodule Dicom.JsonTest do
 
       json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => Base.encode64(encapsulated)}}
 
-      assert {:ok, ds} = Json.from_map(json)
+      assert {:ok, ds} = Json.from_map(json, transfer_syntax_uid: Dicom.UID.jpeg_baseline())
 
       assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
                {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+    end
+
+    test "keeps Pixel Data as raw binary without compressed transfer syntax context" do
+      encapsulated =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => Base.encode64(encapsulated)}}
+
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) == encapsulated
     end
 
     test "returns an error for unresolved BulkDataURI by default" do
@@ -659,6 +672,7 @@ defmodule Dicom.JsonTest do
 
       assert {:ok, ds} =
                Json.from_map(json,
+                 transfer_syntax_uid: Dicom.UID.jpeg_baseline(),
                  bulk_data_resolver: fn {0x7FE0, 0x0010}, :OB, "memory://pixel" ->
                    {:ok, encapsulated}
                  end
@@ -946,8 +960,13 @@ defmodule Dicom.JsonTest do
 
     test "roundtrips encapsulated pixel data without flattening fragments" do
       value = {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
-      ds = DataSet.new() |> DataSet.put({0x7FE0, 0x0010}, :OB, value)
-      map = Json.to_map(ds)
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x7FE0, 0x0010}, :OB, value)
+
+      map = Json.to_map(ds, include_file_meta: true)
 
       assert {:ok, ds2} = Json.from_map(map)
       assert DataSet.get(ds2, {0x7FE0, 0x0010}) == value

@@ -189,11 +189,16 @@ defmodule Dicom.Json do
   - `bulk_data_resolver` — `fn tag, vr, uri -> {:ok, binary} | {:error, reason} end`
     used to resolve `BulkDataURI` entries during decode. Without a resolver,
     `BulkDataURI` returns an error instead of being stored as element bytes.
+  - `transfer_syntax_uid` — transfer syntax context for interpreting Pixel Data
+    binary payloads. When omitted, group `0002` Transfer Syntax UID from the
+    JSON map is used if present.
 
   Returns `{:ok, data_set}` or `{:error, reason}`.
   """
   @spec from_map(map(), keyword()) :: {:ok, DataSet.t()} | {:error, term()}
   def from_map(json, opts \\ []) when is_map(json) do
+    opts = put_transfer_syntax_uid(opts, json)
+
     Enum.reduce_while(json, {:ok, DataSet.new()}, fn {tag_hex, elem_map}, {:ok, ds} ->
       with {:ok, tag} <- parse_tag_hex(tag_hex),
            {:ok, vr} <- parse_vr(elem_map),
@@ -239,7 +244,7 @@ defmodule Dicom.Json do
           decode_json_value(tag, vr, values, opts)
 
         %{"InlineBinary" => value} ->
-          decode_inline_binary(tag, vr, value)
+          decode_inline_binary(tag, vr, value, opts)
 
         %{"BulkDataURI" => value} ->
           decode_bulk_data_uri(tag, vr, value, opts)
@@ -357,14 +362,14 @@ defmodule Dicom.Json do
     {:error, {:invalid_value, tag, vr, :expected_value_array}}
   end
 
-  defp decode_inline_binary(tag, vr, b64) when vr in @binary_vrs and is_binary(b64) do
+  defp decode_inline_binary(tag, vr, b64, opts) when vr in @binary_vrs and is_binary(b64) do
     case Base.decode64(b64) do
-      {:ok, binary} -> {:ok, normalize_binary_value(tag, binary)}
+      {:ok, binary} -> normalize_binary_value(tag, binary, opts)
       :error -> {:error, {:invalid_value, tag, vr, :invalid_base64}}
     end
   end
 
-  defp decode_inline_binary(tag, vr, _value) do
+  defp decode_inline_binary(tag, vr, _value, _opts) do
     {:error, {:invalid_value, tag, vr, :expected_inline_binary}}
   end
 
@@ -375,7 +380,7 @@ defmodule Dicom.Json do
 
       resolver when is_function(resolver, 3) ->
         case resolver.(tag, vr, uri) do
-          {:ok, binary} when is_binary(binary) -> {:ok, normalize_binary_value(tag, binary)}
+          {:ok, binary} when is_binary(binary) -> normalize_binary_value(tag, binary, opts)
           {:error, reason} -> {:error, {:bulk_data_resolution_failed, tag, vr, uri, reason}}
           other -> {:error, {:invalid_bulk_data_resolution, tag, vr, uri, other}}
         end
@@ -419,14 +424,24 @@ defmodule Dicom.Json do
     String.split(value, "\\")
   end
 
-  defp normalize_binary_value({0x7FE0, 0x0010}, binary) do
-    case parse_encapsulated_value(binary) do
-      {:ok, fragments} -> {:encapsulated, fragments}
-      :error -> binary
+  defp normalize_binary_value({0x7FE0, 0x0010} = tag, binary, opts) do
+    case Keyword.get(opts, :transfer_syntax_uid) do
+      uid when is_binary(uid) ->
+        if Dicom.TransferSyntax.compressed?(uid) do
+          case parse_encapsulated_value(binary) do
+            {:ok, fragments} -> {:ok, {:encapsulated, fragments}}
+            :error -> {:error, {:invalid_encapsulated_pixel_data, tag, uid}}
+          end
+        else
+          {:ok, binary}
+        end
+
+      _ ->
+        {:ok, binary}
     end
   end
 
-  defp normalize_binary_value(_tag, binary), do: binary
+  defp normalize_binary_value(_tag, binary, _opts), do: {:ok, binary}
 
   defp parse_encapsulated_value(binary) do
     case parse_encapsulated_fragments(binary, []) do
@@ -452,6 +467,22 @@ defmodule Dicom.Json do
   end
 
   defp parse_encapsulated_fragments(_, _acc), do: :error
+
+  defp put_transfer_syntax_uid(opts, json) do
+    case Keyword.has_key?(opts, :transfer_syntax_uid) do
+      true ->
+        opts
+
+      false ->
+        case Map.get(json, "00020010") do
+          %{"vr" => "UI", "Value" => [uid | _]} when is_binary(uid) ->
+            Keyword.put(opts, :transfer_syntax_uid, String.trim(uid))
+
+          _ ->
+            opts
+        end
+    end
+  end
 
   defp decode_item(item_map, opts) when is_map(item_map) do
     Enum.reduce_while(item_map, {:ok, %{}}, fn {tag_hex, elem_map}, {:ok, acc} ->

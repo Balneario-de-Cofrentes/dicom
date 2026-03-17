@@ -221,6 +221,11 @@ For DICOM JSON specifically, `BulkDataURI` entries are not treated as raw bytes.
 Use `Dicom.Json.from_map/2` with `bulk_data_resolver:` when you want to resolve
 external bulk data during decode.
 
+Restoring encapsulated Pixel Data structure during JSON decode requires
+compressed transfer syntax context, either via group `0002` Transfer Syntax UID
+in the JSON map or `transfer_syntax_uid:` passed to `Dicom.Json.from_map/2`.
+Without that context, Pixel Data binary payloads are preserved as raw bytes.
+
 On export, binary `InlineBinary` and `BulkDataURI` payloads follow PS3.18 Annex
 F.2.7 and refer to the attribute's full Value Field. For encapsulated Pixel
 Data, that means the Basic Offset Table item, fragment items, and sequence
