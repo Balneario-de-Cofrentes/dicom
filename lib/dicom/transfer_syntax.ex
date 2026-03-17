@@ -49,6 +49,33 @@ defmodule Dicom.TransferSyntax do
     end
   end
 
+  @doc """
+  Returns the VR encoding and endianness for a given transfer syntax UID.
+
+  Falls back to Explicit VR Little Endian for unknown UIDs (e.g., compressed
+  transfer syntaxes not in the registry still use explicit VR LE for metadata).
+  """
+  @spec encoding(String.t()) :: {vr_encoding(), endianness()}
+  def encoding(uid) do
+    case from_uid(uid) do
+      {:ok, %{vr_encoding: vr_enc, endianness: endian}} -> {vr_enc, endian}
+      _ -> {:explicit, :little}
+    end
+  end
+
+  @doc """
+  Extracts the transfer syntax UID from a file meta elements map.
+
+  Falls back to Implicit VR Little Endian if the tag is absent.
+  """
+  @spec extract_uid(%{Dicom.Tag.t() => Dicom.DataElement.t()}) :: String.t()
+  def extract_uid(file_meta) do
+    case Map.get(file_meta, Dicom.Tag.transfer_syntax_uid()) do
+      %Dicom.DataElement{value: uid} -> String.trim_trailing(uid, <<0>>)
+      nil -> Dicom.UID.implicit_vr_little_endian()
+    end
+  end
+
   defp registry do
     %{
       Dicom.UID.implicit_vr_little_endian() => %__MODULE__{
@@ -61,6 +88,13 @@ defmodule Dicom.TransferSyntax do
       Dicom.UID.explicit_vr_little_endian() => %__MODULE__{
         uid: Dicom.UID.explicit_vr_little_endian(),
         name: "Explicit VR Little Endian",
+        endianness: :little,
+        vr_encoding: :explicit,
+        compressed: false
+      },
+      Dicom.UID.deflated_explicit_vr_little_endian() => %__MODULE__{
+        uid: Dicom.UID.deflated_explicit_vr_little_endian(),
+        name: "Deflated Explicit VR Little Endian",
         endianness: :little,
         vr_encoding: :explicit,
         compressed: false

@@ -68,4 +68,48 @@ defmodule Dicom.UID do
   def storage_sop_class?(uid) when is_binary(uid) do
     String.starts_with?(uid, "1.2.840.10008.5.1.4.1.1")
   end
+
+  @org_root "1.2.826.0.1.3680043.10.1137"
+
+  @doc """
+  Generates a unique DICOM UID.
+
+  Uses the library's org root followed by a timestamp and random component.
+  The result is guaranteed to be <= 64 characters.
+  """
+  @spec generate() :: String.t()
+  def generate do
+    timestamp = System.system_time(:microsecond)
+    random = :rand.uniform(999_999_999)
+    "#{@org_root}.#{timestamp}.#{random}"
+  end
+
+  @doc """
+  Validates a DICOM UID format.
+
+  Per PS3.5 Section 9: UIDs are max 64 characters, contain only digits and dots,
+  no leading zeros in components (except "0" itself), and must have at least
+  two components.
+  """
+  @spec valid?(String.t()) :: boolean()
+  def valid?(uid) when is_binary(uid) do
+    byte_size(uid) > 0 and
+      byte_size(uid) <= 64 and
+      Regex.match?(~r/^[0-9.]+$/, uid) and
+      valid_components?(uid)
+  end
+
+  def valid?(_), do: false
+
+  defp valid_components?(uid) do
+    components = String.split(uid, ".")
+
+    length(components) >= 2 and
+      Enum.all?(components, &valid_component?/1)
+  end
+
+  defp valid_component?(""), do: false
+  defp valid_component?("0"), do: true
+  defp valid_component?(<<"0", _::binary>>), do: false
+  defp valid_component?(_), do: true
 end

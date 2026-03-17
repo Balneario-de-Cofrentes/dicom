@@ -25,6 +25,17 @@ defmodule Dicom.Tag do
   def transfer_syntax_uid, do: {0x0002, 0x0010}
   def implementation_class_uid, do: {0x0002, 0x0012}
   def implementation_version_name, do: {0x0002, 0x0013}
+  def source_application_entity_title, do: {0x0002, 0x0016}
+  def sending_application_entity_title, do: {0x0002, 0x0017}
+  def receiving_application_entity_title, do: {0x0002, 0x0018}
+  def source_presentation_address, do: {0x0002, 0x0026}
+  def sending_presentation_address, do: {0x0002, 0x0027}
+  def receiving_presentation_address, do: {0x0002, 0x0028}
+  def private_information_creator_uid, do: {0x0002, 0x0100}
+  def private_information, do: {0x0002, 0x0102}
+
+  # Data Set Trailing Padding (PS3.10 Section 7.2)
+  def data_set_trailing_padding, do: {0xFFFC, 0xFFFC}
 
   # Patient (Group 0010)
   def patient_name, do: {0x0010, 0x0010}

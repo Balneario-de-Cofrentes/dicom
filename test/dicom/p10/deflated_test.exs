@@ -1,0 +1,48 @@
+defmodule Dicom.P10.DeflatedTest do
+  use ExUnit.Case, async: true
+
+  alias Dicom.DataSet
+
+  describe "Deflated Explicit VR Little Endian" do
+    test "roundtrips through write and read" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.deflated_explicit_vr_little_endian())
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+        |> DataSet.put({0x0008, 0x0060}, :CS, "CT")
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+      assert DataSet.get(parsed, {0x0008, 0x0060}) |> String.trim() == "CT"
+    end
+
+    test "deflated binary is smaller than uncompressed for repetitive data" do
+      # Create a data set with highly repetitive data (zlib needs enough data to compress)
+      value = String.duplicate("ABCDEFGHIJKLMNOP", 500)
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.deflated_explicit_vr_little_endian())
+        |> DataSet.put({0x0010, 0x0010}, :PN, value)
+
+      {:ok, deflated_binary} = Dicom.P10.Writer.serialize(ds)
+
+      ds_explicit =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_little_endian())
+        |> DataSet.put({0x0010, 0x0010}, :PN, value)
+
+      {:ok, explicit_binary} = Dicom.P10.Writer.serialize(ds_explicit)
+
+      assert byte_size(deflated_binary) < byte_size(explicit_binary)
+    end
+  end
+end

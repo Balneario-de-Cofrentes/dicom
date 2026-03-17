@@ -30,4 +30,18 @@ defmodule Dicom.P10.FileMeta do
   def preamble do
     <<0::size(@preamble_size * 8), @magic>>
   end
+
+  @doc """
+  Sanitizes the preamble by zeroing it out.
+
+  Per PS3.10 Section 7.5, the preamble can contain malicious content.
+  This function replaces the 128-byte preamble with zeros while
+  preserving the DICM prefix and all subsequent data.
+  """
+  @spec sanitize_preamble(binary()) :: {:ok, binary()} | {:error, :invalid_preamble}
+  def sanitize_preamble(<<_preamble::binary-size(@preamble_size), @magic, rest::binary>>) do
+    {:ok, <<0::size(@preamble_size * 8), @magic, rest::binary>>}
+  end
+
+  def sanitize_preamble(_), do: {:error, :invalid_preamble}
 end

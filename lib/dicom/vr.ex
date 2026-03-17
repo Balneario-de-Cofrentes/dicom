@@ -142,4 +142,26 @@ defmodule Dicom.VR do
   """
   @spec to_binary(t()) :: binary()
   def to_binary(vr) when is_atom(vr), do: Atom.to_string(vr)
+
+  @doc """
+  Returns the padding byte for this VR.
+
+  Per PS3.5 Section 6.2: UI values are padded with NULL (0x00),
+  other string VRs are padded with SPACE (0x20), and binary VRs
+  are padded with 0x00.
+  """
+  @spec padding_byte(t()) :: byte()
+  def padding_byte(:UI), do: 0x00
+  def padding_byte(vr) when vr in @string_vrs, do: 0x20
+  def padding_byte(_), do: 0x00
+
+  @doc """
+  Pads a binary value to even length per DICOM requirements.
+
+  All DICOM value fields must have even length. If the value has
+  odd length, a single padding byte is appended based on the VR.
+  """
+  @spec pad_value(binary(), t()) :: binary()
+  def pad_value(value, _vr) when is_binary(value) and rem(byte_size(value), 2) == 0, do: value
+  def pad_value(value, vr) when is_binary(value), do: value <> <<padding_byte(vr)>>
 end

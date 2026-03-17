@@ -34,13 +34,22 @@ defmodule Dicom.DataSet do
   Returns `nil` if the tag is not present.
   """
   @spec get(t(), Dicom.DataElement.tag()) :: term() | nil
-  def get(%__MODULE__{elements: elements, file_meta: file_meta}, {group, _element} = tag) do
-    source = if group == 0x0002, do: file_meta, else: elements
-
-    case Map.get(source, tag) do
+  def get(%__MODULE__{} = ds, tag) do
+    case get_element(ds, tag) do
       %Dicom.DataElement{value: value} -> value
       nil -> nil
     end
+  end
+
+  @doc """
+  Gets the raw DataElement struct by tag.
+
+  Returns `nil` if the tag is not present.
+  """
+  @spec get_element(t(), Dicom.DataElement.tag()) :: Dicom.DataElement.t() | nil
+  def get_element(%__MODULE__{elements: elements, file_meta: file_meta}, {group, _element} = tag) do
+    source = if group == 0x0002, do: file_meta, else: elements
+    Map.get(source, tag)
   end
 
   @doc """

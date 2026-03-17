@@ -1,0 +1,151 @@
+defmodule Dicom.P10.WriterTest do
+  use ExUnit.Case, async: true
+
+  alias Dicom.{DataElement, DataSet}
+
+  describe "serialize/1" do
+    test "produces valid P10 binary with preamble and DICM prefix" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      # 128-byte preamble + 4-byte DICM
+      assert byte_size(binary) >= 132
+      assert binary_part(binary, 0, 128) == <<0::1024>>
+      assert binary_part(binary, 128, 4) == "DICM"
+    end
+
+    test "auto-generates File Meta Information Group Length (0002,0000)" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      # Parse the result back — group length must be present
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+      group_length = DataSet.get(parsed, {0x0002, 0x0000})
+      assert is_binary(group_length) or is_integer(group_length)
+    end
+
+    test "auto-generates File Meta Information Version (0002,0001)" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+      version = DataSet.get(parsed, {0x0002, 0x0001})
+      assert version == <<0x00, 0x01>>
+    end
+
+    test "auto-generates Implementation Class UID (0002,0012)" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+      impl_uid = DataSet.get(parsed, {0x0002, 0x0012})
+      assert is_binary(impl_uid) and byte_size(impl_uid) > 0
+    end
+
+    test "pads odd-length string values with space" do
+      ds =
+        minimal_data_set()
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE")
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      # "DOE" has odd length 3, should be padded to 4 with space
+      raw_value = get_raw_element(parsed, {0x0010, 0x0010})
+      assert rem(byte_size(raw_value), 2) == 0
+    end
+
+    test "pads odd-length UI values with null byte" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      # All UI values in file meta should have even length
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+      raw_ts = get_raw_element(parsed, {0x0002, 0x0010})
+      assert rem(byte_size(raw_ts), 2) == 0
+    end
+
+    test "roundtrips a data set through write and read" do
+      ds =
+        minimal_data_set()
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+        |> DataSet.put({0x0010, 0x0020}, :LO, "12345")
+        |> DataSet.put({0x0020, 0x000D}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0008, 0x0060}, :CS, "CT")
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+      assert DataSet.get(parsed, {0x0010, 0x0020}) |> String.trim() == "12345"
+      assert DataSet.get(parsed, {0x0008, 0x0060}) |> String.trim() == "CT"
+    end
+
+    test "File Meta elements are always Explicit VR Little Endian" do
+      ds = minimal_data_set()
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      # Skip preamble + DICM, check first file meta element has VR bytes
+      <<_preamble::binary-size(128), "DICM", rest::binary>> = binary
+
+      # First element should be (0002,0000) with UL VR
+      <<0x02, 0x00, 0x00, 0x00, "UL", _::binary>> = rest
+    end
+  end
+
+  describe "validate_file_meta/1" do
+    test "returns :ok for valid file meta" do
+      ds = minimal_data_set()
+      assert :ok = Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when Transfer Syntax UID is missing" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5")
+
+      assert {:error, {:missing_required_meta, {0x0002, 0x0010}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when Media Storage SOP Class UID is missing" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5")
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      assert {:error, {:missing_required_meta, {0x0002, 0x0002}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when Media Storage SOP Instance UID is missing" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      assert {:error, {:missing_required_meta, {0x0002, 0x0003}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+  end
+
+  # Helpers
+
+  defp minimal_data_set do
+    DataSet.new()
+    |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+    |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+    |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_little_endian())
+  end
+
+  defp get_raw_element(%DataSet{} = ds, tag) do
+    {group, _} = tag
+    source = if group == 0x0002, do: ds.file_meta, else: ds.elements
+
+    case Map.get(source, tag) do
+      %DataElement{value: value} -> value
+      nil -> nil
+    end
+  end
+end

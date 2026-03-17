@@ -28,6 +28,13 @@ defmodule Dicom.Dictionary.Registry do
   def lookup({0x0002, 0x0012}), do: {:ok, "ImplementationClassUID", :UI, "1"}
   def lookup({0x0002, 0x0013}), do: {:ok, "ImplementationVersionName", :SH, "1"}
   def lookup({0x0002, 0x0016}), do: {:ok, "SourceApplicationEntityTitle", :AE, "1"}
+  def lookup({0x0002, 0x0017}), do: {:ok, "SendingApplicationEntityTitle", :AE, "1"}
+  def lookup({0x0002, 0x0018}), do: {:ok, "ReceivingApplicationEntityTitle", :AE, "1"}
+  def lookup({0x0002, 0x0026}), do: {:ok, "SourcePresentationAddress", :UR, "1"}
+  def lookup({0x0002, 0x0027}), do: {:ok, "SendingPresentationAddress", :UR, "1"}
+  def lookup({0x0002, 0x0028}), do: {:ok, "ReceivingPresentationAddress", :UR, "1"}
+  def lookup({0x0002, 0x0100}), do: {:ok, "PrivateInformationCreatorUID", :UI, "1"}
+  def lookup({0x0002, 0x0102}), do: {:ok, "PrivateInformation", :OB, "1"}
 
   # SOP Common
   def lookup({0x0008, 0x0005}), do: {:ok, "SpecificCharacterSet", :CS, "1-n"}
@@ -95,8 +102,20 @@ defmodule Dicom.Dictionary.Registry do
   def lookup({0x0028, 0x1052}), do: {:ok, "RescaleIntercept", :DS, "1"}
   def lookup({0x0028, 0x1053}), do: {:ok, "RescaleSlope", :DS, "1"}
 
+  # Common Sequences
+  def lookup({0x0008, 0x1115}), do: {:ok, "ReferencedSeriesSequence", :SQ, "1-n"}
+  def lookup({0x0008, 0x1120}), do: {:ok, "ReferencedPatientSequence", :SQ, "1-n"}
+  def lookup({0x0008, 0x1140}), do: {:ok, "ReferencedImageSequence", :SQ, "1-n"}
+  def lookup({0x0008, 0x1150}), do: {:ok, "ReferencedSOPClassUID", :UI, "1"}
+  def lookup({0x0008, 0x1155}), do: {:ok, "ReferencedSOPInstanceUID", :UI, "1"}
+  def lookup({0x0040, 0x0275}), do: {:ok, "RequestAttributesSequence", :SQ, "1-n"}
+  def lookup({0x0040, 0xA730}), do: {:ok, "ContentSequence", :SQ, "1-n"}
+
   # Pixel Data
   def lookup({0x7FE0, 0x0010}), do: {:ok, "PixelData", :OW, "1"}
+
+  # Data Set Trailing Padding
+  def lookup({0xFFFC, 0xFFFC}), do: {:ok, "DataSetTrailingPadding", :OB, "1"}
 
   # Catch-all
   def lookup(_), do: :error
