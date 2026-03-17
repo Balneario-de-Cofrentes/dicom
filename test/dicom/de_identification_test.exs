@@ -240,6 +240,17 @@ defmodule Dicom.DeIdentificationTest do
       assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_uids")
     end
 
+    test "marker uses retain_private_tags wording for the compatibility alias" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_safe_private: true}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      method = DataSet.get(result, {0x0012, 0x0063})
+      assert String.contains?(method, "retain_private_tags")
+      refute String.contains?(method, "retain_safe_private")
+    end
+
     test "removes private tags" do
       ds =
         sample_data_set()

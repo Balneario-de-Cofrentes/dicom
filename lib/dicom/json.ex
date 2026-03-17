@@ -142,7 +142,9 @@ defmodule Dicom.Json do
     Map.put(base, "Value", [value])
   end
 
-  defp encode_value(base, _tag, _vr, _value, _bulk_fn), do: base
+  defp encode_value(_base, _tag, vr, _value, _bulk_fn) do
+    raise ArgumentError, "unsupported value for VR #{vr}"
+  end
 
   defp encode_pn(value) do
     case String.split(value, "=") do
@@ -441,7 +443,7 @@ defmodule Dicom.Json do
   defp trim_string_padding(value, vr) when is_binary(value) do
     case vr do
       :UI -> String.trim_trailing(value, <<0>>)
-      _ -> String.trim_trailing(value, " ")
+      _ -> value
     end
   end
 

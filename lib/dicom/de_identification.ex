@@ -539,11 +539,12 @@ defmodule Dicom.DeIdentification do
       clean_structured_content: "clean_structured_content",
       clean_graphics: "clean_graphics",
       retain_private_tags: "retain_private_tags",
-      retain_safe_private: "retain_safe_private"
+      retain_safe_private: "retain_private_tags"
     ]
     |> Enum.flat_map(fn {field, label} ->
       if Map.get(profile, field), do: [label], else: []
     end)
+    |> Enum.uniq()
   end
 
   # ── Dummy values per VR ───────────────────────────────────────

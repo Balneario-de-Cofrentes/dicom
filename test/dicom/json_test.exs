@@ -918,7 +918,7 @@ defmodule Dicom.JsonTest do
   end
 
   describe "Json.to_map/2 - fallback encode_value" do
-    test "non-binary non-list non-number value falls through to base only" do
+    test "non-binary non-list non-number value raises instead of dropping the payload" do
       ds = DataSet.new()
 
       elem = %DataElement{
@@ -929,9 +929,10 @@ defmodule Dicom.JsonTest do
       }
 
       ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x0010}, elem)}
-      map = Json.to_map(ds)
-      # Non-standard value falls through to base = %{"vr" => "US"}
-      assert map["00280010"] == %{"vr" => "US"}
+
+      assert_raise ArgumentError, ~r/unsupported value for VR US/, fn ->
+        Json.to_map(ds)
+      end
     end
 
     test "encodes numeric VR with multi-value binary" do

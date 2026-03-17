@@ -260,6 +260,44 @@ defmodule Dicom.PixelDataTest do
       assert {:error, :invalid_basic_offset_table} = PixelData.frames(ds)
     end
 
+    test "returns error when BOT does not start at the first fragment boundary" do
+      frag1 = :crypto.strong_rand_bytes(2)
+      frag2 = :crypto.strong_rand_bytes(2)
+      bot = <<8::little-32>>
+
+      ds = image_ds(1, 1, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [bot, frag1, frag2],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_basic_offset_table} = PixelData.frames(ds)
+    end
+
+    test "returns error when BOT offset points into the middle of a fragment" do
+      frag1 = :crypto.strong_rand_bytes(2)
+      frag2 = :crypto.strong_rand_bytes(2)
+      bot = <<2::little-32>>
+
+      ds = image_ds(1, 1, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [bot, frag1, frag2],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_basic_offset_table} = PixelData.frames(ds)
+    end
+
     test "returns error when multi-frame encapsulated data without BOT cannot be split safely" do
       frag1a = :crypto.strong_rand_bytes(30)
       frag1b = :crypto.strong_rand_bytes(20)

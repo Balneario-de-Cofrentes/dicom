@@ -200,7 +200,7 @@ defmodule Dicom.PixelData do
   defp parse_bot(_bot), do: {:error, :invalid_basic_offset_table}
 
   defp group_fragments_by_bot(offsets, fragments) do
-    if offsets != Enum.sort(offsets) do
+    if offsets != Enum.sort(offsets) or offsets == [] or hd(offsets) != 0 do
       {:error, :invalid_basic_offset_table}
     else
       do_group_fragments_by_bot(offsets, fragments)
@@ -218,25 +218,31 @@ defmodule Dicom.PixelData do
         {{acc, frag}, acc + 8 + byte_size(frag)}
       end)
 
+    valid_offsets = MapSet.new(Enum.map(frag_offsets, fn {offset, _frag} -> offset end))
+
     # Group fragments by which frame they belong to
     frame_ranges = Enum.zip(offsets, Enum.drop(offsets, 1) ++ [:end])
 
     Enum.reduce_while(frame_ranges, {:ok, []}, fn {start_offset, end_offset}, {:ok, acc} ->
-      matching =
-        Enum.filter(frag_offsets, fn {offset, _frag} ->
-          offset >= start_offset and
-            (end_offset == :end or offset < end_offset)
-        end)
-
-      if matching == [] do
+      if not MapSet.member?(valid_offsets, start_offset) do
         {:halt, {:error, :invalid_basic_offset_table}}
       else
-        frame =
-          matching
-          |> Enum.map(fn {_offset, frag} -> frag end)
-          |> IO.iodata_to_binary()
+        matching =
+          Enum.filter(frag_offsets, fn {offset, _frag} ->
+            offset >= start_offset and
+              (end_offset == :end or offset < end_offset)
+          end)
 
-        {:cont, {:ok, [frame | acc]}}
+        if matching == [] do
+          {:halt, {:error, :invalid_basic_offset_table}}
+        else
+          frame =
+            matching
+            |> Enum.map(fn {_offset, frag} -> frag end)
+            |> IO.iodata_to_binary()
+
+          {:cont, {:ok, [frame | acc]}}
+        end
       end
     end)
     |> case do
