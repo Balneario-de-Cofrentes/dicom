@@ -1440,18 +1440,23 @@ defmodule Dicom.P10.StreamTest do
       assert Enum.any?(events, &match?({:error, _}, &1))
     end
 
-    test "unsupported undefined-length non-SQ element" do
-      # A non-SQ, non-pixel-data element with undefined length (0xFFFFFFFF)
-      # This is invalid per DICOM but the parser should error gracefully
+    test "reads undefined-length non-SQ element through sequence delimiter" do
+      value = <<"MYSTERY_DATA1234">>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
       elem =
-        <<0x09, 0x00, 0x10, 0x00, "UN", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+        <<0x09, 0x00, 0x10, 0x00, "UN", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          value <> seq_delim
 
       binary = build_p10_binary([], [elem])
       events = collect_events(binary)
 
       assert Enum.any?(events, fn
-               {:error, {:unsupported_undefined_length, _}} -> true
-               _ -> false
+               {:element, %Dicom.DataElement{tag: {0x0009, 0x0010}, vr: :UN, value: event_value}} ->
+                 event_value == value
+
+               _ ->
+                 false
              end)
     end
 
@@ -2020,11 +2025,7 @@ defmodule Dicom.P10.StreamTest do
       binary = build_p10_binary([], [undef_elem])
       events = collect_events(binary)
 
-      # Should get an error about unsupported undefined length
-      assert Enum.any?(events, fn
-               {:error, {:unsupported_undefined_length, _}} -> true
-               _ -> false
-             end)
+      assert {:element, %Dicom.DataElement{tag: {0x0009, 0x0010}, vr: :OB, value: ""}} in events
     end
   end
 

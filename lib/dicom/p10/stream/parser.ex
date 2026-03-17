@@ -20,6 +20,7 @@ defmodule Dicom.P10.Stream.Parser do
   @item_delim_tag {0xFFFE, 0xE00D}
   @seq_delim_tag {0xFFFE, 0xE0DD}
   @trailing_padding_tag {0xFFFC, 0xFFFC}
+  @seq_delim_bytes <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
 
   @type frame ::
           {:sequence, non_neg_integer() | :undefined, non_neg_integer()}
@@ -618,6 +619,11 @@ defmodule Dicom.P10.Stream.Parser do
     read_encapsulated_fragments_eager(state, tag, vr)
   end
 
+  defp read_value_for_element(state, tag, vr, 0xFFFFFFFF) do
+    {:ok, value, state} = consume_undefined_length_value(state)
+    {:ok, DataElement.new(tag, vr, value), state}
+  end
+
   defp read_value_for_element(state, tag, vr, length) do
     case Source.ensure(state.source, length) do
       {:ok, source} ->
@@ -695,9 +701,11 @@ defmodule Dicom.P10.Stream.Parser do
     end
   end
 
-  defp read_value_by_length(state, tag, _vr, length) when length == 0xFFFFFFFF do
-    # Undefined length non-SQ, non-pixel-data: skip to sequence delimiter
-    {{:error, {:unsupported_undefined_length, tag}}, %{state | phase: :done}}
+  defp read_value_by_length(state, tag, vr, length) when length == 0xFFFFFFFF do
+    {:ok, value, state} = consume_undefined_length_value(state)
+    bytes = 6 + header_size(vr, state.vr_encoding) + byte_size(value) + 8
+    state = update_frame_consumed(state, bytes)
+    {{:element, DataElement.new(tag, vr, value)}, state}
   end
 
   defp read_value_by_length(state, tag, vr, length) do
@@ -737,6 +745,10 @@ defmodule Dicom.P10.Stream.Parser do
     case read_reserved_and_length(state, endianness) do
       {:ok, 0xFFFFFFFF, state} when tag == {0x7FE0, 0x0010} ->
         read_encapsulated_fragments_eager(state, tag, vr)
+
+      {:ok, 0xFFFFFFFF, state} ->
+        {:ok, value, state} = consume_undefined_length_value(state)
+        {:ok, DataElement.new(tag, vr, value), state}
 
       {:ok, length, state} ->
         case Source.ensure(state.source, length) do
@@ -814,6 +826,11 @@ defmodule Dicom.P10.Stream.Parser do
   defp read_tag(source, :big) do
     {:ok, <<group::big-16, element::big-16>>} = Source.peek(source, 4)
     {:ok, {group, element}}
+  end
+
+  defp consume_undefined_length_value(state) do
+    {:ok, value, source} = Source.consume_until(state.source, @seq_delim_bytes)
+    {:ok, value, %{state | source: source}}
   end
 
   defp ensure_bytes(state, n) do

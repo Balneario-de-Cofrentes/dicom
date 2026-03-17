@@ -310,6 +310,25 @@ defmodule Dicom.P10.ReaderTest do
       {:ok, ds} = Dicom.P10.Reader.parse(binary)
       assert DataSet.get(ds, {0x0009, 0x0010}) == un_data
     end
+
+    test "does not stop on sequence delimiter tag bytes unless the full delimiter is present" do
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      un_data = <<1, 2, 3, 0xFE, 0xFF, 0xDD, 0xE0, 9, 9, 9>>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      un_elem =
+        <<0x09, 0x00, 0x10, 0x00, "UN", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          un_data <> seq_delim
+
+      binary =
+        <<0::1024, "DICM">> <>
+          build_group_length_element(ts_elem) <>
+          ts_elem <> un_elem
+
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+      assert DataSet.get(ds, {0x0009, 0x0010}) == un_data
+    end
   end
 
   describe "Explicit VR Big Endian extended (PS3.5 A.1)" do

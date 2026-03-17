@@ -28,6 +28,7 @@ defmodule Dicom.P10.Reader do
   @item_delim_tag {0xFFFE, 0xE00D}
   @seq_delim_tag {0xFFFE, 0xE0DD}
   @trailing_padding_tag {0xFFFC, 0xFFFC}
+  @seq_delim_bytes <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
 
   @doc """
   Parses a complete DICOM P10 binary into a `DataSet`.
@@ -456,8 +457,8 @@ defmodule Dicom.P10.Reader do
   end
 
   defp find_seq_delimiter(binary, offset) when offset + 8 <= byte_size(binary) do
-    case binary_part(binary, offset, 4) do
-      <<0xFE, 0xFF, 0xDD, 0xE0>> -> {:ok, offset}
+    case binary_part(binary, offset, 8) do
+      @seq_delim_bytes -> {:ok, offset}
       _ -> find_seq_delimiter(binary, offset + 1)
     end
   end

@@ -114,6 +114,26 @@ defmodule Dicom.P10.Stream.Source do
   def available(%__MODULE__{buffer: buffer}), do: byte_size(buffer)
 
   @doc """
+  Consumes bytes until `marker` is found, excluding the marker from the returned data.
+
+  If the marker is not found before EOF, consumes and returns the remaining buffer.
+  """
+  @spec consume_until(t(), binary()) :: {:ok, binary(), t()}
+  def consume_until(%__MODULE__{} = source, marker)
+      when is_binary(marker) and byte_size(marker) > 0 do
+    case :binary.match(source.buffer, marker) do
+      {position, marker_size} ->
+        <<data::binary-size(position), _marker::binary-size(marker_size), rest::binary>> =
+          source.buffer
+
+        {:ok, data, %{source | buffer: rest, offset: source.offset + position + marker_size}}
+
+      :nomatch ->
+        refill_until_marker(source, marker)
+    end
+  end
+
+  @doc """
   Returns true if the source is exhausted (EOF and empty buffer).
   """
   @spec eof?(t()) :: boolean()
@@ -125,6 +145,30 @@ defmodule Dicom.P10.Stream.Source do
   """
   @spec bytes_consumed(t()) :: non_neg_integer()
   def bytes_consumed(%__MODULE__{offset: offset}), do: offset
+
+  defp refill_until_marker(
+         %__MODULE__{io: :eof, buffer: buffer, offset: offset} = source,
+         _marker
+       ) do
+    {:ok, buffer, %{source | buffer: <<>>, offset: offset + byte_size(buffer)}}
+  end
+
+  defp refill_until_marker(%__MODULE__{io: nil} = source, marker) do
+    refill_until_marker(%{source | io: :eof}, marker)
+  end
+
+  defp refill_until_marker(
+         %__MODULE__{io: io, buffer: buffer, read_ahead: read_ahead} = source,
+         marker
+       ) do
+    case IO.binread(io, read_ahead) do
+      data when is_binary(data) and byte_size(data) > 0 ->
+        consume_until(%{source | buffer: buffer <> data}, marker)
+
+      _ ->
+        refill_until_marker(%{source | io: :eof}, marker)
+    end
+  end
 
   defp normalize_read_ahead(read_ahead) when is_integer(read_ahead) and read_ahead > 0,
     do: read_ahead
