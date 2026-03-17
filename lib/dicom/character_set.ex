@@ -17,6 +17,7 @@ defmodule Dicom.CharacterSet do
   - `ISO_IR 126` (Greek / ISO 8859-7)
   - `ISO_IR 138` (Hebrew / ISO 8859-8)
   - `ISO_IR 148` (Latin-5 / ISO 8859-9)
+  - `ISO_IR 13` (JIS X 0201 — Roman + half-width Katakana)
   - `ISO_IR 192` (UTF-8)
   - `ISO 2022 IR 6` (default repertoire, code extension)
   - `ISO 2022 IR 100` (Latin-1, code extension)
@@ -51,6 +52,8 @@ defmodule Dicom.CharacterSet do
     "ISO_IR 138" => {:iso8859, 8},
     # Latin-5 (Turkish)
     "ISO_IR 148" => {:iso8859, 9},
+    # JIS X 0201 (Roman + half-width Katakana)
+    "ISO_IR 13" => :jis_x0201,
     # UTF-8
     "ISO_IR 192" => :utf8
   }
@@ -91,6 +94,9 @@ defmodule Dicom.CharacterSet do
 
       {:iso8859, _n} = encoding ->
         decode_iso8859(binary, encoding)
+
+      :jis_x0201 ->
+        decode_jis_x0201(binary)
     end
   end
 
@@ -149,18 +155,31 @@ defmodule Dicom.CharacterSet do
     end
   end
 
+  alias Dicom.CharacterSet.Tables
+
   # Characters 0x00-0x7F are the same across all ISO 8859 variants
   defp iso8859_to_unicode(byte, _n) when byte <= 0x7F, do: byte
   # Characters 0x80-0x9F are control characters (same across variants)
   defp iso8859_to_unicode(byte, _n) when byte <= 0x9F, do: byte
   # Characters 0xA0-0xFF: for ISO 8859-1, codepoint == byte value
   defp iso8859_to_unicode(byte, 1), do: byte
-  # For other variants, most 0xA0+ bytes map directly but some differ.
-  # For simplicity and correctness, we use the identity mapping for now
-  # which is correct for the vast majority of characters. Full tables
-  # for all ISO 8859 variants would add ~2KB of lookup data.
-  # This is a practical trade-off documented in the moduledoc.
-  defp iso8859_to_unicode(byte, _n), do: byte
+  # For ISO 8859-{2..9}, use full lookup tables
+  defp iso8859_to_unicode(byte, n), do: Tables.lookup(byte, n)
+
+  # JIS X 0201: byte-by-byte conversion to Unicode codepoints
+  defp decode_jis_x0201(binary) do
+    try do
+      result =
+        for <<byte <- binary>>, into: <<>> do
+          codepoint = Tables.jis_x0201(byte)
+          <<codepoint::utf8>>
+        end
+
+      {:ok, result}
+    rescue
+      _ -> {:error, {:decode_failed, :jis_x0201}}
+    end
+  end
 
   defp normalize_charset(nil), do: ""
   defp normalize_charset(charset) when is_binary(charset), do: String.trim(charset)

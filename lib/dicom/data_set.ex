@@ -67,6 +67,18 @@ defmodule Dicom.DataSet do
   end
 
   @doc """
+  Deletes a data element from the data set by tag.
+  """
+  @spec delete(t(), Dicom.DataElement.tag()) :: t()
+  def delete(%__MODULE__{} = ds, {group, _element} = tag) do
+    if group == 0x0002 do
+      %{ds | file_meta: Map.delete(ds.file_meta, tag)}
+    else
+      %{ds | elements: Map.delete(ds.elements, tag)}
+    end
+  end
+
+  @doc """
   Returns all tags present in the data set.
   """
   @spec tags(t()) :: [Dicom.DataElement.tag()]
