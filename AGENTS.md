@@ -29,7 +29,7 @@ lib/dicom/
   vr.ex                   -- VR types, metadata (all/0, description/1, max_length/1)
   uid.ex                  -- UID constants, generate/0, valid?/1, transfer_syntax?/1
   value.ex                -- VR-aware encode/decode, date/time conversion
-  transfer_syntax.ex      -- 62 transfer syntax registry, encoding/1 dispatch
+  transfer_syntax.ex      -- 49 transfer syntax registry, encoding/1 dispatch
   sop_class.ex            -- 232 SOP class registry
   json.ex                 -- DICOM JSON encode/decode (PS3.18 Annex F.2)
   pixel_data.ex           -- Frame extraction (native + encapsulated)

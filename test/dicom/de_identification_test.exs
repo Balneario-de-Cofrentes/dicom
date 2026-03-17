@@ -169,10 +169,10 @@ defmodule Dicom.DeIdentificationTest do
       assert DataSet.get(result, Tag.study_description()) == nil
     end
 
-    test "removes referring physician name" do
+    test "zeros referring physician name (action Z per PS3.15)" do
       ds = sample_data_set()
       {:ok, result, _uid_map} = DeIdentification.apply(ds)
-      assert DataSet.get(result, Tag.referring_physician_name()) == nil
+      assert DataSet.get(result, Tag.referring_physician_name()) == ""
     end
 
     test "adds de-identification marker tags" do
@@ -210,6 +210,102 @@ defmodule Dicom.DeIdentificationTest do
                DataSet.get(ds, Tag.study_instance_uid())
 
       assert uid_map == %{}
+    end
+  end
+
+  describe "apply/2 - option-specific behavior" do
+    test "retain_device_identity keeps device-identifying tags" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0008, 0x1010}, :SH, "STATION_A")
+        |> DataSet.put({0x0018, 0x1000}, :LO, "DEVICE_SN")
+
+      profile = %DeIdentification.Profile{retain_device_identity: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, {0x0008, 0x1010}) == "STATION_A"
+      assert DataSet.get(result, {0x0018, 0x1000}) == "DEVICE_SN"
+    end
+
+    test "retain_patient_characteristics keeps sex and age" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_patient_characteristics: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, Tag.patient_sex()) == "M"
+      assert DataSet.get(result, Tag.patient_age()) == "044Y"
+    end
+
+    test "retain_institution_identity keeps institution tags" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0008, 0x0080}, :LO, "Balneario Hospital")
+        |> DataSet.put({0x0008, 0x0081}, :ST, "123 Example St")
+
+      profile = %DeIdentification.Profile{retain_institution_identity: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, {0x0008, 0x0080}) == "Balneario Hospital"
+      assert DataSet.get(result, {0x0008, 0x0081}) == "123 Example St"
+    end
+
+    test "retain_long_full_dates keeps temporal tags unchanged" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_long_full_dates: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, Tag.study_date()) == "20240315"
+      assert DataSet.get(result, Tag.study_time()) == "140000"
+    end
+
+    test "retain_long_modified_dates shifts dates while preserving temporal structure" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0008, 0x002A}, :DT, "20240315140000")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, Tag.study_date()) == "20140315"
+      assert DataSet.get(result, Tag.study_time()) == "140000"
+      assert DataSet.get(result, {0x0008, 0x002A}) == "20140315140000"
+    end
+
+    test "clean_structured_content preserves SR structure and cleans values" do
+      item = %{
+        {0x0040, 0xA010} => DataElement.new({0x0040, 0xA010}, :CS, "CONTAINS"),
+        {0x0040, 0xA040} => DataElement.new({0x0040, 0xA040}, :CS, "TEXT"),
+        {0x0040, 0xA160} => DataElement.new({0x0040, 0xA160}, :UT, "Free-text note"),
+        {0x0040, 0xA123} => DataElement.new({0x0040, 0xA123}, :PN, "AUTHOR^NAME")
+      }
+
+      ds = sample_data_set()
+      sq_elem = DataElement.new({0x0040, 0xA730}, :SQ, [item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0040, 0xA730}, sq_elem)}
+
+      profile = %DeIdentification.Profile{clean_structured_content: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+      [cleaned_item] = DataSet.get_element(result, {0x0040, 0xA730}).value
+
+      assert cleaned_item[{0x0040, 0xA010}].value == "CONTAINS"
+      assert cleaned_item[{0x0040, 0xA160}].value == "CLEANED"
+      assert cleaned_item[{0x0040, 0xA123}].value == "CLEANED"
+    end
+
+    test "clean_graphics keeps graphic sequences and cleans text" do
+      graphic_item = %{
+        {0x0070, 0x0006} => DataElement.new({0x0070, 0x0006}, :ST, "Burned in name")
+      }
+
+      ds = sample_data_set()
+      sq_elem = DataElement.new({0x0070, 0x0001}, :SQ, [graphic_item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0070, 0x0001}, sq_elem)}
+
+      profile = %DeIdentification.Profile{clean_graphics: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+      [item] = DataSet.get_element(result, {0x0070, 0x0001}).value
+
+      assert item[{0x0070, 0x0006}].value == "CLEANED"
     end
   end
 
@@ -266,19 +362,17 @@ defmodule Dicom.DeIdentificationTest do
       refute DataSet.has_tag?(result, {0x0009, 0x1001})
     end
 
-    test "retain_safe_private flag does not override action_for :X on private tags" do
-      # retain_safe_private controls strip_private_tags, but action_for still
-      # maps unknown tags to :X in process_elements, so private tags are removed
-      # before strip_private_tags runs
+    test "retain_safe_private preserves private tags" do
       ds =
         sample_data_set()
         |> DataSet.put({0x0009, 0x0010}, :LO, "PrivateCreator")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "PrivateValue")
 
       profile = %DeIdentification.Profile{retain_safe_private: true}
       {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
 
-      # Even with retain_safe_private, unknown tags get :X action
-      refute DataSet.has_tag?(result, {0x0009, 0x0010})
+      assert DataSet.get(result, {0x0009, 0x0010}) == "PrivateCreator"
+      assert DataSet.get(result, {0x0009, 0x1001}) == "PrivateValue"
     end
   end
 
@@ -390,8 +484,8 @@ defmodule Dicom.DeIdentificationTest do
       assert DeIdentification.action_for({0x0020, 0x0011}, p) == :K
     end
 
-    test "StudyID gets :K", %{profile: p} do
-      assert DeIdentification.action_for({0x0020, 0x0010}, p) == :K
+    test "StudyID gets :Z", %{profile: p} do
+      assert DeIdentification.action_for({0x0020, 0x0010}, p) == :Z
     end
 
     test "group 0028 (image info) gets :K", %{profile: p} do
@@ -411,8 +505,8 @@ defmodule Dicom.DeIdentificationTest do
       assert DeIdentification.action_for({0x0020, 0x0037}, p) == :K
     end
 
-    test "FrameOfReferenceUID gets :K", %{profile: p} do
-      assert DeIdentification.action_for({0x0020, 0x0052}, p) == :K
+    test "FrameOfReferenceUID gets :U", %{profile: p} do
+      assert DeIdentification.action_for({0x0020, 0x0052}, p) == :U
     end
 
     test "SliceLocation gets :K", %{profile: p} do
@@ -448,8 +542,8 @@ defmodule Dicom.DeIdentificationTest do
       assert DeIdentification.action_for({0x0008, 0x0022}, p) == :X
     end
 
-    test "ContentDate gets :X", %{profile: p} do
-      assert DeIdentification.action_for({0x0008, 0x0023}, p) == :X
+    test "ContentDate gets :D (Z/D compound → D)", %{profile: p} do
+      assert DeIdentification.action_for({0x0008, 0x0023}, p) == :D
     end
 
     test "SeriesTime gets :X", %{profile: p} do
@@ -460,8 +554,8 @@ defmodule Dicom.DeIdentificationTest do
       assert DeIdentification.action_for({0x0008, 0x0032}, p) == :X
     end
 
-    test "ContentTime gets :X", %{profile: p} do
-      assert DeIdentification.action_for({0x0008, 0x0033}, p) == :X
+    test "ContentTime gets :D (Z/D compound → D)", %{profile: p} do
+      assert DeIdentification.action_for({0x0008, 0x0033}, p) == :D
     end
 
     test "AcquisitionDateTime gets :X", %{profile: p} do
@@ -527,10 +621,12 @@ defmodule Dicom.DeIdentificationTest do
       assert DataSet.get(result, {0x0008, 0x0030}) == ""
       assert DataSet.get(result, {0x0008, 0x0021}) == nil
       assert DataSet.get(result, {0x0008, 0x0022}) == nil
-      assert DataSet.get(result, {0x0008, 0x0023}) == nil
+      # ContentDate: Z/D compound → D (dummy date)
+      assert DataSet.get(result, {0x0008, 0x0023}) == "19000101"
       assert DataSet.get(result, {0x0008, 0x0031}) == nil
       assert DataSet.get(result, {0x0008, 0x0032}) == nil
-      assert DataSet.get(result, {0x0008, 0x0033}) == nil
+      # ContentTime: Z/D compound → D (dummy time)
+      assert DataSet.get(result, {0x0008, 0x0033}) == "000000"
       assert DataSet.get(result, {0x0008, 0x002A}) == nil
     end
   end
@@ -715,11 +811,6 @@ defmodule Dicom.DeIdentificationTest do
 
   describe "apply/2 — SQ with :K action via deidentify_sequence" do
     test "SQ element inside sequence item with :K tag gets recursed" do
-      # Tag {0x0028, _} maps to :K action. If it has vr :SQ, the apply_action(:K, SQ)
-      # clause at L182-185 should be reached when inside deidentify_sequence.
-      # This exercises the code path that process_elements can't reach
-      # (because process_elements intercepts SQ before apply_action).
-
       inner_item = %{
         {0x0010, 0x0010} => DataElement.new({0x0010, 0x0010}, :PN, "INNERPATIENT")
       }
@@ -752,18 +843,775 @@ defmodule Dicom.DeIdentificationTest do
 
       {:ok, result, _uid_map} = DeIdentification.apply(ds)
 
-      # The outer SQ should still be present
       result_sq = DataSet.get_element(result, {0x0008, 0x1115})
       assert result_sq.vr == :SQ
       [result_item] = result_sq.value
 
-      # The nested SQ (0028,9145) should be kept (:K action) and recursed
       nested = result_item[{0x0028, 0x9145}]
       assert nested.vr == :SQ
 
-      # Inside the nested SQ, PatientName should be de-identified (:D action)
       [nested_item] = nested.value
       assert nested_item[{0x0010, 0x0010}].value == "ANONYMOUS"
+    end
+  end
+
+  # ── Comprehensive tag_action coverage ──────────────────────────
+
+  describe "action_for/2 - patient identifier tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "all patient :X tags", %{p: p} do
+      x_tags = [
+        {0x0010, 0x0032},
+        {0x0010, 0x1010},
+        {0x0010, 0x1020},
+        {0x0010, 0x1030},
+        {0x0010, 0x1000},
+        {0x0010, 0x1001},
+        {0x0010, 0x1002},
+        {0x0010, 0x1005},
+        {0x0010, 0x1040},
+        {0x0010, 0x1050},
+        {0x0010, 0x1060},
+        {0x0010, 0x1080},
+        {0x0010, 0x1081},
+        {0x0010, 0x1090},
+        {0x0010, 0x2000},
+        {0x0010, 0x2110},
+        {0x0010, 0x2150},
+        {0x0010, 0x2152},
+        {0x0010, 0x2154},
+        {0x0010, 0x2155},
+        {0x0010, 0x2160},
+        {0x0010, 0x2180},
+        {0x0010, 0x21A0},
+        {0x0010, 0x21B0},
+        {0x0010, 0x21C0},
+        {0x0010, 0x21D0},
+        {0x0010, 0x21F0},
+        {0x0010, 0x2203},
+        {0x0010, 0x2297},
+        {0x0010, 0x2299},
+        {0x0010, 0x4000},
+        {0x0010, 0x0050},
+        {0x0010, 0x1100}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+  end
+
+  describe "action_for/2 - study/series identifier tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "ReferringPhysicianName gets :Z", %{p: p} do
+      assert DeIdentification.action_for({0x0008, 0x0090}, p) == :Z
+    end
+
+    test "NameOfPhysiciansReadingStudy gets :Z", %{p: p} do
+      assert DeIdentification.action_for({0x0008, 0x009C}, p) == :Z
+    end
+
+    test "all study/series :X tags", %{p: p} do
+      x_tags = [
+        {0x0008, 0x0092},
+        {0x0008, 0x0094},
+        {0x0008, 0x0096},
+        {0x0008, 0x009D},
+        {0x0008, 0x0080},
+        {0x0008, 0x0081},
+        {0x0008, 0x0082},
+        {0x0008, 0x1010},
+        {0x0008, 0x1040},
+        {0x0008, 0x1041},
+        {0x0008, 0x1048},
+        {0x0008, 0x1049},
+        {0x0008, 0x1050},
+        {0x0008, 0x1052},
+        {0x0008, 0x1060},
+        {0x0008, 0x1062},
+        {0x0008, 0x1070},
+        {0x0008, 0x1072},
+        {0x0008, 0x4000}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+  end
+
+  describe "action_for/2 - UID tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "all UID tags get :U", %{p: p} do
+      uid_tags = [
+        {0x0008, 0x0014},
+        {0x0008, 0x0017},
+        {0x0008, 0x0018},
+        {0x0008, 0x0058},
+        {0x0008, 0x1150},
+        {0x0008, 0x1155},
+        {0x0008, 0x1195},
+        {0x0008, 0x3010},
+        {0x0002, 0x0003},
+        {0x0004, 0x1511},
+        {0x0018, 0x1002},
+        {0x0018, 0x100B},
+        {0x0018, 0x2042},
+        {0x0020, 0x000D},
+        {0x0020, 0x000E},
+        {0x0020, 0x0052},
+        {0x0020, 0x0200},
+        {0x0020, 0x9161},
+        {0x0020, 0x9164},
+        {0x0028, 0x1199},
+        {0x0028, 0x1214},
+        {0x003A, 0x0310},
+        {0x0040, 0x0554},
+        {0x0040, 0x4023},
+        {0x0040, 0xA124},
+        {0x0040, 0xA171},
+        {0x0040, 0xA402},
+        {0x0040, 0xDB0C},
+        {0x0040, 0xDB0D},
+        {0x0062, 0x0021},
+        {0x0064, 0x0003},
+        {0x0070, 0x031A},
+        {0x0070, 0x1101},
+        {0x0070, 0x1102},
+        {0x0088, 0x0140},
+        {0x0400, 0x0100},
+        {0x3006, 0x0024},
+        {0x3006, 0x00C2},
+        {0x300A, 0x0013},
+        {0x300A, 0x0054},
+        {0x300A, 0x0609},
+        {0x300A, 0x0650},
+        {0x300A, 0x0700},
+        {0x3010, 0x0006},
+        {0x3010, 0x000B},
+        {0x3010, 0x0013},
+        {0x3010, 0x0015},
+        {0x3010, 0x003B},
+        {0x3010, 0x006E},
+        {0x3010, 0x006F}
+      ]
+
+      for tag <- uid_tags do
+        assert DeIdentification.action_for(tag, p) == :U,
+               "Expected :U for tag #{inspect(tag)}"
+      end
+    end
+  end
+
+  describe "action_for/2 - content creator/observer tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "content creator tags get :D", %{p: p} do
+      d_tags = [
+        {0x0070, 0x0084},
+        {0x0040, 0xA123},
+        {0x0040, 0x1101},
+        {0x0040, 0xA075},
+        {0x0040, 0xA073},
+        {0x0040, 0xA027},
+        {0x0040, 0xA030}
+      ]
+
+      for tag <- d_tags do
+        assert DeIdentification.action_for(tag, p) == :D,
+               "Expected :D for tag #{inspect(tag)}"
+      end
+    end
+
+    test "content observer tags get :X or :Z", %{p: p} do
+      assert DeIdentification.action_for({0x0070, 0x0086}, p) == :X
+      assert DeIdentification.action_for({0x0040, 0xA160}, p) == :X
+      assert DeIdentification.action_for({0x0040, 0xA730}, p) == :X
+      assert DeIdentification.action_for({0x0040, 0xA088}, p) == :Z
+      assert DeIdentification.action_for({0x0040, 0xA082}, p) == :Z
+      assert DeIdentification.action_for({0x0040, 0xA078}, p) == :X
+      assert DeIdentification.action_for({0x0040, 0xA07A}, p) == :X
+    end
+  end
+
+  describe "action_for/2 - device identifiers in group 0018" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "device identifier tags get :X", %{p: p} do
+      x_tags = [
+        {0x0018, 0x1000},
+        {0x0018, 0x1004},
+        {0x0018, 0x1005},
+        {0x0018, 0x1007},
+        {0x0018, 0x1008},
+        {0x0018, 0x1009},
+        {0x0018, 0x100A},
+        {0x0018, 0x1010},
+        {0x0018, 0x1011},
+        {0x0018, 0x1200},
+        {0x0018, 0x1201},
+        {0x0018, 0x1400},
+        {0x0018, 0x4000},
+        {0x0018, 0x9424},
+        {0x0018, 0x0027},
+        {0x0018, 0x0035},
+        {0x0018, 0x1042},
+        {0x0018, 0x1043},
+        {0x0018, 0x1078},
+        {0x0018, 0x1079},
+        {0x0018, 0xA002},
+        {0x0018, 0xA003}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+
+    test "ContrastBolusAgent gets :D", %{p: p} do
+      assert DeIdentification.action_for({0x0018, 0x0010}, p) == :D
+    end
+
+    test "DetectorCalibrationData gets :Z", %{p: p} do
+      assert DeIdentification.action_for({0x0018, 0x1203}, p) == :Z
+    end
+
+    test "remaining 0018 tags get :K", %{p: p} do
+      assert DeIdentification.action_for({0x0018, 0x0050}, p) == :K
+      assert DeIdentification.action_for({0x0018, 0x0088}, p) == :K
+    end
+  end
+
+  describe "action_for/2 - clinical trial tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "clinical trial :D tags", %{p: p} do
+      d_tags = [
+        {0x0012, 0x0010},
+        {0x0012, 0x0020},
+        {0x0012, 0x0040},
+        {0x0012, 0x0042},
+        {0x0012, 0x0081}
+      ]
+
+      for tag <- d_tags do
+        assert DeIdentification.action_for(tag, p) == :D,
+               "Expected :D for tag #{inspect(tag)}"
+      end
+    end
+
+    test "clinical trial :Z tags", %{p: p} do
+      z_tags = [
+        {0x0012, 0x0021},
+        {0x0012, 0x0030},
+        {0x0012, 0x0031},
+        {0x0012, 0x0050},
+        {0x0012, 0x0060}
+      ]
+
+      for tag <- z_tags do
+        assert DeIdentification.action_for(tag, p) == :Z,
+               "Expected :Z for tag #{inspect(tag)}"
+      end
+    end
+
+    test "clinical trial :X tags", %{p: p} do
+      x_tags = [{0x0012, 0x0051}, {0x0012, 0x0071}, {0x0012, 0x0072}, {0x0012, 0x0082}]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+
+    test "de-identification markers :K", %{p: p} do
+      assert DeIdentification.action_for({0x0012, 0x0062}, p) == :K
+      assert DeIdentification.action_for({0x0012, 0x0063}, p) == :K
+    end
+
+    test "unknown 0012 tags get :X", %{p: p} do
+      assert DeIdentification.action_for({0x0012, 0x9999}, p) == :X
+    end
+  end
+
+  describe "action_for/2 - date/time tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "InstanceCreationDate/Time gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x0008, 0x0012}, p) == :X
+      assert DeIdentification.action_for({0x0008, 0x0013}, p) == :X
+      assert DeIdentification.action_for({0x0008, 0x0015}, p) == :X
+    end
+  end
+
+  describe "action_for/2 - procedure/scheduling tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "group 0032 (study management) gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x0032, 0x000A}, p) == :X
+      assert DeIdentification.action_for({0x0032, 0x1060}, p) == :X
+    end
+
+    test "group 0038 (visit) gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x0038, 0x0010}, p) == :X
+      assert DeIdentification.action_for({0x0038, 0x0500}, p) == :X
+    end
+
+    test "scheduling 0040 tags get :X", %{p: p} do
+      x_tags = [
+        {0x0040, 0x0006},
+        {0x0040, 0x0007},
+        {0x0040, 0x0241},
+        {0x0040, 0x0242},
+        {0x0040, 0x0243},
+        {0x0040, 0x0244},
+        {0x0040, 0x0245},
+        {0x0040, 0x0250},
+        {0x0040, 0x0251},
+        {0x0040, 0x0254},
+        {0x0040, 0x0275},
+        {0x0040, 0x0280},
+        {0x0040, 0x0310},
+        {0x0040, 0x1001},
+        {0x0040, 0x1010},
+        {0x0040, 0x1400},
+        {0x0040, 0x2001},
+        {0x0040, 0x2400}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+
+    test "scheduling 0040 :Z tags", %{p: p} do
+      assert DeIdentification.action_for({0x0040, 0x2016}, p) == :Z
+      assert DeIdentification.action_for({0x0040, 0x2017}, p) == :Z
+    end
+  end
+
+  describe "action_for/2 - digital signature tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "digital signature :X tags", %{p: p} do
+      x_tags = [
+        {0xFFFA, 0xFFFA},
+        {0x0400, 0x0310},
+        {0x0400, 0x0402},
+        {0x0400, 0x0403},
+        {0x0400, 0x0404},
+        {0x0400, 0x0550},
+        {0x0400, 0x0561}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+
+    test "digital signature :D tags", %{p: p} do
+      d_tags = [
+        {0x0400, 0x0115},
+        {0x0400, 0x0105},
+        {0x0400, 0x0562},
+        {0x0400, 0x0563},
+        {0x0400, 0x0565}
+      ]
+
+      for tag <- d_tags do
+        assert DeIdentification.action_for(tag, p) == :D,
+               "Expected :D for tag #{inspect(tag)}"
+      end
+    end
+  end
+
+  describe "action_for/2 - graphics/presentation tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "graphics :D tags", %{p: p} do
+      assert DeIdentification.action_for({0x0070, 0x0001}, p) == :D
+      assert DeIdentification.action_for({0x0070, 0x0006}, p) == :D
+    end
+
+    test "graphics :X tags", %{p: p} do
+      assert DeIdentification.action_for({0x0070, 0x0008}, p) == :X
+      assert DeIdentification.action_for({0x0070, 0x0082}, p) == :X
+      assert DeIdentification.action_for({0x0070, 0x0083}, p) == :X
+    end
+  end
+
+  describe "action_for/2 - radiotherapy tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "RT Plan :D tags", %{p: p} do
+      assert DeIdentification.action_for({0x300A, 0x0002}, p) == :D
+      assert DeIdentification.action_for({0x3006, 0x0002}, p) == :D
+    end
+
+    test "RT Plan :X tags", %{p: p} do
+      x_tags = [
+        {0x300A, 0x0003},
+        {0x300A, 0x0004},
+        {0x300A, 0x0006},
+        {0x300A, 0x0007},
+        {0x300A, 0x000E},
+        {0x300A, 0x0016},
+        {0x300A, 0x00C3},
+        {0x3006, 0x0004},
+        {0x3006, 0x0006},
+        {0x3006, 0x0028},
+        {0x3006, 0x0038},
+        {0x3006, 0x0085},
+        {0x3006, 0x0088},
+        {0x3008, 0x0054},
+        {0x3008, 0x0056},
+        {0x3008, 0x0250},
+        {0x3008, 0x0251},
+        {0x300E, 0x0008}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+
+    test "RT Structure :Z tags", %{p: p} do
+      z_tags = [
+        {0x3006, 0x0008},
+        {0x3006, 0x0009},
+        {0x3006, 0x0026},
+        {0x3006, 0x00A6},
+        {0x300E, 0x0004},
+        {0x300E, 0x0005}
+      ]
+
+      for tag <- z_tags do
+        assert DeIdentification.action_for(tag, p) == :Z,
+               "Expected :Z for tag #{inspect(tag)}"
+      end
+    end
+  end
+
+  describe "action_for/2 - specimen tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "specimen :X tags", %{p: p} do
+      x_tags = [
+        {0x0040, 0x050A},
+        {0x0040, 0x051A},
+        {0x0040, 0x0600},
+        {0x0040, 0x0602}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+
+    test "specimen :D tags", %{p: p} do
+      assert DeIdentification.action_for({0x0040, 0x0512}, p) == :D
+      assert DeIdentification.action_for({0x0040, 0x0551}, p) == :D
+    end
+
+    test "specimen :Z tags", %{p: p} do
+      assert DeIdentification.action_for({0x0040, 0x0513}, p) == :Z
+      assert DeIdentification.action_for({0x0040, 0x0562}, p) == :Z
+      assert DeIdentification.action_for({0x0040, 0x0610}, p) == :Z
+    end
+  end
+
+  describe "action_for/2 - referenced sequences" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "referenced sequence tags get :X", %{p: p} do
+      x_tags = [
+        {0x0008, 0x1110},
+        {0x0008, 0x1111},
+        {0x0008, 0x1120},
+        {0x0008, 0x1140}
+      ]
+
+      for tag <- x_tags do
+        assert DeIdentification.action_for(tag, p) == :X,
+               "Expected :X for tag #{inspect(tag)}"
+      end
+    end
+  end
+
+  describe "action_for/2 - overlay/curve/interpretation tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "curve data (50XX) gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x5000, 0x0001}, p) == :X
+      assert DeIdentification.action_for({0x5010, 0x3000}, p) == :X
+      assert DeIdentification.action_for({0x50FF, 0x0001}, p) == :X
+    end
+
+    test "overlay comments (60XX,4000) gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x6000, 0x4000}, p) == :X
+      assert DeIdentification.action_for({0x6010, 0x4000}, p) == :X
+    end
+
+    test "overlay data (60XX,3000) gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x6000, 0x3000}, p) == :X
+      assert DeIdentification.action_for({0x60FF, 0x3000}, p) == :X
+    end
+
+    test "interpretation group 4008 gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x4008, 0x0010}, p) == :X
+      assert DeIdentification.action_for({0x4008, 0x0100}, p) == :X
+    end
+
+    test "trailing padding gets :X", %{p: p} do
+      assert DeIdentification.action_for({0xFFFC, 0xFFFC}, p) == :X
+    end
+  end
+
+  describe "action_for/2 - description tags" do
+    setup do
+      %{p: DeIdentification.basic_profile()}
+    end
+
+    test "DerivationDescription gets :X (always, not X_or_C)", %{p: p} do
+      assert DeIdentification.action_for({0x0008, 0x2111}, p) == :X
+    end
+
+    test "ImageComments group 0028 gets :X", %{p: p} do
+      assert DeIdentification.action_for({0x0028, 0x4000}, p) == :X
+    end
+  end
+
+  # ── Dummy value coverage ───────────────────────────────────────
+
+  describe "apply/2 - dummy values for all VR types" do
+    test "DT dummy value" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x0023}, :DA, "20240101")
+        |> DataSet.put({0x0008, 0x0033}, :TM, "120000")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      assert DataSet.get(result, {0x0008, 0x0023}) == "19000101"
+      assert DataSet.get(result, {0x0008, 0x0033}) == "000000"
+    end
+
+    test "SH dummy value for ANON" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0018, 0x0010}, :SH, "Contrast Agent XYZ")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      # ContrastBolusAgent mapped to :D, VR is SH in our test
+      # But dummy_value is dispatched on the element's VR
+      val = DataSet.get(result, {0x0018, 0x0010})
+      assert is_binary(val)
+      assert val != "Contrast Agent XYZ"
+    end
+
+    test "LO dummy for clinical trial tags" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0012, 0x0010}, :LO, "TrialSponsor")
+        |> DataSet.put({0x0012, 0x0020}, :LO, "ProtocolID")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      assert DataSet.get(result, {0x0012, 0x0010}) == "ANONYMOUS"
+      assert DataSet.get(result, {0x0012, 0x0020}) == "ANONYMOUS"
+    end
+
+    test "CS dummy value" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0010, 0x0010}, :CS, "PATIENT")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      # PatientName is :D action; CS VR → "ANON"
+      assert DataSet.get(result, {0x0010, 0x0010}) == "ANON"
+    end
+
+    test "UI dummy generates new UID" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0400, 0x0115}, :UI, "1.2.3.4")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      val = DataSet.get(result, {0x0400, 0x0115})
+      assert is_binary(val)
+      assert UID.valid?(val)
+    end
+
+    test "DS and IS dummy values via RT plan tags" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x300A, 0x0002}, :DS, "99.5")
+        |> DataSet.put({0x3006, 0x0002}, :IS, "42")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      assert DataSet.get(result, {0x300A, 0x0002}) == "0"
+      assert DataSet.get(result, {0x3006, 0x0002}) == "0"
+    end
+
+    test "unknown VR dummy is empty string" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0070, 0x0001}, :OB, <<1, 2, 3>>)
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      assert DataSet.get(result, {0x0070, 0x0001}) == ""
+    end
+
+    test "AS dummy value via patient characteristics" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0040, 0xA030}, :AS, "045Y")
+
+      {:ok, result, _} = DeIdentification.apply(ds)
+      assert DataSet.get(result, {0x0040, 0xA030}) == "000Y"
+    end
+  end
+
+  # ── Modify temporal value / :M action coverage ─────────────────
+
+  describe "apply/2 - :M action (retain_long_modified_dates)" do
+    test "DA value gets shifted by -10 years" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x0020}, :DA, "20260101")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0008, 0x0020}) == "20160101"
+    end
+
+    test "DT value shifts date prefix preserving time suffix" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x002A}, :DT, "20261231235959.000000+0100")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      val = DataSet.get(result, {0x0008, 0x002A})
+      assert String.starts_with?(val, "20161231")
+      assert String.contains?(val, "235959")
+    end
+
+    test "TM value is trimmed (no date shift for time-only)" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x0030}, :TM, "140000  ")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0008, 0x0030}) == "140000"
+    end
+
+    test "non-temporal tag not affected by modified dates option" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0010, 0x0010}, :PN, "SMITH^JOHN")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0010, 0x0010}) == "ANONYMOUS"
+    end
+
+    test "invalid date string passes through unchanged" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x0020}, :DA, "BADDATE")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0008, 0x0020}) == "BADDATE"
+    end
+
+    test "short DT value (< 8 chars) passes through trimmed" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x002A}, :DT, "2026")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0008, 0x002A}) == "2026"
+    end
+
+    test "leap year Feb 29 shifted to non-leap year becomes Feb 28" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+        |> DataSet.put({0x0008, 0x0020}, :DA, "20240229")
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      # 2024 - 10 = 2014 (not a leap year), so Feb 29 → Feb 28
+      assert DataSet.get(result, {0x0008, 0x0020}) == "20140228"
+    end
+
+    test "unknown VR for temporal value returns empty string" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      # Create an element with weird VR on a temporal tag
+      elem = DataElement.new({0x0008, 0x0020}, :OB, <<1, 2, 3>>)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x0020}, elem)}
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0008, 0x0020}) == ""
     end
   end
 end

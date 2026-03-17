@@ -49,7 +49,9 @@ defmodule Dicom.Json do
         ds.elements
       end
 
-    Map.new(elements, fn {tag, elem} ->
+    elements
+    |> Enum.reject(fn {{_group, element}, _elem} -> element == 0x0000 end)
+    |> Map.new(fn {tag, elem} ->
       {format_tag(tag), encode_element(tag, elem, bulk_fn)}
     end)
   end
@@ -63,7 +65,12 @@ defmodule Dicom.Json do
   defp encode_value(base, _tag, _vr, "", _bulk_fn), do: base
 
   defp encode_value(base, _tag, :PN, value, _bulk_fn) when is_binary(value) do
-    Map.put(base, "Value", [encode_pn(value)])
+    values =
+      value
+      |> split_multi_string()
+      |> Enum.map(&encode_pn/1)
+
+    Map.put(base, "Value", values)
   end
 
   defp encode_value(base, _tag, :SQ, items, _bulk_fn) when is_list(items) do
@@ -71,9 +78,12 @@ defmodule Dicom.Json do
   end
 
   defp encode_value(base, _tag, :AT, value, _bulk_fn) when is_binary(value) do
-    <<group::little-16, element::little-16>> = value
-    hex = format_tag({group, element})
-    Map.put(base, "Value", [hex])
+    values =
+      for <<group::little-16, element::little-16 <- value>> do
+        format_tag({group, element})
+      end
+
+    Map.put(base, "Value", values)
   end
 
   defp encode_value(base, _tag, :AT, {group, element}, _bulk_fn) do
@@ -83,7 +93,12 @@ defmodule Dicom.Json do
 
   defp encode_value(base, _tag, vr, value, _bulk_fn)
        when vr in @string_vrs and is_binary(value) do
-    Map.put(base, "Value", [String.trim_trailing(value)])
+    values =
+      value
+      |> split_multi_string()
+      |> Enum.map(&String.trim_trailing/1)
+
+    Map.put(base, "Value", values)
   end
 
   defp encode_value(base, _tag, vr, value, _bulk_fn)
@@ -182,9 +197,8 @@ defmodule Dicom.Json do
 
   defp parse_vr(_), do: {:error, :missing_vr}
 
-  defp decode_value(:PN, %{"Value" => [pn_map | _]}) when is_map(pn_map) do
-    value = decode_pn(pn_map)
-    {:ok, value}
+  defp decode_value(:PN, %{"Value" => pn_values}) when is_list(pn_values) do
+    {:ok, Enum.map_join(pn_values, "\\", &decode_pn/1)}
   end
 
   defp decode_value(:SQ, %{"Value" => items}) when is_list(items) do
@@ -192,20 +206,36 @@ defmodule Dicom.Json do
     {:ok, decoded_items}
   end
 
-  defp decode_value(:AT, %{"Value" => [hex | _]}) when is_binary(hex) do
-    with {:ok, {group, element}} <- parse_tag_hex(hex) do
-      {:ok, <<group::little-16, element::little-16>>}
+  defp decode_value(:AT, %{"Value" => values}) when is_list(values) do
+    Enum.reduce_while(values, {:ok, <<>>}, fn
+      hex, {:ok, acc} when is_binary(hex) ->
+        with {:ok, {group, element}} <- parse_tag_hex(hex) do
+          {:cont, {:ok, <<acc::binary, group::little-16, element::little-16>>}}
+        else
+          {:error, _} = error -> {:halt, error}
+        end
+
+      _value, _acc ->
+        {:halt, {:error, :invalid_at_value}}
+    end)
+  end
+
+  defp decode_value(vr, %{"Value" => values})
+       when vr in @string_vrs and is_list(values) do
+    if Enum.all?(values, &is_binary/1) do
+      {:ok, Enum.join(values, "\\")}
+    else
+      {:ok, nil}
     end
   end
 
-  defp decode_value(vr, %{"Value" => [value | _]})
-       when vr in @string_vrs and is_binary(value) do
-    {:ok, value}
-  end
-
-  defp decode_value(vr, %{"Value" => [value | _]})
-       when vr in @numeric_vrs and is_number(value) do
-    {:ok, Value.encode(value, vr)}
+  defp decode_value(vr, %{"Value" => values})
+       when vr in @numeric_vrs and is_list(values) do
+    if Enum.all?(values, &is_number/1) do
+      {:ok, IO.iodata_to_binary(Enum.map(values, &Value.encode(&1, vr)))}
+    else
+      {:ok, nil}
+    end
   end
 
   defp decode_value(vr, %{"InlineBinary" => b64})
@@ -238,6 +268,10 @@ defmodule Dicom.Json do
       ideo -> "#{alpha}=#{ideo}"
       true -> alpha
     end
+  end
+
+  defp split_multi_string(value) do
+    String.split(value, "\\")
   end
 
   defp decode_item(item_map) when is_map(item_map) do

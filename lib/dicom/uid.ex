@@ -66,12 +66,12 @@ defmodule Dicom.UID do
   @doc """
   Returns true if the UID represents a storage SOP class.
 
-  Delegates to `Dicom.SopClass.storage?/1` for accurate O(1) lookup
+  Delegates to `Dicom.SOPClass.storage?/1` for accurate O(1) lookup
   against the full registry of storage SOP classes.
   """
   @spec storage_sop_class?(String.t()) :: boolean()
   def storage_sop_class?(uid) when is_binary(uid) do
-    Dicom.SopClass.storage?(uid)
+    Dicom.SOPClass.storage?(uid)
   end
 
   @org_root "1.2.826.0.1.3680043.10.1137"

@@ -10,7 +10,7 @@ MIT licensed. See [AGENTS.md](AGENTS.md) for agent-specific instructions.
 ```bash
 mix deps.get                     # Install dev/test deps (ex_doc, stream_data)
 mix compile                      # Compile
-mix test                         # Run tests (323 tests, 100% coverage)
+mix test                         # Run tests (1000+ tests, 0 failures)
 mix test --cover                 # Run with HTML coverage report
 mix format                       # Format code
 mix format --check-formatted     # Check formatting (CI uses this)
@@ -28,14 +28,14 @@ lib/dicom/
   vr.ex                 -- Value Representation types, parsing, padding
   uid.ex                -- UID constants, generation, validation
   value.ex              -- VR-aware value encoding and decoding
-  transfer_syntax.ex    -- Transfer syntax registry (29 TSes) and encoding dispatch
+  transfer_syntax.ex    -- Transfer syntax registry (49 TSes) and encoding dispatch
   character_set.ex      -- Specific Character Set decoding (0008,0005)
   p10/
     reader.ex           -- P10 binary parser (list accumulator + Map.new)
     writer.ex           -- P10 binary serializer (iodata pipeline)
     file_meta.ex        -- Preamble validation and File Meta Information
   dictionary/
-    registry.ex         -- PS3.6 tag -> {name, vr, vm} lookup (5032 entries)
+    registry.ex         -- PS3.6 tag -> {name, vr, vm} lookup (5035 entries)
 ```
 
 ## Conventions
@@ -47,7 +47,7 @@ lib/dicom/
 - `@spec` on all public functions
 - `@compile {:inline, ...}` on hot-path functions
 - Property-based tests with StreamData for encode/decode roundtrips
-- 100% test coverage maintained -- do not decrease it
+- 97%+ test coverage maintained -- do not decrease it
 - Shared test helpers in `test/support/dicom_test_helpers.ex`
 
 ## Key DICOM Concepts

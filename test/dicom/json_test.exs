@@ -121,6 +121,12 @@ defmodule Dicom.JsonTest do
       map = Json.to_map(ds)
       assert map["00101010"] == %{"vr" => "AS", "Value" => ["045Y"]}
     end
+
+    test "encodes multi-valued AE as separate Value entries" do
+      ds = DataSet.new() |> DataSet.put({0x0008, 0x0054}, :AE, "SCANNER1\\SCANNER2")
+      map = Json.to_map(ds)
+      assert map["00080054"] == %{"vr" => "AE", "Value" => ["SCANNER1", "SCANNER2"]}
+    end
   end
 
   describe "Json.to_map/2 - PN (Person Name)" do
@@ -160,6 +166,16 @@ defmodule Dicom.JsonTest do
 
       assert map["00100010"]["Value"] == [%{"Alphabetic" => "SMITH^JANE"}]
     end
+
+    test "encodes multi-valued PN as multiple JSON values" do
+      ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN\\SMITH^JANE")
+      map = Json.to_map(ds)
+
+      assert map["00100010"]["Value"] == [
+               %{"Alphabetic" => "DOE^JOHN"},
+               %{"Alphabetic" => "SMITH^JANE"}
+             ]
+    end
   end
 
   describe "Json.to_map/2 - numeric VRs" do
@@ -172,7 +188,7 @@ defmodule Dicom.JsonTest do
     test "encodes UL as number" do
       ds = DataSet.new() |> DataSet.put({0x0002, 0x0000}, :UL, <<1000::little-32>>)
       map = Json.to_map(ds, include_file_meta: true)
-      assert map["00020000"]["Value"] == [1000]
+      refute Map.has_key?(map, "00020000")
     end
 
     test "encodes SS as number" do
@@ -215,6 +231,19 @@ defmodule Dicom.JsonTest do
       map = Json.to_map(ds)
       assert map["00205000"]["vr"] == "AT"
       assert map["00205000"]["Value"] == ["00100020"]
+    end
+
+    test "encodes multi-valued AT as multiple hex strings" do
+      ds =
+        DataSet.new()
+        |> DataSet.put(
+          {0x0020, 0x5000},
+          :AT,
+          <<0x10, 0x00, 0x20, 0x00, 0x08, 0x00, 0x18, 0x00>>
+        )
+
+      map = Json.to_map(ds)
+      assert map["00205000"]["Value"] == ["00100020", "00080018"]
     end
   end
 
@@ -342,6 +371,17 @@ defmodule Dicom.JsonTest do
       assert Map.has_key?(map, "00020010")
       assert Map.has_key?(map, "00100010")
     end
+
+    test "omits group length attributes from JSON output" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0000}, :UL, <<12::little-32>>)
+        |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      map = Json.to_map(ds, include_file_meta: true)
+      refute Map.has_key?(map, "00020000")
+      assert Map.has_key?(map, "00020010")
+    end
   end
 
   # ── Decoder Tests ───────────────────────────────────────────────
@@ -395,6 +435,12 @@ defmodule Dicom.JsonTest do
       assert {:ok, ds} = Json.from_map(json)
       assert DataSet.get(ds, {0x0020, 0x0013}) == "42"
     end
+
+    test "decodes multi-valued AE by joining with backslashes" do
+      json = %{"00080054" => %{"vr" => "AE", "Value" => ["SCANNER1", "SCANNER2"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0008, 0x0054}) == "SCANNER1\\SCANNER2"
+    end
   end
 
   describe "Json.from_map/1 - PN" do
@@ -420,6 +466,18 @@ defmodule Dicom.JsonTest do
 
       assert {:ok, ds} = Json.from_map(json)
       assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN=ドウ^ジョン=doe^john"
+    end
+
+    test "decodes multiple person names" do
+      json = %{
+        "00100010" => %{
+          "vr" => "PN",
+          "Value" => [%{"Alphabetic" => "DOE^JOHN"}, %{"Alphabetic" => "SMITH^JANE"}]
+        }
+      }
+
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN\\SMITH^JANE"
     end
   end
 
@@ -466,6 +524,13 @@ defmodule Dicom.JsonTest do
       elem = DataSet.get_element(ds, {0x0018, 0x1310})
       assert elem.value == <<-50000::little-signed-32>>
     end
+
+    test "decodes multi-valued US into concatenated binary" do
+      json = %{"00280010" => %{"vr" => "US", "Value" => [256, 512]}}
+      assert {:ok, ds} = Json.from_map(json)
+      elem = DataSet.get_element(ds, {0x0028, 0x0010})
+      assert elem.value == <<256::little-16, 512::little-16>>
+    end
   end
 
   describe "Json.from_map/1 - AT" do
@@ -475,6 +540,13 @@ defmodule Dicom.JsonTest do
       elem = DataSet.get_element(ds, {0x0020, 0x5000})
       assert elem.vr == :AT
       assert elem.value == <<0x10, 0x00, 0x20, 0x00>>
+    end
+
+    test "decodes multiple AT values" do
+      json = %{"00205000" => %{"vr" => "AT", "Value" => ["00100020", "00080018"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      elem = DataSet.get_element(ds, {0x0020, 0x5000})
+      assert elem.value == <<0x10, 0x00, 0x20, 0x00, 0x08, 0x00, 0x18, 0x00>>
     end
   end
 

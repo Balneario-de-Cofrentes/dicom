@@ -1,4 +1,4 @@
-defmodule Dicom.SopClass do
+defmodule Dicom.SOPClass do
   @moduledoc """
   DICOM SOP Class registry.
 

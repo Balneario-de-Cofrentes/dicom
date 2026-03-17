@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Dicom.GenSopClasses do
   @moduledoc """
-  Generates `Dicom.SopClass` from innolitics sops.json and service_sop_classes.exs.
+  Generates `Dicom.SOPClass` from innolitics sops.json and service_sop_classes.exs.
 
   Reads `priv/sops.json` (175 storage SOP classes from innolitics/dicom-standard)
   and `priv/service_sop_classes.exs` (hand-maintained non-storage SOP classes),
@@ -287,7 +287,7 @@ defmodule Mix.Tasks.Dicom.GenSopClasses do
     total = length(entries)
 
     """
-    defmodule Dicom.SopClass do
+    defmodule Dicom.SOPClass do
       @moduledoc \"\"\"
       DICOM SOP Class registry.
 

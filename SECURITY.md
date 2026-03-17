@@ -26,8 +26,9 @@ mitigation within 7 days for critical issues.
   Use `Dicom.P10.FileMeta.sanitize_preamble/1` to zero out untrusted preambles.
 
 - **Patient data (PHI)**: DICOM files contain Protected Health Information.
-  This library does not perform de-identification. Users are responsible for
-  HIPAA/GDPR compliance when handling patient data.
+  This library includes de-identification helpers, but they are not a
+  compliance guarantee. Users remain responsible for HIPAA/GDPR and local
+  policy compliance when handling patient data.
 
 - **UID injection**: DICOM UIDs used in file paths or URLs should be validated
   with `Dicom.UID.valid?/1` to prevent path traversal.
@@ -40,4 +41,4 @@ mitigation within 7 days for critical issues.
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes       |
+| 0.4.x   | Yes       |

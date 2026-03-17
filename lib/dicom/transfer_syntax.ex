@@ -5,7 +5,8 @@ defmodule Dicom.TransferSyntax do
   A Transfer Syntax specifies how DICOM data is encoded: byte order,
   whether VR is explicit or implicit, and pixel data compression.
 
-  All 62 DICOM transfer syntaxes are registered (49 active + 13 retired).
+  Registers 49 DICOM transfer syntaxes currently tracked by this library
+  (34 active + 15 retired).
   Unknown transfer syntaxes are rejected by default — use `encoding/2` with
   `lenient: true` to fall back to Explicit VR Little Endian for
   unrecognized compressed transfer syntaxes.

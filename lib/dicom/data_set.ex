@@ -281,6 +281,18 @@ defimpl Enumerable, for: Dicom.DataSet do
       (Map.values(ds.file_meta) ++ Map.values(ds.elements))
       |> Enum.sort_by(& &1.tag)
 
-    {:ok, size, &Enum.slice(sorted, &1, &2)}
+    {:ok, size,
+     fn start, amount, step ->
+       sorted
+       |> Enum.drop(start)
+       |> Enum.take(amount_with_step(amount, step))
+       |> take_every(step)
+     end}
   end
+
+  defp amount_with_step(amount, 1), do: amount
+  defp amount_with_step(amount, step), do: amount * step
+
+  defp take_every(list, 1), do: list
+  defp take_every(list, step), do: Enum.take_every(list, step)
 end

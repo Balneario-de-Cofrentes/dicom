@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-03-17
+
+### Fixed
+
+- DICOM JSON multi-value handling now preserves array semantics for PN, AT,
+  string VRs, and numeric VRs
+- DICOM JSON encoder now omits Group Length attributes from output
+- `Dicom.write_file/2` now returns writer errors instead of raising `MatchError`
+- `Enumerable` slice implementation for `Dicom.DataSet` updated for Elixir 1.18's
+  3-arity slice contract
+- `Dicom.SOPClass` is now the canonical public module name
+
+### Changed
+
+- De-identification profile flags now affect supported tag groups instead of
+  leaving most options inert
+- Release docs corrected to match current registry counts and current behavior
+- Implementation version name updated to `DICOM_0.4.5`
+
 ## [0.4.2] - 2026-03-17
 
 ### Removed
@@ -188,7 +207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.2...v0.4.5
 [0.4.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.0...v0.4.2
 [0.4.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.2.0...v0.3.0

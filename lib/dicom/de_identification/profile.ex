@@ -2,8 +2,8 @@ defmodule Dicom.DeIdentification.Profile do
   @moduledoc """
   De-identification profile options (PS3.15 Table E.1-1 option columns).
 
-  The 10 boolean options correspond to the DICOM standard's option
-  columns that modify the Basic Application Level Confidentiality Profile.
+  The 10 boolean options mirror the standard profile flags and are applied
+  to the supported tag set in `Dicom.DeIdentification`.
   """
 
   @type t :: %__MODULE__{

@@ -93,7 +93,7 @@ defmodule Dicom do
   @doc """
   Serializes a `Dicom.DataSet` to DICOM P10 binary format.
   """
-  @spec write(Dicom.DataSet.t()) :: {:ok, binary()}
+  @spec write(Dicom.DataSet.t()) :: {:ok, binary()} | {:error, term()}
   def write(%Dicom.DataSet{} = data_set) do
     Dicom.P10.Writer.serialize(data_set)
   end
@@ -103,7 +103,8 @@ defmodule Dicom do
   """
   @spec write_file(Dicom.DataSet.t(), Path.t()) :: :ok | {:error, term()}
   def write_file(%Dicom.DataSet{} = data_set, path) do
-    {:ok, binary} = write(data_set)
-    File.write(path, binary)
+    with {:ok, binary} <- write(data_set) do
+      File.write(path, binary)
+    end
   end
 end

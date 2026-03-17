@@ -1,8 +1,8 @@
-defmodule Dicom.SopClassTest do
+defmodule Dicom.SOPClassTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Dicom.SopClass
+  alias Dicom.SOPClass, as: SopClass
 
   describe "struct fields" do
     test "has all expected fields" do
@@ -39,7 +39,7 @@ defmodule Dicom.SopClassTest do
     test "returns all registered SOP classes" do
       all = SopClass.all()
       assert is_list(all)
-      # 175 storage + ~50 service = >= 210
+      # 183 storage + ~50 service = >= 210
       assert length(all) >= 210
     end
 

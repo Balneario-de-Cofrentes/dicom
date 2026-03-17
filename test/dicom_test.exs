@@ -28,6 +28,11 @@ defmodule DicomTest do
       assert is_binary(binary)
       assert byte_size(binary) >= 132
     end
+
+    test "returns validation errors for invalid data sets" do
+      assert {:error, {:missing_required_meta, {0x0002, 0x0002}}} =
+               Dicom.write(Dicom.DataSet.new())
+    end
   end
 
   describe "Dicom.parse_file/1 and write_file/2" do
@@ -43,6 +48,14 @@ defmodule DicomTest do
 
     test "parse_file returns error for nonexistent file" do
       assert {:error, :enoent} = Dicom.parse_file("/nonexistent/path/file.dcm")
+    end
+
+    @tag :tmp_dir
+    test "write_file returns writer errors instead of raising", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "invalid.dcm")
+
+      assert {:error, {:missing_required_meta, {0x0002, 0x0002}}} =
+               Dicom.write_file(Dicom.DataSet.new(), path)
     end
   end
 

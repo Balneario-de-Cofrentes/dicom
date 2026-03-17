@@ -18,11 +18,11 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 - **Data dictionary** -- comprehensive PS3.6 tag registry (5,035 entries) with VR, VM, keyword lookup, and retired flags
 - **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb
 - **Pixel data frames** -- extract individual frames from native and encapsulated pixel data (PS3.5 Section A.4)
-- **De-identification** -- anonymize data sets per PS3.15 Basic Profile with 10 option columns and consistent UID replacement
+- **De-identification** -- best-effort PS3.15 Basic Profile helpers with 10 profile flags, supported-tag cleaning, and consistent UID replacement
 - **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1 through Latin-5, Cyrillic, Arabic, Greek, Hebrew, JIS X 0201, UTF-8)
 - **Value decoding** -- automatic VR-aware decoding (numeric, string, date, UID, etc.)
-- **SOP Class registry** -- 232 SOP Classes (175 storage + service/Q-R/print/worklist) with modality mapping, retired flags, and O(1) lookup
-- **Transfer syntaxes** -- all 62 DICOM transfer syntaxes (49 active + 13 retired); strict rejection of unknown UIDs with opt-in lenient mode
+- **SOP Class registry** -- 232 SOP Classes (183 storage + service/Q-R/print/worklist) with modality mapping, retired flags, and O(1) lookup
+- **Transfer syntaxes** -- 49 transfer syntaxes tracked by the library (34 active + 15 retired); strict rejection of unknown UIDs with opt-in lenient mode
 - **Sequences** -- defined-length and undefined-length SQ with nested items
 - **Encapsulated pixel data** -- fragments with Basic Offset Table
 - **Validation** -- File Meta Information validation per PS3.10 Section 7.1
@@ -35,7 +35,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.4.0"}
+    {:dicom, "~> 0.4.5"}
   ]
 end
 ```
@@ -70,7 +70,7 @@ ds = Dicom.DataSet.new()
 # Parse from binary
 {:ok, parsed} = Dicom.parse(binary)
 
-# v0.4.0: bracket access and Enumerable
+# DataSet bracket access and Enumerable
 patient = data_set[Dicom.Tag.patient_name()]
 tags = Enum.map(data_set, fn {tag, _elem} -> tag end)
 
@@ -111,8 +111,8 @@ lib/dicom/
   vr.ex                 -- Value Representation types and padding
   uid.ex                -- UID constants, generation, and validation
   value.ex              -- VR-aware value encoding and decoding
-  transfer_syntax.ex    -- Transfer syntax registry (62 TSes) and encoding dispatch
-  sop_class.ex          -- SOP Class registry (232 classes) with modality mapping
+  transfer_syntax.ex    -- Transfer syntax registry (49 TSes) and encoding dispatch
+  sop_class.ex          -- Dicom.SOPClass registry (232 classes) with modality mapping
   character_set.ex      -- Specific Character Set decoding (0008,0005)
   character_set/
     tables.ex           -- ISO 8859-{2..9} and JIS X 0201 lookup tables
@@ -139,7 +139,7 @@ lib/dicom/
 | Part | Title | Coverage |
 |------|-------|----------|
 | PS3.4 | Service Class Specifications | 232 SOP Classes (storage, Q/R, print, worklist, etc.) with modality mapping |
-| PS3.5 | Data Structures and Encoding | VR types, 62 transfer syntaxes, data encoding, sequences, pixel data frame extraction |
+| PS3.5 | Data Structures and Encoding | VR types, transfer syntax handling, data encoding, sequences, pixel data frame extraction |
 | PS3.6 | Data Dictionary | Comprehensive tag registry (5,035 entries), keyword lookup, retired flags |
 | PS3.10 | Media Storage and File Format | P10 read/write, File Meta Information, preamble |
 | PS3.15 | Security and System Management | Basic Application Level Confidentiality Profile (de-identification) |
@@ -198,30 +198,30 @@ Five DICOM libraries exist for the BEAM. Only two others are published to Hex.pm
 | **On Hex.pm** | Yes | Yes | Yes | No (git only) | No (git only) |
 | **Runtime deps** | 0 | 0 | 0 | 6 | 2 |
 | **P10 parse** | Yes | Yes | Yes | Yes | Basic |
-| **P10 write** | Yes | Yes | No | Yes | No |
-| **Transfer syntaxes** | 62 (49 active + 13 retired) | 3 | 3 | 47 | 3 |
+| **P10 write** | Yes | Yes | Yes | Yes | No |
+| **Transfer syntaxes** | 49 (34 active + 15 retired) | 3 | 3 | 47 | 3 |
 | **Sequences (SQ)** | Yes | Yes | Yes | Yes | Yes |
 | **Tag dictionary** | 5,035 tags | ~5,200 tags | None | ~13,600+ tags | None |
 | **UID generation** | Yes | Yes | No | No | No |
 | **UID validation** | Yes | No | No | No | No |
 | **File Meta validation** | Yes | Partial | Partial | Yes | Yes |
 | **Character sets** | ISO 8859-{1..9}, JIS X 0201, UTF-8 | No | No | Full (ISO 2022, CJK, GB18030) | No |
-| **Value decoding** | Yes (36 VRs) | Yes | Basic | Yes | Yes (25 VRs) |
+| **Value decoding** | Yes (all 34 VRs) | Yes | Basic | Yes | Yes (25 VRs) |
 | **Streaming parser** | Yes | No | No | Yes | No |
 | **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
 | **DICOM JSON** | Yes (PS3.18 F.2) | No | No | Yes | No |
-| **Anonymization** | Yes (PS3.15 Basic Profile) | No | No | Yes | No |
+| **Anonymization** | Yes (best-effort PS3.15 profile helpers) | No | No | Yes | No |
 | **Pixel data frames** | Yes (native + encapsulated) | No | No | Yes | No |
 | **SOP Class registry** | 232 classes, modality mapping | None | None | Yes | None |
 | **Test suite** | 1000+ tests, 97%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
-| **CI** | Passing | None | None | Failing | Passing |
+| **CI** | Passing | None | None | Passing | Passing |
 | **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
 | **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |
 | **Gleam toolchain** | Not required | Not required | Not required | Required | Not required |
 
 **dicom** is the most feature-complete DICOM library on Hex.pm: zero
 dependencies, streaming + read + write, DICOM JSON, anonymization, pixel
-data extraction, 232 SOP classes, 62 transfer syntaxes, and MIT-licensed. DCMfx has a larger
+data extraction, 232 SOP classes, 49 transfer syntaxes, and MIT-licensed. DCMfx has a larger
 tag dictionary (including well-known private tags) and full CJK/ISO 2022
 character set support but requires the Gleam toolchain, carries AGPL-3.0
 licensing, and is not published to Hex.pm. For DIMSE networking, `dicom_ex`
