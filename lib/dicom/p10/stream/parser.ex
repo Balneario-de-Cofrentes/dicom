@@ -246,25 +246,30 @@ defmodule Dicom.P10.Stream.Parser do
 
   defp transition_to_data_set(state) do
     ts_uid = TransferSyntax.extract_uid(state.file_meta)
-    {:ok, {vr_encoding, endianness}} = TransferSyntax.encoding(ts_uid)
 
-    # Handle deflated transfer syntax
-    state =
-      if ts_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
-        inflate_remaining(state)
-      else
+    with {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(ts_uid),
+         {:ok, state} <- inflate_remaining_if_needed(state, ts_uid) do
+      state = %{
         state
-      end
+        | phase: :data_set,
+          transfer_syntax_uid: ts_uid,
+          vr_encoding: vr_encoding,
+          endianness: endianness
+      }
 
-    state = %{
-      state
-      | phase: :data_set,
-        transfer_syntax_uid: ts_uid,
-        vr_encoding: vr_encoding,
-        endianness: endianness
-    }
+      {{:file_meta_end, ts_uid}, state}
+    else
+      {:error, reason} ->
+        {{:error, reason}, %{state | phase: :done}}
+    end
+  end
 
-    {{:file_meta_end, ts_uid}, state}
+  defp inflate_remaining_if_needed(state, ts_uid) do
+    if ts_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
+      inflate_remaining(state)
+    else
+      {:ok, state}
+    end
   end
 
   defp inflate_remaining(state) do
@@ -272,10 +277,14 @@ defmodule Dicom.P10.Stream.Parser do
     buffer = state.source.buffer
 
     if byte_size(buffer) > 0 do
-      inflated = :zlib.uncompress(buffer)
-      %{state | source: Source.from_binary(inflated)}
+      try do
+        inflated = :zlib.uncompress(buffer)
+        {:ok, %{state | source: Source.from_binary(inflated)}}
+      rescue
+        ErlangError -> {:error, :invalid_deflated_data}
+      end
     else
-      state
+      {:ok, state}
     end
   end
 

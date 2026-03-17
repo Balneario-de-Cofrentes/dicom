@@ -103,7 +103,13 @@ defmodule Dicom.PixelData do
         {:error, :frame_index_out_of_range}
 
       frame_size > 0 ->
-        {:ok, binary_part(data, index * frame_size, frame_size)}
+        offset = index * frame_size
+
+        if byte_size(data) >= offset + frame_size do
+          {:ok, binary_part(data, offset, frame_size)}
+        else
+          {:error, :invalid_pixel_data}
+        end
 
       index == 0 ->
         {:ok, data}
@@ -118,12 +124,18 @@ defmodule Dicom.PixelData do
     frame_size = compute_frame_size(ds)
 
     if frame_size > 0 do
-      frames =
-        for i <- 0..(num_frames - 1) do
-          binary_part(data, i * frame_size, frame_size)
-        end
+      total_size = frame_size * num_frames
 
-      {:ok, frames}
+      if byte_size(data) >= total_size do
+        frames =
+          for i <- 0..(num_frames - 1) do
+            binary_part(data, i * frame_size, frame_size)
+          end
+
+        {:ok, frames}
+      else
+        {:error, :invalid_pixel_data}
+      end
     else
       {:ok, [data]}
     end

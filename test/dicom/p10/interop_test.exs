@@ -39,6 +39,22 @@ defmodule Dicom.P10.InteropTest do
       assert {:error, :unknown_transfer_syntax} = Dicom.P10.Writer.serialize(ds)
     end
 
+    test "stream parser returns error for unknown transfer syntax UID" do
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, pad_to_even("1.2.999.999.999"))
+      patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+
+      binary =
+        <<0::1024, "DICM">> <>
+          build_group_length_element(ts_elem) <>
+          ts_elem <> patient
+
+      assert {:error, :unknown_transfer_syntax} =
+               binary
+               |> Dicom.stream_parse()
+               |> Enum.to_list()
+               |> List.last()
+    end
+
     test "compressed transfer syntaxes are recognized (JPEG Baseline)" do
       # File with JPEG Baseline TS — reader should accept the TS
       # (no actual pixel data, just verifying TS recognition)
@@ -96,6 +112,24 @@ defmodule Dicom.P10.InteropTest do
         assert vr_enc in [:implicit, :explicit]
         assert endian in [:little, :big]
       end
+    end
+  end
+
+  describe "invalid deflated payload rejection" do
+    test "reader returns error for invalid deflated content" do
+      ts_elem =
+        elem_explicit(
+          {0x0002, 0x0010},
+          :UI,
+          pad_to_even(Dicom.UID.deflated_explicit_vr_little_endian())
+        )
+
+      binary =
+        <<0::1024, "DICM">> <>
+          build_group_length_element(ts_elem) <>
+          ts_elem <> <<1, 2, 3, 4, 5>>
+
+      assert {:error, :invalid_deflated_data} = Dicom.P10.Reader.parse(binary)
     end
   end
 

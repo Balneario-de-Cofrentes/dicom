@@ -128,6 +128,11 @@ defmodule Dicom.PixelDataTest do
       assert byte_size(frame) == 32 * 32
     end
 
+    test "returns error for native pixel data shorter than declared geometry" do
+      ds = image_ds(2, 2, 16, 1, frames: 2, pixel_data: <<0, 1, 2, 3, 4, 5, 6, 7>>)
+      assert {:error, :invalid_pixel_data} = PixelData.frames(ds)
+    end
+
     test "returns error when no pixel data" do
       ds = image_ds(64, 64, 16, 1)
       assert {:error, :no_pixel_data} = PixelData.frames(ds)
@@ -508,6 +513,11 @@ defmodule Dicom.PixelDataTest do
 
       # index=1 with frame_size=0 returns error (can't slice)
       assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 1)
+    end
+
+    test "returns invalid_pixel_data when requested frame exceeds available bytes" do
+      ds = image_ds(2, 2, 16, 1, frames: 2, pixel_data: <<0, 1, 2, 3, 4, 5, 6, 7>>)
+      assert {:error, :invalid_pixel_data} = PixelData.frame(ds, 1)
     end
   end
 end

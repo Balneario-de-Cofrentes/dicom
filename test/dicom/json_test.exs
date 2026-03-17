@@ -615,6 +615,30 @@ defmodule Dicom.JsonTest do
       json = %{"00100020" => %{"Value" => ["test"]}}
       assert {:error, _reason} = Json.from_map(json)
     end
+
+    test "returns error for invalid nested sequence tag" do
+      json = %{
+        "00081110" => %{
+          "vr" => "SQ",
+          "Value" => [
+            %{"BADTAG" => %{"vr" => "UI", "Value" => ["1.2.3"]}}
+          ]
+        }
+      }
+
+      assert {:error, {:invalid_tag, "BADTAG"}} = Json.from_map(json)
+    end
+
+    test "returns error for invalid nested sequence item type" do
+      json = %{
+        "00081110" => %{
+          "vr" => "SQ",
+          "Value" => ["not-a-map"]
+        }
+      }
+
+      assert {:error, :invalid_sequence_item} = Json.from_map(json)
+    end
   end
 
   describe "Json.to_map/2 - AT with tag tuple" do

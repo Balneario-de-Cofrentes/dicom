@@ -202,8 +202,16 @@ defmodule Dicom.Json do
   end
 
   defp decode_value(:SQ, %{"Value" => items}) when is_list(items) do
-    decoded_items = Enum.map(items, &decode_item/1)
-    {:ok, decoded_items}
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
+      case decode_item(item) do
+        {:ok, decoded_item} -> {:cont, {:ok, [decoded_item | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, decoded_items} -> {:ok, Enum.reverse(decoded_items)}
+      {:error, _} = error -> error
+    end
   end
 
   defp decode_value(:AT, %{"Value" => values}) when is_list(values) do
@@ -275,13 +283,18 @@ defmodule Dicom.Json do
   end
 
   defp decode_item(item_map) when is_map(item_map) do
-    Map.new(item_map, fn {tag_hex, elem_map} ->
-      {:ok, tag} = parse_tag_hex(tag_hex)
-      {:ok, vr} = parse_vr(elem_map)
-      {:ok, value} = decode_value(vr, elem_map)
-      {tag, DataElement.new(tag, vr, value)}
+    Enum.reduce_while(item_map, {:ok, %{}}, fn {tag_hex, elem_map}, {:ok, acc} ->
+      with {:ok, tag} <- parse_tag_hex(tag_hex),
+           {:ok, vr} <- parse_vr(elem_map),
+           {:ok, value} <- decode_value(vr, elem_map) do
+        {:cont, {:ok, Map.put(acc, tag, DataElement.new(tag, vr, value))}}
+      else
+        {:error, _} = error -> {:halt, error}
+      end
     end)
   end
+
+  defp decode_item(_item_map), do: {:error, :invalid_sequence_item}
 
   # ── Helpers ───────────────────────────────────────────────────
 

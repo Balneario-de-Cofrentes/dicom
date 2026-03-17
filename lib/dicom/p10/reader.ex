@@ -51,14 +51,22 @@ defmodule Dicom.P10.Reader do
   defp read_data_set(binary, transfer_syntax_uid) do
     with {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid) do
       # Inflate if Deflated Explicit VR Little Endian (PS3.5 Section 10)
-      data =
-        if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
-          :zlib.uncompress(binary)
-        else
-          binary
-        end
+      case inflate_if_needed(binary, transfer_syntax_uid) do
+        {:ok, data} -> read_all_elements(data, vr_encoding, endianness, [])
+        {:error, _} = error -> error
+      end
+    end
+  end
 
-      read_all_elements(data, vr_encoding, endianness, [])
+  defp inflate_if_needed(binary, transfer_syntax_uid) do
+    if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
+      try do
+        {:ok, :zlib.uncompress(binary)}
+      rescue
+        ErlangError -> {:error, :invalid_deflated_data}
+      end
+    else
+      {:ok, binary}
     end
   end
 

@@ -87,6 +87,15 @@ defmodule Dicom.P10.StreamTest do
       assert String.starts_with?(ts_uid, "1.2.840.10008.1.2")
     end
 
+    test "returns structured error for unknown transfer syntax UID" do
+      binary =
+        build_p10_with_ts("1.2.999.999.999", elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN"))
+
+      events = collect_events(binary)
+
+      assert List.last(events) == {:error, :unknown_transfer_syntax}
+    end
+
     test "emits multiple file meta elements" do
       version_elem = elem_explicit({0x0002, 0x0001}, :OB, <<0, 1>>)
       binary = build_p10_binary([version_elem])
@@ -2066,6 +2075,13 @@ defmodule Dicom.P10.StreamTest do
       {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
       assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
       assert DataSet.get(ds, {0x0008, 0x0060}) == "CT"
+    end
+
+    test "returns structured error for invalid deflated payload" do
+      binary = build_p10_with_ts("1.2.840.10008.1.2.1.99", <<1, 2, 3, 4, 5>>)
+      events = collect_events(binary)
+
+      assert List.last(events) == {:error, :invalid_deflated_data}
     end
   end
 
