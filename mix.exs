@@ -38,9 +38,9 @@ defmodule Dicom.MixProject do
 
   defp package do
     [
-      licenses: ["Apache-2.0"],
+      licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md)
     ]
   end
 
