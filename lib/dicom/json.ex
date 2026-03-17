@@ -88,6 +88,10 @@ defmodule Dicom.Json do
   end
 
   defp encode_value(base, _tag, :AT, value, _bulk_fn) when is_binary(value) do
+    if rem(byte_size(value), 4) != 0 do
+      raise ArgumentError, "invalid AT value length: expected a multiple of 4 bytes"
+    end
+
     values =
       for <<group::little-16, element::little-16 <- value>> do
         format_tag({group, element})
@@ -105,8 +109,8 @@ defmodule Dicom.Json do
        when vr in @string_vrs and is_binary(value) do
     values =
       value
+      |> trim_string_padding(vr)
       |> split_multi_string()
-      |> Enum.map(&String.trim_trailing/1)
 
     Map.put(base, "Value", values)
   end
@@ -260,7 +264,10 @@ defmodule Dicom.Json do
   defp decode_json_value(tag, :PN, pn_values, _opts) when is_list(pn_values) do
     Enum.reduce_while(pn_values, {:ok, []}, fn
       pn_map, {:ok, acc} when is_map(pn_map) ->
-        {:cont, {:ok, [decode_pn(pn_map) | acc]}}
+        case decode_pn(tag, pn_map) do
+          {:ok, decoded} -> {:cont, {:ok, [decoded | acc]}}
+          {:error, _} = error -> {:halt, error}
+        end
 
       _value, _acc ->
         {:halt, {:error, {:invalid_value, tag, :PN, :expected_person_name_components}}}
@@ -408,21 +415,39 @@ defmodule Dicom.Json do
     end
   end
 
-  defp decode_pn(pn_map) do
+  defp decode_pn(tag, pn_map) do
     alpha = Map.get(pn_map, "Alphabetic", "")
     ideo = Map.get(pn_map, "Ideographic")
     phonetic = Map.get(pn_map, "Phonetic")
 
-    cond do
-      phonetic -> "#{alpha}=#{ideo}=#{phonetic}"
-      ideo -> "#{alpha}=#{ideo}"
-      true -> alpha
+    with :ok <- validate_pn_component(alpha),
+         :ok <- validate_pn_component(ideo),
+         :ok <- validate_pn_component(phonetic) do
+      cond do
+        is_binary(phonetic) -> {:ok, "#{alpha}=#{ideo}=#{phonetic}"}
+        is_binary(ideo) -> {:ok, "#{alpha}=#{ideo}"}
+        true -> {:ok, alpha}
+      end
+    else
+      :error ->
+        {:error, {:invalid_value, tag, :PN, :expected_string_person_name_components}}
     end
   end
 
   defp split_multi_string(value) do
     String.split(value, "\\")
   end
+
+  defp trim_string_padding(value, vr) when is_binary(value) do
+    case vr do
+      :UI -> String.trim_trailing(value, <<0>>)
+      _ -> String.trim_trailing(value, " ")
+    end
+  end
+
+  defp validate_pn_component(nil), do: :ok
+  defp validate_pn_component(value) when is_binary(value), do: :ok
+  defp validate_pn_component(_value), do: :error
 
   defp normalize_binary_value({0x7FE0, 0x0010} = tag, binary, opts) do
     case Keyword.get(opts, :transfer_syntax_uid) do

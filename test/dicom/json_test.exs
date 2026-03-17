@@ -127,6 +127,12 @@ defmodule Dicom.JsonTest do
       map = Json.to_map(ds)
       assert map["00080054"] == %{"vr" => "AE", "Value" => ["SCANNER1", "SCANNER2"]}
     end
+
+    test "preserves meaningful trailing newlines in text VRs" do
+      ds = DataSet.new() |> DataSet.put({0x0040, 0xA160}, :UT, "line1\n")
+
+      assert Json.to_map(ds)["0040A160"] == %{"vr" => "UT", "Value" => ["line1\n"]}
+    end
   end
 
   describe "Json.to_map/2 - PN (Person Name)" do
@@ -244,6 +250,16 @@ defmodule Dicom.JsonTest do
 
       map = Json.to_map(ds)
       assert map["00205000"]["Value"] == ["00100020", "00080018"]
+    end
+
+    test "raises for malformed AT binary values that are not a multiple of four bytes" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0020, 0x5000}, :AT, <<0x10, 0x00, 0x20, 0x00, 0xFF>>)
+
+      assert_raise ArgumentError, ~r/invalid AT value length/, fn ->
+        Json.to_map(ds)
+      end
     end
   end
 
@@ -530,6 +546,21 @@ defmodule Dicom.JsonTest do
 
       assert {:ok, ds} = Json.from_map(json)
       assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN\\SMITH^JANE"
+    end
+
+    test "returns error when PN components are not strings" do
+      json = %{
+        "00100010" => %{
+          "vr" => "PN",
+          "Value" => [
+            %{"Alphabetic" => 123, "Phonetic" => true}
+          ]
+        }
+      }
+
+      assert {:error,
+              {:invalid_value, {0x0010, 0x0010}, :PN, :expected_string_person_name_components}} =
+               Json.from_map(json)
     end
   end
 

@@ -514,7 +514,7 @@ defmodule Dicom.DeIdentification do
   end
 
   defp patient_identity_removed_marker(profile) do
-    if retain_private_tags?(profile), do: "NO", else: "YES"
+    if profile_retains_identity?(profile), do: "NO", else: "YES"
   end
 
   defp deidentification_method_marker(profile) do
@@ -642,6 +642,16 @@ defmodule Dicom.DeIdentification do
          retain_safe_private: retain_safe_private
        }) do
     retain_private_tags or retain_safe_private
+  end
+
+  defp profile_retains_identity?(%__MODULE__.Profile{} = profile) do
+    profile.retain_uids or
+      profile.retain_device_identity or
+      profile.retain_patient_characteristics or
+      profile.retain_institution_identity or
+      profile.retain_long_full_dates or
+      profile.retain_long_modified_dates or
+      retain_private_tags?(profile)
   end
 
   defp temporal_override(%__MODULE__.Profile{} = profile, tag) do

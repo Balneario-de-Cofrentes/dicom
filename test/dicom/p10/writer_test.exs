@@ -161,6 +161,35 @@ defmodule Dicom.P10.WriterTest do
 
       assert {:ok, _binary} = Dicom.P10.Writer.serialize(ds)
     end
+
+    test "returns an error when encapsulated Pixel Data uses VR other than OB" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x7FE0, 0x0010}, :OW, {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]})
+
+      assert {:error, {:invalid_encapsulated_pixel_data_vr, :OW}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "returns an error when encapsulated Pixel Data fragments have odd length" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x7FE0, 0x0010}, :OB, {:encapsulated, [<<0::little-32>>, <<1, 2, 3>>]})
+
+      assert {:error, {:invalid_encapsulated_fragment_length, 1}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "returns an error when encapsulated Pixel Data BOT is not a multiple of four bytes" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x7FE0, 0x0010}, :OB, {:encapsulated, [<<0, 1>>, <<1, 2, 3, 4>>]})
+
+      assert {:error, :invalid_basic_offset_table} = Dicom.P10.Writer.serialize(ds)
+    end
   end
 
   describe "validate_file_meta/1" do

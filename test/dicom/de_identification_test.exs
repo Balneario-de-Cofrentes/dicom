@@ -230,6 +230,16 @@ defmodule Dicom.DeIdentificationTest do
       assert String.contains?(method, "retain_private_tags")
     end
 
+    test "PatientIdentityRemoved is NO when UID retention is enabled" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_uids: true}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, {0x0012, 0x0062}) == "NO"
+      assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_uids")
+    end
+
     test "removes private tags" do
       ds =
         sample_data_set()

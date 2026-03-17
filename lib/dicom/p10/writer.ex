@@ -189,12 +189,10 @@ defmodule Dicom.P10.Writer do
       nil ->
         :ok
 
-      %DataElement{value: {:encapsulated, _fragments}} ->
-        if TransferSyntax.compressed?(transfer_syntax_uid) do
+      %DataElement{vr: vr, value: {:encapsulated, fragments}} ->
+        with :ok <- validate_compressed_transfer_syntax(transfer_syntax_uid),
+             :ok <- validate_encapsulated_pixel_data(vr, fragments) do
           :ok
-        else
-          {:error,
-           {:encapsulated_pixel_data_requires_compressed_transfer_syntax, transfer_syntax_uid}}
         end
 
       %DataElement{} ->
@@ -206,6 +204,46 @@ defmodule Dicom.P10.Writer do
         end
     end
   end
+
+  defp validate_compressed_transfer_syntax(transfer_syntax_uid) do
+    if TransferSyntax.compressed?(transfer_syntax_uid) do
+      :ok
+    else
+      {:error,
+       {:encapsulated_pixel_data_requires_compressed_transfer_syntax, transfer_syntax_uid}}
+    end
+  end
+
+  defp validate_encapsulated_pixel_data(:OB, [bot | fragments]) when is_binary(bot) do
+    cond do
+      rem(byte_size(bot), 4) != 0 ->
+        {:error, :invalid_basic_offset_table}
+
+      true ->
+        validate_fragment_lengths(fragments, 1)
+    end
+  end
+
+  defp validate_encapsulated_pixel_data(vr, _fragments) when vr != :OB do
+    {:error, {:invalid_encapsulated_pixel_data_vr, vr}}
+  end
+
+  defp validate_encapsulated_pixel_data(:OB, _fragments) do
+    {:error, :invalid_encapsulated_pixel_data}
+  end
+
+  defp validate_fragment_lengths([], _index), do: :ok
+
+  defp validate_fragment_lengths([fragment | rest], index) when is_binary(fragment) do
+    if rem(byte_size(fragment), 2) == 0 do
+      validate_fragment_lengths(rest, index + 1)
+    else
+      {:error, {:invalid_encapsulated_fragment_length, index}}
+    end
+  end
+
+  defp validate_fragment_lengths(_fragments, _index),
+    do: {:error, :invalid_encapsulated_pixel_data}
 
   # Returns iodata — no intermediate binary allocation. Single IO.iodata_to_binary at serialize/1.
   defp encode_elements(elements, vr_encoding, endianness) do
