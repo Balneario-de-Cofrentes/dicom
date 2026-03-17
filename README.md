@@ -13,7 +13,7 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 ## Features
 
 - **P10 file parsing** -- read DICOM Part 10 files into structured data sets
-- **P10 file writing** -- serialize data sets back to conformant P10 files
+- **P10 file writing** -- serialize data sets back to DICOM Part 10 binaries with validated File Meta Information
 - **Streaming parser** -- lazy, event-based parsing for large files and pipelines
 - **Data dictionary** -- comprehensive PS3.6 tag registry (5,035 entries) with VR, VM, keyword lookup, and retired flags
 - **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb, with strict decode errors and explicit `BulkDataURI` resolution
