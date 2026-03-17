@@ -387,20 +387,36 @@ defmodule Dicom.PixelDataTest do
   # ── NumberOfFrames edge cases ─────────────────────────────────
 
   describe "get_number_of_frames edge cases" do
-    test "unparseable NumberOfFrames string defaults to 1" do
+    test "unparseable NumberOfFrames string returns error" do
       ds = DataSet.new()
       data = :crypto.strong_rand_bytes(100)
       ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
       ds = DataSet.put(ds, Tag.number_of_frames(), :IS, "not_a_number")
-      assert {:ok, 1} = PixelData.frame_count(ds)
+      assert {:error, :invalid_number_of_frames} = PixelData.frame_count(ds)
     end
 
-    test "empty NumberOfFrames string defaults to 1" do
+    test "empty NumberOfFrames string returns error" do
       ds = DataSet.new()
       data = :crypto.strong_rand_bytes(100)
       ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
       ds = DataSet.put(ds, Tag.number_of_frames(), :IS, "")
-      assert {:ok, 1} = PixelData.frame_count(ds)
+      assert {:error, :invalid_number_of_frames} = PixelData.frame_count(ds)
+    end
+
+    test "zero NumberOfFrames returns error" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      ds = DataSet.put(ds, Tag.number_of_frames(), :IS, "0")
+      assert {:error, :invalid_number_of_frames} = PixelData.frame_count(ds)
+    end
+
+    test "NumberOfFrames with trailing junk returns error" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      ds = DataSet.put(ds, Tag.number_of_frames(), :IS, "2junk")
+      assert {:error, :invalid_number_of_frames} = PixelData.frame_count(ds)
     end
   end
 
@@ -564,6 +580,15 @@ defmodule Dicom.PixelDataTest do
     test "returns invalid_pixel_data when requested frame exceeds available bytes" do
       ds = image_ds(2, 2, 16, 1, frames: 2, pixel_data: <<0, 1, 2, 3, 4, 5, 6, 7>>)
       assert {:error, :invalid_pixel_data} = PixelData.frame(ds, 1)
+    end
+
+    test "returns invalid_number_of_frames instead of raising for zero NumberOfFrames" do
+      ds =
+        image_ds(2, 2, 8, 1, pixel_data: <<1, 2, 3, 4>>)
+        |> DataSet.put(Tag.number_of_frames(), :IS, "0")
+
+      assert {:error, :invalid_number_of_frames} = PixelData.frames(ds)
+      assert {:error, :invalid_number_of_frames} = PixelData.frame(ds, 0)
     end
   end
 end

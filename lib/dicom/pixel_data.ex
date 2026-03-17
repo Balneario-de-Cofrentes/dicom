@@ -29,15 +29,15 @@ defmodule Dicom.PixelData do
   @doc """
   Returns the number of frames in the pixel data.
   """
-  @spec frame_count(DataSet.t()) :: {:ok, pos_integer()} | {:error, :no_pixel_data}
+  @spec frame_count(DataSet.t()) ::
+          {:ok, pos_integer()} | {:error, :no_pixel_data | :invalid_number_of_frames}
   def frame_count(%DataSet{} = ds) do
     case get_pixel_element(ds) do
       nil ->
         {:error, :no_pixel_data}
 
       _elem ->
-        nf = get_number_of_frames(ds)
-        {:ok, nf}
+        get_number_of_frames(ds)
     end
   end
 
@@ -96,49 +96,51 @@ defmodule Dicom.PixelData do
   # ── Native frame extraction ───────────────────────────────────
 
   defp extract_native_frame(data, ds, index) do
-    num_frames = get_number_of_frames(ds)
-    frame_size = compute_frame_size(ds)
+    with {:ok, num_frames} <- get_number_of_frames(ds) do
+      frame_size = compute_frame_size(ds)
 
-    cond do
-      index >= num_frames ->
-        {:error, :frame_index_out_of_range}
+      cond do
+        index >= num_frames ->
+          {:error, :frame_index_out_of_range}
 
-      frame_size > 0 ->
-        offset = index * frame_size
+        frame_size > 0 ->
+          offset = index * frame_size
 
-        if byte_size(data) >= offset + frame_size do
-          {:ok, binary_part(data, offset, frame_size)}
-        else
-          {:error, :invalid_pixel_data}
-        end
+          if byte_size(data) >= offset + frame_size do
+            {:ok, binary_part(data, offset, frame_size)}
+          else
+            {:error, :invalid_pixel_data}
+          end
 
-      index == 0 ->
-        {:ok, data}
+        index == 0 ->
+          {:ok, data}
 
-      true ->
-        {:error, :frame_index_out_of_range}
+        true ->
+          {:error, :frame_index_out_of_range}
+      end
     end
   end
 
   defp extract_native_frames(data, ds) do
-    num_frames = get_number_of_frames(ds)
-    frame_size = compute_frame_size(ds)
+    with {:ok, num_frames} <- get_number_of_frames(ds) do
+      frame_size = compute_frame_size(ds)
 
-    if frame_size > 0 do
-      total_size = frame_size * num_frames
+      if frame_size > 0 do
+        total_size = frame_size * num_frames
 
-      if byte_size(data) >= total_size do
-        frames =
-          for i <- 0..(num_frames - 1) do
-            binary_part(data, i * frame_size, frame_size)
-          end
+        if byte_size(data) >= total_size do
+          frames =
+            for i <- 0..(num_frames - 1) do
+              binary_part(data, i * frame_size, frame_size)
+            end
 
-        {:ok, frames}
+          {:ok, frames}
+        else
+          {:error, :invalid_pixel_data}
+        end
       else
-        {:error, :invalid_pixel_data}
+        {:ok, [data]}
       end
-    else
-      {:ok, [data]}
     end
   end
 
@@ -153,9 +155,8 @@ defmodule Dicom.PixelData do
   # ── Encapsulated frame extraction ─────────────────────────────
 
   defp extract_encapsulated_frames([bot | fragments], ds) do
-    num_frames = get_number_of_frames(ds)
-
-    with {:ok, bot_offsets} <- parse_bot(bot) do
+    with {:ok, num_frames} <- get_number_of_frames(ds),
+         {:ok, bot_offsets} <- parse_bot(bot) do
       cond do
         bot_offsets != [] and length(bot_offsets) != num_frames ->
           {:error, :invalid_basic_offset_table}
@@ -253,16 +254,16 @@ defmodule Dicom.PixelData do
   defp get_number_of_frames(ds) do
     case DataSet.get(ds, Tag.number_of_frames()) do
       nil ->
-        1
+        {:ok, 1}
 
       val when is_binary(val) ->
         case Integer.parse(String.trim(val)) do
-          {n, _} -> n
-          :error -> 1
+          {n, ""} when n > 0 -> {:ok, n}
+          _ -> {:error, :invalid_number_of_frames}
         end
 
       val when is_integer(val) ->
-        val
+        if val > 0, do: {:ok, val}, else: {:error, :invalid_number_of_frames}
     end
   end
 
