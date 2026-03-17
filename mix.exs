@@ -40,14 +40,14 @@ defmodule Dicom.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md)
+      files: ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md CONTRIBUTING.md CODE_OF_CONDUCT.md)
     ]
   end
 
   defp docs do
     [
       main: "Dicom",
-      extras: ["README.md", "CHANGELOG.md"],
+      extras: ["README.md", "CHANGELOG.md", "AGENTS.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "LICENSE"],
       source_ref: System.get_env("SOURCE_REF") || "master"
     ]
   end
