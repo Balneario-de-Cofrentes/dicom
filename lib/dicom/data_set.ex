@@ -198,13 +198,14 @@ defmodule Dicom.DataSet do
   @doc """
   Gets a VR-decoded value for a tag using `Dicom.Value.decode/2`.
 
-  Returns `nil` if the tag is absent.
+  Returns `nil` if the tag is absent or if a fixed-width numeric payload
+  cannot be decoded safely.
   """
   @spec decoded_value(t(), Dicom.DataElement.tag()) :: term() | nil
   def decoded_value(%__MODULE__{} = ds, tag) do
     case get_element(ds, tag) do
       %Dicom.DataElement{vr: vr, value: value} when is_binary(value) ->
-        Dicom.Value.decode(value, vr)
+        decode_value_or_nil(value, vr)
 
       %Dicom.DataElement{value: value} ->
         value
@@ -227,6 +228,33 @@ defmodule Dicom.DataSet do
         end
     end
   end
+
+  defp decode_value_or_nil(value, vr) do
+    decoded = Dicom.Value.decode(value, vr)
+
+    if undecodable_fixed_width_binary?(value, vr, decoded) do
+      nil
+    else
+      decoded
+    end
+  end
+
+  defp undecodable_fixed_width_binary?(value, vr, decoded)
+       when vr in [:US, :SS] and is_binary(value) do
+    rem(byte_size(value), 2) != 0 and decoded == value
+  end
+
+  defp undecodable_fixed_width_binary?(value, vr, decoded)
+       when vr in [:UL, :SL, :FL, :AT] and is_binary(value) do
+    rem(byte_size(value), 4) != 0 and decoded == value
+  end
+
+  defp undecodable_fixed_width_binary?(value, vr, decoded)
+       when vr in [:FD, :UV, :SV] and is_binary(value) do
+    rem(byte_size(value), 8) != 0 and decoded == value
+  end
+
+  defp undecodable_fixed_width_binary?(_value, _vr, _decoded), do: false
 end
 
 defimpl Inspect, for: Dicom.DataSet do

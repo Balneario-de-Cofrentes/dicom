@@ -96,9 +96,8 @@ defmodule Dicom.PixelData do
   # ── Native frame extraction ───────────────────────────────────
 
   defp extract_native_frame(data, ds, index) do
-    with {:ok, num_frames} <- get_number_of_frames(ds) do
-      frame_size = compute_frame_size(ds)
-
+    with {:ok, num_frames} <- get_number_of_frames(ds),
+         {:ok, frame_size} <- compute_frame_size(ds) do
       cond do
         index >= num_frames ->
           {:error, :frame_index_out_of_range}
@@ -122,9 +121,8 @@ defmodule Dicom.PixelData do
   end
 
   defp extract_native_frames(data, ds) do
-    with {:ok, num_frames} <- get_number_of_frames(ds) do
-      frame_size = compute_frame_size(ds)
-
+    with {:ok, num_frames} <- get_number_of_frames(ds),
+         {:ok, frame_size} <- compute_frame_size(ds) do
       if frame_size > 0 do
         total_size = frame_size * num_frames
 
@@ -145,11 +143,12 @@ defmodule Dicom.PixelData do
   end
 
   defp compute_frame_size(ds) do
-    rows = decode_us(ds, Tag.rows(), 0)
-    cols = decode_us(ds, Tag.columns(), 0)
-    bits = decode_us(ds, Tag.bits_allocated(), 16)
-    samples = decode_us(ds, Tag.samples_per_pixel(), 1)
-    ceil_div(rows * cols * bits * samples, 8)
+    with {:ok, rows} <- decode_us(ds, Tag.rows(), 0),
+         {:ok, cols} <- decode_us(ds, Tag.columns(), 0),
+         {:ok, bits} <- decode_us(ds, Tag.bits_allocated(), 16),
+         {:ok, samples} <- decode_us(ds, Tag.samples_per_pixel(), 1) do
+      {:ok, ceil_div(rows * cols * bits * samples, 8)}
+    end
   end
 
   # ── Encapsulated frame extraction ─────────────────────────────
@@ -275,9 +274,17 @@ defmodule Dicom.PixelData do
 
   defp decode_us(ds, tag, default) do
     case DataSet.get(ds, tag) do
-      nil -> default
-      val when is_binary(val) -> Value.decode(val, :US)
-      val when is_integer(val) -> val
+      nil ->
+        {:ok, default}
+
+      val when is_binary(val) ->
+        case Value.decode(val, :US) do
+          decoded when is_integer(decoded) -> {:ok, decoded}
+          _ -> {:error, :invalid_pixel_data_metadata}
+        end
+
+      val when is_integer(val) ->
+        {:ok, val}
     end
   end
 

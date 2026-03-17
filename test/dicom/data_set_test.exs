@@ -129,6 +129,11 @@ defmodule Dicom.DataSetTest do
 
       assert DataSet.decoded_value(ds, {0x0008, 0x1115}) == [%{}]
     end
+
+    test "returns nil for malformed fixed-width numeric binaries" do
+      ds = DataSet.from_list([{{0x0028, 0x0010}, :US, <<1>>}])
+      assert DataSet.decoded_value(ds, {0x0028, 0x0010}) == nil
+    end
   end
 
   describe "Access behaviour (ds[tag])" do

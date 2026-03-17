@@ -142,6 +142,18 @@ defmodule Dicom.PixelDataTest do
       assert {:error, :invalid_pixel_data} = PixelData.frames(ds)
     end
 
+    test "returns error when native pixel metadata cannot be decoded safely" do
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.rows(), :US, <<1>>)
+        |> DataSet.put(Tag.columns(), :US, <<1>>)
+        |> DataSet.put(Tag.bits_allocated(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.samples_per_pixel(), :US, <<1::little-16>>)
+        |> DataSet.put(Tag.pixel_data(), :OB, <<1>>)
+
+      assert {:error, :invalid_pixel_data_metadata} = PixelData.frames(ds)
+    end
+
     test "returns error when no pixel data" do
       ds = image_ds(64, 64, 16, 1)
       assert {:error, :no_pixel_data} = PixelData.frames(ds)
@@ -167,6 +179,18 @@ defmodule Dicom.PixelDataTest do
       ds = image_ds(16, 16, 16, 1, pixel_data: pixels)
       assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 1)
       assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, -1)
+    end
+
+    test "returns error when frame metadata cannot be decoded safely" do
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.rows(), :US, <<1>>)
+        |> DataSet.put(Tag.columns(), :US, <<1>>)
+        |> DataSet.put(Tag.bits_allocated(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.samples_per_pixel(), :US, <<1::little-16>>)
+        |> DataSet.put(Tag.pixel_data(), :OB, <<1>>)
+
+      assert {:error, :invalid_pixel_data_metadata} = PixelData.frame(ds, 0)
     end
   end
 
