@@ -318,8 +318,8 @@ defmodule DicomTest do
         {{0x0008, 0x1155}, "ReferencedSOPInstanceUID", :UI, "1"},
         {{0x0040, 0x0275}, "RequestAttributesSequence", :SQ, "1"},
         {{0x0040, 0xA730}, "ContentSequence", :SQ, "1"},
-        # Pixel Data and Trailing Padding (PS3.6: OB or OW; OB listed first in standard)
-        {{0x7FE0, 0x0010}, "PixelData", :OB, "1"},
+        # Pixel Data and Trailing Padding (PS3.6: OB or OW; OW used as default)
+        {{0x7FE0, 0x0010}, "PixelData", :OW, "1"},
         {{0xFFFC, 0xFFFC}, "DataSetTrailingPadding", :OB, "1"}
       ]
 

@@ -90,7 +90,7 @@ defmodule Dicom.Dictionary.RegistryTest do
     test "overlay repeating group tags resolve correctly" do
       assert {:ok, "OverlayRows", :US, "1"} = Registry.lookup({0x6000, 0x0010})
       assert {:ok, "OverlayType", :CS, "1"} = Registry.lookup({0x6002, 0x0040})
-      assert {:ok, "OverlayData", :OB, "1"} = Registry.lookup({0x600E, 0x3000})
+      assert {:ok, "OverlayData", :OW, "1"} = Registry.lookup({0x600E, 0x3000})
       # Non-overlay even group should not match
       assert :error = Registry.lookup({0x6020, 0x0010})
       # Unknown overlay element
@@ -100,6 +100,82 @@ defmodule Dicom.Dictionary.RegistryTest do
     test "returns :error for private tags" do
       assert :error = Registry.lookup({0x0009, 0x0010})
       assert :error = Registry.lookup({0x0011, 0x0001})
+    end
+
+    test "registry contains >= 5030 entries (innolitics PS3.6 coverage)" do
+      assert Registry.size() >= 5030
+    end
+  end
+
+  describe "find_by_keyword/1" do
+    test "finds tag by exact keyword" do
+      assert {:ok, {0x0010, 0x0010}, :PN, "1"} = Registry.find_by_keyword("PatientName")
+    end
+
+    test "finds SOPClassUID" do
+      assert {:ok, {0x0008, 0x0016}, :UI, "1"} = Registry.find_by_keyword("SOPClassUID")
+    end
+
+    test "finds PixelData" do
+      assert {:ok, {0x7FE0, 0x0010}, :OW, "1"} = Registry.find_by_keyword("PixelData")
+    end
+
+    test "returns :error for unknown keyword" do
+      assert :error = Registry.find_by_keyword("NonExistentKeyword")
+    end
+
+    test "returns :error for empty string" do
+      assert :error = Registry.find_by_keyword("")
+    end
+  end
+
+  describe "retired?/1" do
+    test "returns true for known retired tags" do
+      # LengthToEnd (0008,0001) is retired
+      assert Registry.retired?({0x0008, 0x0001})
+      # RecognitionCode (0008,0010) is retired
+      assert Registry.retired?({0x0008, 0x0010})
+    end
+
+    test "returns false for active tags" do
+      refute Registry.retired?({0x0010, 0x0010})
+      refute Registry.retired?({0x0008, 0x0016})
+      refute Registry.retired?({0x7FE0, 0x0010})
+    end
+
+    test "returns false for unknown tags" do
+      refute Registry.retired?({0x0009, 0x0010})
+    end
+  end
+
+  describe "curve repeating group tags (50XX)" do
+    test "resolves CurveData" do
+      assert {:ok, "CurveData", :OW, "1"} = Registry.lookup({0x5000, 0x3000})
+      assert {:ok, "CurveData", :OW, "1"} = Registry.lookup({0x5002, 0x3000})
+      assert {:ok, "CurveData", :OW, "1"} = Registry.lookup({0x501E, 0x3000})
+    end
+
+    test "resolves CurveDimensions" do
+      assert {:ok, "CurveDimensions", :US, "1"} = Registry.lookup({0x5000, 0x0005})
+    end
+
+    test "rejects out-of-range curve group" do
+      assert :error = Registry.lookup({0x5020, 0x3000})
+    end
+
+    test "rejects odd curve group" do
+      assert :error = Registry.lookup({0x5001, 0x3000})
+    end
+  end
+
+  describe "waveform repeating group tags (7FXX)" do
+    test "resolves VariablePixelData" do
+      assert {:ok, _name, _vr, _vm} = Registry.lookup({0x7F00, 0x0010})
+      assert {:ok, _name, _vr, _vm} = Registry.lookup({0x7F02, 0x0010})
+    end
+
+    test "rejects out-of-range waveform group" do
+      assert :error = Registry.lookup({0x7F20, 0x0010})
     end
   end
 
