@@ -157,6 +157,74 @@ defmodule Dicom.BenchmarkTest do
     end
   end
 
+  describe "stream parse throughput" do
+    test "stream-parses a 50-element data set efficiently" do
+      binary = build_large_p10(50)
+      {:ok, _} = binary |> Dicom.P10.Stream.parse() |> Dicom.P10.Stream.to_data_set()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..1000 do
+            binary |> Dicom.P10.Stream.parse() |> Dicom.P10.Stream.to_data_set()
+          end
+        end)
+
+      avg_us = time_us / 1000
+      IO.puts("\n  [bench] stream parse 50-elem: #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 2000
+    end
+
+    test "stream-parses a 200-element data set efficiently" do
+      binary = build_large_p10(200)
+      {:ok, _} = binary |> Dicom.P10.Stream.parse() |> Dicom.P10.Stream.to_data_set()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..500 do
+            binary |> Dicom.P10.Stream.parse() |> Dicom.P10.Stream.to_data_set()
+          end
+        end)
+
+      avg_us = time_us / 500
+      IO.puts("\n  [bench] stream parse 200-elem: #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 10000
+    end
+
+    test "stream-parses data set with sequences efficiently" do
+      binary = build_p10_with_sequences(10, 5)
+      {:ok, _} = binary |> Dicom.P10.Stream.parse() |> Dicom.P10.Stream.to_data_set()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..500 do
+            binary |> Dicom.P10.Stream.parse() |> Dicom.P10.Stream.to_data_set()
+          end
+        end)
+
+      avg_us = time_us / 500
+      IO.puts("\n  [bench] stream parse 10-seq×5-items: #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 10000
+    end
+
+    test "stream event enumeration (no materialization) is fast" do
+      binary = build_large_p10(200)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..500 do
+            binary
+            |> Dicom.P10.Stream.parse()
+            |> Stream.filter(&match?({:element, _}, &1))
+            |> Enum.count()
+          end
+        end)
+
+      avg_us = time_us / 500
+      IO.puts("\n  [bench] stream enumerate 200-elem: #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 10000
+    end
+  end
+
   describe "Dictionary.Registry.lookup hot path" do
     test "dictionary lookup throughput" do
       tags = [

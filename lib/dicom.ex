@@ -57,6 +57,40 @@ defmodule Dicom do
   end
 
   @doc """
+  Parses a DICOM P10 binary into a lazy stream of events.
+
+  Returns an `Enumerable` that emits `Dicom.P10.Stream.Event` values as the
+  binary is traversed. Use with `Enum` or `Stream` functions.
+
+  ## Examples
+
+      events = Dicom.stream_parse(binary)
+      tags = events
+             |> Stream.filter(&match?({:element, _}, &1))
+             |> Enum.map(fn {:element, elem} -> elem.tag end)
+  """
+  @spec stream_parse(binary()) :: Enumerable.t()
+  def stream_parse(binary) when is_binary(binary) do
+    Dicom.P10.Stream.parse(binary)
+  end
+
+  @doc """
+  Parses a DICOM P10 file into a lazy stream of events.
+
+  Opens the file and streams events lazily. The file handle is closed
+  when the stream is fully consumed or halted.
+
+  ## Examples
+
+      events = Dicom.stream_parse_file("/path/to/image.dcm")
+      {:ok, data_set} = Dicom.P10.Stream.to_data_set(events)
+  """
+  @spec stream_parse_file(Path.t(), keyword()) :: Enumerable.t()
+  def stream_parse_file(path, opts \\ []) do
+    Dicom.P10.Stream.parse_file(path, opts)
+  end
+
+  @doc """
   Serializes a `Dicom.DataSet` to DICOM P10 binary format.
   """
   @spec write(Dicom.DataSet.t()) :: {:ok, binary()}

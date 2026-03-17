@@ -201,6 +201,14 @@ defmodule Dicom.ValueTest do
       data = <<1, 2, 3, 4>>
       assert Value.decode(data, :UN) == data
     end
+
+    test "UI with all-null bytes trims to empty" do
+      assert Value.decode(<<0, 0, 0>>, :UI) == ""
+    end
+
+    test "PN with all-space bytes trims to empty" do
+      assert Value.decode(<<"   ">>, :PN) == ""
+    end
   end
 
   describe "encode/2 64-bit types" do
@@ -218,6 +226,68 @@ defmodule Dicom.ValueTest do
       assert Value.decode(<<512::big-16>>, :US, :big) == 512
     end
 
+    test "US decodes big-endian multi-value" do
+      assert Value.decode(<<1::big-16, 2::big-16>>, :US, :big) == [1, 2]
+    end
+
+    test "SS decodes big-endian values" do
+      assert Value.decode(<<-1::big-signed-16>>, :SS, :big) == -1
+    end
+
+    test "SS decodes big-endian multi-value" do
+      assert Value.decode(<<-1::big-signed-16, 42::big-signed-16>>, :SS, :big) == [-1, 42]
+    end
+
+    test "UL decodes big-endian values" do
+      assert Value.decode(<<100_000::big-32>>, :UL, :big) == 100_000
+    end
+
+    test "UL decodes big-endian multi-value" do
+      assert Value.decode(<<100::big-32, 200::big-32>>, :UL, :big) == [100, 200]
+    end
+
+    test "SL decodes big-endian values" do
+      assert Value.decode(<<-100::big-signed-32>>, :SL, :big) == -100
+    end
+
+    test "SL decodes big-endian multi-value" do
+      assert Value.decode(<<-50::big-signed-32, 50::big-signed-32>>, :SL, :big) == [-50, 50]
+    end
+
+    test "FL decodes big-endian values" do
+      assert_in_delta Value.decode(<<1.5::big-float-32>>, :FL, :big), 1.5, 0.001
+    end
+
+    test "FL decodes big-endian multi-value" do
+      result = Value.decode(<<1.0::big-float-32, 2.0::big-float-32>>, :FL, :big)
+      assert is_list(result) and length(result) == 2
+    end
+
+    test "FD decodes big-endian values" do
+      assert_in_delta Value.decode(<<3.14::big-float-64>>, :FD, :big), 3.14, 0.00001
+    end
+
+    test "FD decodes big-endian multi-value" do
+      result = Value.decode(<<1.0::big-float-64, 2.0::big-float-64>>, :FD, :big)
+      assert is_list(result) and length(result) == 2
+    end
+
+    test "UV decodes big-endian values" do
+      assert Value.decode(<<42::big-unsigned-64>>, :UV, :big) == 42
+    end
+
+    test "UV decodes big-endian multi-value" do
+      assert Value.decode(<<1::big-unsigned-64, 2::big-unsigned-64>>, :UV, :big) == [1, 2]
+    end
+
+    test "SV decodes big-endian values" do
+      assert Value.decode(<<-100::big-signed-64>>, :SV, :big) == -100
+    end
+
+    test "SV decodes big-endian multi-value" do
+      assert Value.decode(<<-1::big-signed-64, 1::big-signed-64>>, :SV, :big) == [-1, 1]
+    end
+
     test "AT decodes big-endian tag tuples" do
       assert Value.decode(<<0x0010::big-16, 0x0010::big-16>>, :AT, :big) == {0x0010, 0x0010}
     end
@@ -226,6 +296,34 @@ defmodule Dicom.ValueTest do
   describe "encode/3 endianness-aware numeric encoding" do
     test "US encodes big-endian values" do
       assert Value.encode(512, :US, :big) == <<512::big-16>>
+    end
+
+    test "SS encodes big-endian values" do
+      assert Value.encode(-1, :SS, :big) == <<-1::big-signed-16>>
+    end
+
+    test "UL encodes big-endian values" do
+      assert Value.encode(100_000, :UL, :big) == <<100_000::big-32>>
+    end
+
+    test "SL encodes big-endian values" do
+      assert Value.encode(-100, :SL, :big) == <<-100::big-signed-32>>
+    end
+
+    test "FL encodes big-endian values" do
+      assert Value.encode(1.5, :FL, :big) == <<1.5::big-float-32>>
+    end
+
+    test "FD encodes big-endian values" do
+      assert Value.encode(3.14, :FD, :big) == <<3.14::big-float-64>>
+    end
+
+    test "UV encodes big-endian values" do
+      assert Value.encode(42, :UV, :big) == <<42::big-unsigned-64>>
+    end
+
+    test "SV encodes big-endian values" do
+      assert Value.encode(-100, :SV, :big) == <<-100::big-signed-64>>
     end
 
     test "AT encodes big-endian tag tuples" do

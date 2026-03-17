@@ -10,8 +10,23 @@ releases have been cut yet.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-17
+
 ### Added
 
+- Streaming DICOM P10 parser via `Dicom.P10.Stream` with lazy, event-based parsing
+  - `Dicom.stream_parse/1` and `Dicom.stream_parse_file/2` convenience functions
+  - `Dicom.P10.Stream.parse/1` for in-memory binary streaming (`Stream.unfold/2`)
+  - `Dicom.P10.Stream.parse_file/2` for file I/O streaming (`Stream.resource/3`)
+  - `Dicom.P10.Stream.to_data_set/1` to materialize a stream into a `DataSet`
+  - Event types: `:file_meta_start`, `{:file_meta_end, ts_uid}`, `{:element, elem}`,
+    `{:sequence_start, tag, length}`, `:sequence_end`, `{:item_start, length}`,
+    `:item_end`, `{:pixel_data_start, tag, vr}`, `{:pixel_data_fragment, index, binary}`,
+    `:pixel_data_end`, `:end`, `{:error, reason}`
+  - Source abstraction (`Dicom.P10.Stream.Source`) for binary and file I/O with
+    64 KB read-ahead buffering
+  - State machine parser (`Dicom.P10.Stream.Parser`) supporting all 4 transfer
+    syntaxes, sequences, items, and encapsulated pixel data
 - BEAM DICOM library comparison table in the README covering licensing, features,
   test coverage, and CI status
 - **Comprehensive PS3.6 data dictionary** — expanded from ~95 hand-written entries
@@ -46,7 +61,8 @@ releases have been cut yet.
   `{:error, :unknown_transfer_syntax}` for unrecognized UIDs instead of silently
   falling back to Explicit VR Little Endian. Use `encoding(uid, lenient: true)` to
   opt in to the old fallback behavior. Reader and writer now propagate this error.
-- Expanded test suite to 323 tests (from 269) with 100% coverage maintained
+- Expanded test coverage to 448 tests (streaming, big-endian numeric value
+  decode/encode, eager path, edge cases, property-based equivalence) at 91%+ coverage
 
 ## [0.1.0] - 2026-03-17
 
@@ -86,5 +102,6 @@ releases have been cut yet.
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/cdd216b7adc62cb8282f7a150130f7b51d7e724f...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Balneario-de-Cofrentes/dicom/commit/cdd216b7adc62cb8282f7a150130f7b51d7e724f

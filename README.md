@@ -14,6 +14,7 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 
 - **P10 file parsing** -- read DICOM Part 10 files into structured data sets
 - **P10 file writing** -- serialize data sets back to conformant P10 files
+- **Streaming parser** -- lazy, event-based parsing for large files and pipelines
 - **Data dictionary** -- comprehensive PS3.6 tag registry (5032 entries) with VR and VM definitions
 - **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1, UTF-8, ISO 8859-2..9)
 - **Value decoding** -- automatic VR-aware decoding (numeric, string, date, UID, etc.)
@@ -30,7 +31,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.1.0"}
+    {:dicom, "~> 0.2.0"}
   ]
 end
 ```
@@ -66,11 +67,29 @@ ds = Dicom.DataSet.new()
 {:ok, parsed} = Dicom.parse(binary)
 ```
 
+### Streaming
+
+```elixir
+# Stream events lazily from a file (constant memory)
+events = Dicom.stream_parse_file("/path/to/large_image.dcm")
+
+# Filter for specific tags without loading the entire file
+patient_tags =
+  events
+  |> Stream.filter(&match?({:element, %{tag: {0x0010, _}}}, &1))
+  |> Enum.map(fn {:element, elem} -> {elem.tag, elem.value} end)
+
+# Or materialize back into a DataSet
+{:ok, data_set} =
+  Dicom.stream_parse(binary)
+  |> Dicom.P10.Stream.to_data_set()
+```
+
 ## Architecture
 
 ```
 lib/dicom/
-  dicom.ex              -- Public API: parse/1, parse_file/1, write/1, write_file/2
+  dicom.ex              -- Public API: parse, write, stream_parse, stream_parse_file
   data_set.ex           -- DataSet struct (elements + file meta)
   data_element.ex       -- DataElement struct (tag + VR + value + length)
   tag.ex                -- Tag constants and utilities
@@ -83,6 +102,11 @@ lib/dicom/
     reader.ex           -- P10 binary parser (preamble, file meta, data set)
     writer.ex           -- P10 binary serializer (iodata pipeline)
     file_meta.ex        -- Preamble validation and File Meta Information
+    stream.ex           -- Streaming API: parse/1, parse_file/2, to_data_set/1
+    stream/
+      event.ex          -- Event type definitions
+      source.ex         -- Data source abstraction (binary + file I/O)
+      parser.ex         -- State machine: preamble -> file_meta -> data_set -> done
   dictionary/
     registry.ex         -- PS3.6 tag -> {name, VR, VM} lookup (5032 entries)
 ```
@@ -116,6 +140,9 @@ Benchmarked on Apple Silicon (Elixir 1.18, OTP 27):
 |-----------|-----------|
 | Parse 50-element data set | ~10 us |
 | Parse 200-element data set | ~50 us |
+| Stream parse 50 elements | ~20 us |
+| Stream parse 200 elements | ~80 us |
+| Stream enumerate 200 elements | ~55 us |
 | Write 50-element data set | ~13 us |
 | Write 200-element data set | ~55 us |
 | Roundtrip 100 elements | ~37 us |
@@ -126,13 +153,13 @@ Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 ## Testing
 
 ```bash
-mix test              # Run all tests (323 tests)
-mix test --cover      # Run with coverage report (100%)
+mix test              # Run all tests (448 tests)
+mix test --cover      # Run with coverage report (91%+)
 mix format --check-formatted
 ```
 
 Property-based tests using [StreamData](https://hex.pm/packages/stream_data)
-verify encode/decode roundtrips across all VR types.
+verify encode/decode roundtrips across all VR types and streaming parser equivalence.
 
 ## Comparison with Other BEAM DICOM Libraries
 
@@ -151,10 +178,10 @@ verify encode/decode roundtrips across all VR types.
 | **UID validation** | Yes | No | No | No | No |
 | **File Meta validation** | Yes | No | No | No | No |
 | **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
-| **Streaming** | No | No | No | Yes | No |
+| **Streaming** | Yes | No | No | Yes | No |
 | **DICOM JSON** | No | No | No | Yes | No |
 | **Anonymization** | No | No | No | Yes | No |
-| **Test suite** | 323 tests, 100% coverage | Unknown | 5 tests | Unknown | 3 tests |
+| **Test suite** | 448 tests, 91%+ coverage | Unknown | 5 tests | Unknown | 3 tests |
 | **CI** | Passing | None | None | Failing | Failing |
 | **Docs** | Full @doc + @moduledoc | None | None | HexDocs | None |
 
