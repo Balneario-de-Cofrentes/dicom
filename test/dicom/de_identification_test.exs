@@ -163,6 +163,24 @@ defmodule Dicom.DeIdentificationTest do
       assert DataSet.get(result, Tag.study_instance_uid()) == uid_map[orig_study]
     end
 
+    test "replaces Media Storage SOP Instance UID consistently with SOP Instance UID" do
+      shared_uid = "1.2.3.4.5.6.7.8.9.12"
+
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0002, 0x0003}, :UI, shared_uid)
+        |> DataSet.put(Tag.sop_instance_uid(), :UI, shared_uid)
+
+      {:ok, result, uid_map} = DeIdentification.apply(ds)
+
+      new_file_meta_uid = DataSet.get(result, {0x0002, 0x0003})
+      new_sop_instance_uid = DataSet.get(result, Tag.sop_instance_uid())
+
+      assert new_file_meta_uid != shared_uid
+      assert new_file_meta_uid == new_sop_instance_uid
+      assert uid_map[shared_uid] == new_file_meta_uid
+    end
+
     test "keeps modality (action K)" do
       ds = sample_data_set()
       {:ok, result, _uid_map} = DeIdentification.apply(ds)
@@ -216,6 +234,14 @@ defmodule Dicom.DeIdentificationTest do
                DataSet.get(ds, Tag.study_instance_uid())
 
       assert uid_map == %{}
+    end
+
+    test "keeps Media Storage SOP Instance UID unchanged" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_uids: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, {0x0002, 0x0003}) == DataSet.get(ds, {0x0002, 0x0003})
     end
   end
 

@@ -406,18 +406,22 @@ defmodule Dicom.DeIdentification do
   # ── Processing pipeline ───────────────────────────────────────
 
   defp process_elements(%DataSet{} = ds, profile, uid_map) do
-    {new_elements, uid_map} =
-      Enum.reduce(ds.elements, {%{}, uid_map}, fn {tag, elem}, {acc, umap} ->
-        action = action_for(tag, profile)
-        {new_elem, umap} = apply_action(action, elem, profile, umap)
+    {new_file_meta, uid_map} = process_element_map(ds.file_meta, profile, uid_map)
+    {new_elements, uid_map} = process_element_map(ds.elements, profile, uid_map)
 
-        case new_elem do
-          nil -> {acc, umap}
-          elem -> {Map.put(acc, tag, elem), umap}
-        end
-      end)
+    {%{ds | file_meta: new_file_meta, elements: new_elements}, uid_map}
+  end
 
-    {%{ds | elements: new_elements}, uid_map}
+  defp process_element_map(elements, profile, uid_map) do
+    Enum.reduce(elements, {%{}, uid_map}, fn {tag, elem}, {acc, umap} ->
+      action = action_for(tag, profile)
+      {new_elem, umap} = apply_action(action, elem, profile, umap)
+
+      case new_elem do
+        nil -> {acc, umap}
+        elem -> {Map.put(acc, tag, elem), umap}
+      end
+    end)
   end
 
   defp apply_action(:D, %DataElement{} = elem, _profile, uid_map) do
