@@ -15,10 +15,13 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 - **P10 file parsing** -- read DICOM Part 10 files into structured data sets
 - **P10 file writing** -- serialize data sets back to conformant P10 files
 - **Streaming parser** -- lazy, event-based parsing for large files and pipelines
-- **Data dictionary** -- comprehensive PS3.6 tag registry (5032 entries) with VR and VM definitions
-- **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1, UTF-8, ISO 8859-2..9)
+- **Data dictionary** -- comprehensive PS3.6 tag registry (5,035 entries) with VR, VM, keyword lookup, and retired flags
+- **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb
+- **Pixel data frames** -- extract individual frames from native and encapsulated pixel data (PS3.5 Section A.4)
+- **De-identification** -- anonymize data sets per PS3.15 Basic Profile with 10 option columns and consistent UID replacement
+- **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1 through Latin-5, Cyrillic, Arabic, Greek, Hebrew, JIS X 0201, UTF-8)
 - **Value decoding** -- automatic VR-aware decoding (numeric, string, date, UID, etc.)
-- **Transfer syntaxes** -- 29 registered transfer syntaxes; strict rejection of unknown UIDs with opt-in lenient mode
+- **Transfer syntaxes** -- all 62 DICOM transfer syntaxes (49 active + 13 retired); strict rejection of unknown UIDs with opt-in lenient mode
 - **Sequences** -- defined-length and undefined-length SQ with nested items
 - **Encapsulated pixel data** -- fragments with Basic Offset Table
 - **Validation** -- File Meta Information validation per PS3.10 Section 7.1
@@ -31,7 +34,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.2.0"}
+    {:dicom, "~> 0.3.0"}
   ]
 end
 ```
@@ -96,8 +99,15 @@ lib/dicom/
   vr.ex                 -- Value Representation types and padding
   uid.ex                -- UID constants, generation, and validation
   value.ex              -- VR-aware value encoding and decoding
-  transfer_syntax.ex    -- Transfer syntax registry (29 TSes) and encoding dispatch
+  transfer_syntax.ex    -- Transfer syntax registry (62 TSes) and encoding dispatch
   character_set.ex      -- Specific Character Set decoding (0008,0005)
+  character_set/
+    tables.ex           -- ISO 8859-{2..9} and JIS X 0201 lookup tables
+  json.ex               -- DICOM JSON model encoder/decoder (PS3.18 Annex F.2)
+  pixel_data.ex         -- Pixel data frame extraction (PS3.5 Section A.4)
+  de_identification.ex  -- De-identification / anonymization (PS3.15 Table E.1-1)
+  de_identification/
+    profile.ex          -- Profile options struct (10 boolean columns)
   p10/
     reader.ex           -- P10 binary parser (preamble, file meta, data set)
     writer.ex           -- P10 binary serializer (iodata pipeline)
@@ -108,16 +118,18 @@ lib/dicom/
       source.ex         -- Data source abstraction (binary + file I/O)
       parser.ex         -- State machine: preamble -> file_meta -> data_set -> done
   dictionary/
-    registry.ex         -- PS3.6 tag -> {name, VR, VM} lookup (5032 entries)
+    registry.ex         -- PS3.6 tag -> {name, VR, VM} lookup (5,035 entries)
 ```
 
 ## DICOM Standard Coverage
 
 | Part | Title | Coverage |
 |------|-------|----------|
-| PS3.5 | Data Structures and Encoding | VR types, transfer syntaxes, data encoding, sequences |
-| PS3.6 | Data Dictionary | Comprehensive tag registry (5032 entries from PS3.6) |
+| PS3.5 | Data Structures and Encoding | VR types, 62 transfer syntaxes, data encoding, sequences, pixel data frame extraction |
+| PS3.6 | Data Dictionary | Comprehensive tag registry (5,035 entries), keyword lookup, retired flags |
 | PS3.10 | Media Storage and File Format | P10 read/write, File Meta Information, preamble |
+| PS3.15 | Security and System Management | Basic Application Level Confidentiality Profile (de-identification) |
+| PS3.18 | Web Services | DICOM JSON model encoding/decoding (Annex F.2) |
 
 ### Transfer Syntaxes
 
@@ -127,7 +139,7 @@ lib/dicom/
 | Explicit VR Little Endian (1.2.840.10008.1.2.1) | Yes | Yes |
 | Deflated Explicit VR Little Endian (1.2.840.10008.1.2.1.99) | Yes | Yes |
 | Explicit VR Big Endian (1.2.840.10008.1.2.2, retired) | Yes | Yes |
-| JPEG, JPEG-LS, JPEG 2000, RLE, MPEG, HEVC, HTJ2K (25 compressed TSes) | Metadata only | Metadata only |
+| JPEG, JPEG-LS, JPEG 2000, JPEG XL, RLE, MPEG, HEVC, HTJ2K, SMPTE (58 TSes) | Metadata only | Metadata only |
 
 Unknown transfer syntaxes are rejected by default. Use `TransferSyntax.encoding(uid, lenient: true)`
 to fall back to Explicit VR Little Endian for unrecognized UIDs.
@@ -153,7 +165,7 @@ Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 ## Testing
 
 ```bash
-mix test              # Run all tests (448 tests)
+mix test              # Run all tests (621 tests)
 mix test --cover      # Run with coverage report (91%+)
 mix format --check-formatted
 ```
@@ -173,31 +185,31 @@ Five DICOM libraries exist for the BEAM. Only three are published to Hex.pm.
 | **Runtime deps** | 0 | 0 | 0 | 6 | 2 |
 | **P10 parse** | Yes | Yes | Yes | Yes | Basic |
 | **P10 write** | Yes | Yes | No | Yes | No |
-| **Transfer syntaxes** | 29 | 3 | 3 | 47 | 3 |
+| **Transfer syntaxes** | 62 (49 active + 13 retired) | 3 | 3 | 47 | 3 |
 | **Sequences (SQ)** | Yes | Yes | Yes | Yes | Yes |
-| **Tag dictionary** | 5,032 tags | 5,249 tags | None | 13,689 tags | None |
+| **Tag dictionary** | 5,035 tags | 5,249 tags | None | 13,689 tags | None |
 | **UID generation** | Yes | Yes | No | No | No |
 | **UID validation** | Yes | No | No | No | No |
 | **File Meta validation** | Yes | Partial | Partial | Yes | Yes |
-| **Character sets** | Partial (Latin, UTF-8) | No | No | Full (CJK, GB18030) | No |
+| **Character sets** | ISO 8859-{1..9}, JIS X 0201, UTF-8 | No | No | Full (CJK, GB18030) | No |
 | **Value decoding** | Yes (36 VRs) | Yes | Basic | Yes | Yes (25 VRs) |
 | **Streaming parser** | Yes | No | No | Yes | No |
 | **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
-| **DICOM JSON** | No | No | No | Yes | No |
-| **Anonymization** | No | No | No | Yes | No |
-| **Pixel data frames** | No | No | No | Yes | No |
-| **Test suite** | 448 tests, 91%+ cov | Unknown | 1 test file | 39 test files | 80+ tests |
+| **DICOM JSON** | Yes (PS3.18 F.2) | No | No | Yes | No |
+| **Anonymization** | Yes (PS3.15 Basic Profile) | No | No | Yes | No |
+| **Pixel data frames** | Yes (native + encapsulated) | No | No | Yes | No |
+| **Test suite** | 621 tests, 91%+ cov | Unknown | 1 test file | 39 test files | 80+ tests |
 | **CI** | Passing | None | None | Failing | Failing |
 | **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
 | **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |
 | **Gleam toolchain** | Not required | Not required | Not required | Required | Not required |
 
 **dicom** is the most complete pure-Elixir DICOM library: zero dependencies,
-streaming + read + write, 29 transfer syntaxes, and MIT-licensed. DCMfx has the
-richest feature set overall (DICOM JSON, anonymization, pixel data extraction,
-47 transfer syntaxes) but requires the Gleam toolchain, carries AGPL-3.0
-licensing, and is not published to Hex.pm. For DIMSE networking, `dicom_ex`
-provides C-ECHO/C-FIND/C-STORE SCP support.
+streaming + read + write, DICOM JSON, anonymization, pixel data extraction,
+62 transfer syntaxes, and MIT-licensed. DCMfx has a larger tag dictionary
+and full CJK character set support but requires the Gleam toolchain, carries
+AGPL-3.0 licensing, and is not published to Hex.pm. For DIMSE networking,
+`dicom_ex` provides C-ECHO/C-FIND/C-STORE SCP support.
 
 ## AI-Assisted Development
 

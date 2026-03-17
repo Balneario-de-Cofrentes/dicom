@@ -10,6 +10,51 @@ releases have been cut yet.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-17
+
+### Added
+
+- **62 transfer syntaxes** — expanded from 29 to all 49 active + 13 retired
+  DICOM transfer syntaxes. New fields: `retired` and `fragmentable` flags.
+  New functions: `retired?/1`, `fragmentable?/1`, `active/0`.
+- **Complete PS3.6 tag dictionary** — 5,035 entries generated from innolitics
+  `attributes.json` via `mix dicom.gen_dictionary`. Keyword reverse lookup
+  with `find_by_keyword/1`, retired tag detection with `retired?/1`, and
+  expanded repeating group support (50XX curve, 60XX overlay, 7FXX waveform).
+- **DICOM JSON model** (`Dicom.Json`) — encode/decode DataSets to/from the
+  DICOM JSON format (PS3.18 Annex F.2) for DICOMweb. Supports all VR types,
+  Person Name component groups, sequence recursion, InlineBinary (base64),
+  and BulkDataURI callbacks. Zero runtime dependencies — produces plain maps.
+- **Pixel data frame extraction** (`Dicom.PixelData`) — extract individual
+  frames from native and encapsulated pixel data (PS3.5 Section A.4).
+  O(1) native frame access via `binary_part/3`. Encapsulated support with
+  Basic Offset Table, fragment-per-frame convention, and single-frame
+  concatenation. Functions: `frames/1`, `frame/2`, `frame_count/1`,
+  `encapsulated?/1`.
+- **De-identification / anonymization** (`Dicom.DeIdentification`) — Basic
+  Application Level Confidentiality Profile (PS3.15 Table E.1-1) with action
+  codes D, Z, X, K, C, U. Consistent UID replacement across elements.
+  Configurable profile with 10 boolean options. Recursive SQ processing and
+  private tag stripping.
+- **ISO 8859-{2..9} full lookup tables** — replaced identity mapping with
+  correct Unicode codepoint tables for all 8 ISO 8859 variants.
+- **JIS X 0201 character set** — `ISO_IR 13` support for Roman + half-width
+  Katakana decoding.
+- Mix task `mix dicom.gen_dictionary` for regenerating the tag dictionary
+  from the innolitics DICOM standard JSON source.
+
+### Changed
+
+- Expanded test suite to 621 tests (5 doctests, 4 property tests) at 91%+ coverage
+- VR module exposes `string_vrs/0`, `numeric_vrs/0`, `binary_vrs/0` list accessors
+- Transfer syntax `all/0` and `active/0` cached at compile time
+
+### Fixed
+
+- De-identification `:D` action now computes correct `byte_size` for dummy values
+- ISO 8859-4 table: removed erroneous `0xE3` mapping
+- Character set decoding DRYed with shared `decode_bytewise/3`
+
 ## [0.2.0] - 2026-03-17
 
 ### Added
@@ -102,6 +147,7 @@ releases have been cut yet.
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Balneario-de-Cofrentes/dicom/commit/cdd216b7adc62cb8282f7a150130f7b51d7e724f

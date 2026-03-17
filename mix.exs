@@ -1,7 +1,7 @@
 defmodule Dicom.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/Balneario-de-Cofrentes/dicom"
 
   def project do
@@ -40,7 +40,7 @@ defmodule Dicom.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md)
+      files: ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md)
     ]
   end
 
