@@ -103,6 +103,20 @@ defmodule Dicom.P10.WriterTest do
       assert {:error, {:missing_required_meta, {0x0002, 0x0010}}} =
                Dicom.P10.Writer.serialize(ds)
     end
+
+    test "returns an error when a required UID value is empty" do
+      ds = put_file_meta(minimal_data_set(), {0x0002, 0x0010}, :UI, "")
+
+      assert {:error, {:invalid_meta_value, {0x0002, 0x0010}}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "returns an error when a required UID value is not valid" do
+      ds = put_file_meta(minimal_data_set(), {0x0002, 0x0003}, :UI, "not-a-uid")
+
+      assert {:error, {:invalid_uid_in_file_meta, {0x0002, 0x0003}}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
   end
 
   describe "validate_file_meta/1" do
@@ -141,6 +155,27 @@ defmodule Dicom.P10.WriterTest do
                Dicom.P10.Writer.validate_file_meta(ds)
     end
 
+    test "returns error when a required UID value is empty" do
+      ds = put_file_meta(minimal_data_set(), {0x0002, 0x0010}, :UI, "")
+
+      assert {:error, {:invalid_meta_value, {0x0002, 0x0010}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when a required UID has the wrong VR" do
+      ds = put_file_meta(minimal_data_set(), {0x0002, 0x0002}, :LO, "1.2.840.10008.5.1.4.1.1.2")
+
+      assert {:error, {:invalid_meta_vr, {0x0002, 0x0002}, :UI}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when a required UID value is invalid" do
+      ds = put_file_meta(minimal_data_set(), {0x0002, 0x0003}, :UI, "not-a-uid")
+
+      assert {:error, {:invalid_uid_in_file_meta, {0x0002, 0x0003}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
     test "returns error when UN VR is used in file meta (PS3.10 7.1)" do
       ds = minimal_data_set()
       # Add a UN VR element to file meta
@@ -174,6 +209,23 @@ defmodule Dicom.P10.WriterTest do
       }
 
       assert :ok = Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when Private Information Creator UID is invalid" do
+      ds = minimal_data_set()
+      creator_elem = DataElement.new({0x0002, 0x0100}, :UI, "not-a-uid")
+      pi_elem = DataElement.new({0x0002, 0x0102}, :OB, <<1, 2, 3, 4>>)
+
+      ds = %{
+        ds
+        | file_meta:
+            ds.file_meta
+            |> Map.put({0x0002, 0x0100}, creator_elem)
+            |> Map.put({0x0002, 0x0102}, pi_elem)
+      }
+
+      assert {:error, {:invalid_uid_in_file_meta, {0x0002, 0x0100}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
     end
   end
 
@@ -257,6 +309,10 @@ defmodule Dicom.P10.WriterTest do
       %DataElement{value: value} -> value
       nil -> nil
     end
+  end
+
+  defp put_file_meta(%DataSet{} = ds, tag, vr, value) do
+    %{ds | file_meta: Map.put(ds.file_meta, tag, DataElement.new(tag, vr, value))}
   end
 
   describe "implementation version name" do

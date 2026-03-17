@@ -33,6 +33,14 @@ defmodule DicomTest do
       assert {:error, {:missing_required_meta, {0x0002, 0x0002}}} =
                Dicom.write(Dicom.DataSet.new())
     end
+
+    test "returns invalid UID errors for malformed file meta" do
+      ds =
+        minimal_data_set()
+        |> Dicom.DataSet.put({0x0002, 0x0003}, :UI, "not-a-uid")
+
+      assert {:error, {:invalid_uid_in_file_meta, {0x0002, 0x0003}}} = Dicom.write(ds)
+    end
   end
 
   describe "Dicom.parse_file/1 and write_file/2" do

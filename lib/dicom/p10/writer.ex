@@ -26,6 +26,16 @@ defmodule Dicom.P10.Writer do
     {0x0002, 0x0010}
   ]
 
+  @required_meta_specs %{
+    {0x0002, 0x0002} => :UI,
+    {0x0002, 0x0003} => :UI,
+    {0x0002, 0x0010} => :UI
+  }
+
+  @optional_uid_meta_specs %{
+    {0x0002, 0x0100} => :UI
+  }
+
   @doc """
   Validates that a data set contains all required File Meta Information elements.
 
@@ -34,11 +44,18 @@ defmodule Dicom.P10.Writer do
   - (0002,0003) Media Storage SOP Instance UID
   - (0002,0010) Transfer Syntax UID
   """
-  @spec validate_file_meta(DataSet.t()) :: :ok | {:error, {:missing_required_meta, Dicom.Tag.t()}}
+  @spec validate_file_meta(DataSet.t()) ::
+          :ok
+          | {:error, {:missing_required_meta, Dicom.Tag.t()}}
+          | {:error, {:invalid_meta_vr, Dicom.Tag.t(), atom()}}
+          | {:error, {:invalid_meta_value, Dicom.Tag.t()}}
+          | {:error, {:invalid_uid_in_file_meta, Dicom.Tag.t()}}
   def validate_file_meta(%DataSet{file_meta: file_meta}) do
     with :ok <- validate_required_tags(file_meta),
+         :ok <- validate_required_meta_values(file_meta),
          :ok <- validate_no_un_vr(file_meta),
-         :ok <- validate_private_information(file_meta) do
+         :ok <- validate_private_information(file_meta),
+         :ok <- validate_optional_uid_meta(file_meta) do
       :ok
     end
   end
@@ -49,6 +66,15 @@ defmodule Dicom.P10.Writer do
         {:cont, :ok}
       else
         {:halt, {:error, {:missing_required_meta, tag}}}
+      end
+    end)
+  end
+
+  defp validate_required_meta_values(file_meta) do
+    Enum.reduce_while(@required_meta_specs, :ok, fn {tag, expected_vr}, :ok ->
+      case validate_uid_meta_element(file_meta[tag], tag, expected_vr) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
       end
     end)
   end
@@ -69,6 +95,47 @@ defmodule Dicom.P10.Writer do
       :ok
     end
   end
+
+  defp validate_optional_uid_meta(file_meta) do
+    Enum.reduce_while(@optional_uid_meta_specs, :ok, fn {tag, expected_vr}, :ok ->
+      case Map.get(file_meta, tag) do
+        nil ->
+          {:cont, :ok}
+
+        element ->
+          case validate_uid_meta_element(element, tag, expected_vr) do
+            :ok -> {:cont, :ok}
+            error -> {:halt, error}
+          end
+      end
+    end)
+  end
+
+  defp validate_uid_meta_element(%DataElement{vr: vr}, tag, expected_vr) when vr != expected_vr do
+    {:error, {:invalid_meta_vr, tag, expected_vr}}
+  end
+
+  defp validate_uid_meta_element(%DataElement{value: value}, tag, _expected_vr) do
+    with {:ok, uid} <- normalize_uid_value(value, tag),
+         true <- Dicom.UID.valid?(uid) do
+      :ok
+    else
+      false -> {:error, {:invalid_uid_in_file_meta, tag}}
+      error -> error
+    end
+  end
+
+  defp normalize_uid_value(value, tag) when is_binary(value) do
+    uid = value |> String.trim_trailing(<<0>>) |> String.trim()
+
+    if uid == "" do
+      {:error, {:invalid_meta_value, tag}}
+    else
+      {:ok, uid}
+    end
+  end
+
+  defp normalize_uid_value(_value, tag), do: {:error, {:invalid_meta_value, tag}}
 
   @doc """
   Serializes a data set to P10 binary.
