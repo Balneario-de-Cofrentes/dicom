@@ -303,6 +303,25 @@ defmodule Dicom.DeIdentificationTest do
       assert DataSet.get(result, {0x0008, 0x002A}) == "20140315140000"
     end
 
+    test "retain_long_full_dates takes precedence over retain_long_modified_dates" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0008, 0x002A}, :DT, "20240315140000")
+
+      profile = %DeIdentification.Profile{
+        retain_long_full_dates: true,
+        retain_long_modified_dates: true
+      }
+
+      assert DeIdentification.action_for(Tag.study_date(), profile) == :K
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, Tag.study_date()) == "20240315"
+      assert DataSet.get(result, Tag.study_time()) == "140000"
+      assert DataSet.get(result, {0x0008, 0x002A}) == "20240315140000"
+    end
+
     test "clean_structured_content preserves SR structure and cleans values" do
       item = %{
         {0x0040, 0xA010} => DataElement.new({0x0040, 0xA010}, :CS, "CONTAINS"),

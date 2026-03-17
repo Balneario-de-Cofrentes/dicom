@@ -10,6 +10,10 @@ defmodule Dicom.DeIdentification do
   `retain_safe_private` flag is supported as a compatibility alias for the
   same behavior, but it does not implement PS3.15 safe-private semantics.
 
+  When multiple profile flags overlap, the implementation prefers the more
+  conservative override. For temporal tags, `retain_long_full_dates` wins over
+  `retain_long_modified_dates`.
+
   ## Action Codes
 
   - **D** — Replace with dummy value (per VR)
@@ -567,18 +571,6 @@ defmodule Dicom.DeIdentification do
        when tag in [{0x0008, 0x0080}, {0x0008, 0x0081}, {0x0008, 0x1040}],
        do: :K
 
-  defp apply_profile_overrides(action, tag, %__MODULE__.Profile{retain_long_full_dates: true}) do
-    if temporal_tag?(tag), do: :K, else: action
-  end
-
-  defp apply_profile_overrides(
-         action,
-         tag,
-         %__MODULE__.Profile{retain_long_modified_dates: true}
-       ) do
-    if temporal_tag?(tag), do: :M, else: action
-  end
-
   defp apply_profile_overrides(
          _action,
          tag,
@@ -603,6 +595,13 @@ defmodule Dicom.DeIdentification do
        when tag == {0x0070, 0x0006},
        do: :C
 
+  defp apply_profile_overrides(action, tag, %__MODULE__.Profile{} = profile) do
+    case temporal_override(profile, tag) do
+      nil -> action
+      override -> override
+    end
+  end
+
   defp apply_profile_overrides(action, _tag, _profile), do: action
 
   defp retain_private_tags?(%__MODULE__.Profile{
@@ -611,6 +610,16 @@ defmodule Dicom.DeIdentification do
        }) do
     retain_private_tags or retain_safe_private
   end
+
+  defp temporal_override(%__MODULE__.Profile{} = profile, tag) do
+    if temporal_tag?(tag), do: temporal_tag_override(profile), else: nil
+  end
+
+  defp temporal_tag_override(%__MODULE__.Profile{retain_long_full_dates: true}), do: :K
+
+  defp temporal_tag_override(%__MODULE__.Profile{retain_long_modified_dates: true}), do: :M
+
+  defp temporal_tag_override(%__MODULE__.Profile{}), do: nil
 
   defp temporal_tag?(tag) do
     tag in [

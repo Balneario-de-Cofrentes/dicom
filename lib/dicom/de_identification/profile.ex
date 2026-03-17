@@ -2,12 +2,16 @@ defmodule Dicom.DeIdentification.Profile do
   @moduledoc """
   De-identification profile options (PS3.15 Table E.1-1 option columns).
 
-  The 10 boolean options mirror the standard profile flags and are applied
-  to the supported tag set in `Dicom.DeIdentification`.
+  The 10 standard boolean options mirror the PS3.15 profile flags and are
+  applied to the supported tag set in `Dicom.DeIdentification`.
 
   `retain_private_tags` is a library-specific switch that retains all private
   tags. `retain_safe_private` is kept as a compatibility alias for the same
   behavior, but it does not implement the PS3.15 Retain Safe Private Option.
+
+  When overlapping options target the same tag, `Dicom.DeIdentification`
+  applies the more conservative override. For temporal tags, that means
+  `retain_long_full_dates` takes precedence over `retain_long_modified_dates`.
   """
 
   @type t :: %__MODULE__{
