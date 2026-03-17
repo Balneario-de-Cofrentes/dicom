@@ -18,7 +18,7 @@ defmodule Dicom.P10.Writer do
   @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
   @implementation_class_uid "1.2.826.0.1.3680043.10.1137"
-  @implementation_version_name "DICOM_EX_0.1.0"
+  @implementation_version_name "DICOM_EX_0.1.1"
 
   @required_meta_tags [
     {0x0002, 0x0002},
@@ -234,5 +234,4 @@ defmodule Dicom.P10.Writer do
 
   defp encode_u16(value, :little), do: <<value::little-16>>
   defp encode_u16(value, :big), do: <<value::big-16>>
-
 end

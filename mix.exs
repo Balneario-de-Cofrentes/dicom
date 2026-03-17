@@ -1,7 +1,7 @@
 defmodule Dicom.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/Balneario-de-Cofrentes/dicom"
 
   def project do
@@ -48,7 +48,7 @@ defmodule Dicom.MixProject do
     [
       main: "Dicom",
       extras: ["README.md", "CHANGELOG.md"],
-      source_ref: "v#{@version}"
+      source_ref: System.get_env("SOURCE_REF") || "master"
     ]
   end
 end

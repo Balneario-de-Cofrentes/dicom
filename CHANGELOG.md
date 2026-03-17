@@ -5,7 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Version boundaries below are reconstructed from git history. No git tags or GitHub
+releases have been cut yet.
+
 ## [Unreleased]
+
+### Added
+
+- BEAM DICOM library comparison table in the README covering licensing, features,
+  test coverage, and CI status
+
+### Fixed
+
+- Reject serialization when required File Meta Information is missing
+- Encode numeric values according to their VR width instead of forcing 32-bit
+  little-endian output
+- Respect transfer syntax endianness for numeric value encoding and decoding
+- Preserve leading spaces for padded text VRs such as `LT` and `UT`
+- Return `{:error, :unexpected_end}` for truncated defined-length sequence payloads
+  instead of crashing the parser
+- Tighten UID validation for invalid root arcs
+
+### Changed
+
+- Expanded regression coverage to 269 tests with the suite remaining at 100% coverage
 
 ## [0.1.0] - 2026-03-17
 
@@ -29,9 +52,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - File Meta Information validation per PS3.10 Section 7.1
 - Preamble validation and sanitization (PS3.10 Section 7.5)
 - Data Set Trailing Padding support (FFFC,FFFC)
+
+### Changed
+
+- Expanded PS3.10 support with compliance tests, deflated transfer syntax support,
+  sequence handling, additional VR coverage, and Explicit VR Big Endian support
+- Hardened parsing and validation around malformed input, edge cases, and file meta handling
+- Optimized hot paths in the reader, writer, transfer syntax registry, and VR utilities
+- Prepared the project for public release with CI, licensing, contribution policy,
+  security policy, and open-source documentation
+
+### Performance
+
 - Performance benchmarks (parse, write, roundtrip, VR lookup)
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Balneario-de-Cofrentes/dicom/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/cdd216b7adc62cb8282f7a150130f7b51d7e724f...HEAD
+[0.1.0]: https://github.com/Balneario-de-Cofrentes/dicom/commit/cdd216b7adc62cb8282f7a150130f7b51d7e724f
