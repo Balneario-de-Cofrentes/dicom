@@ -21,6 +21,7 @@ defmodule Dicom.PixelData do
   def encapsulated?(%DataSet{} = ds) do
     case get_pixel_element(ds) do
       %DataElement{value: fragments} when is_list(fragments) -> true
+      %DataElement{value: {:encapsulated, fragments}} when is_list(fragments) -> true
       _ -> false
     end
   end
@@ -60,6 +61,9 @@ defmodule Dicom.PixelData do
       %DataElement{value: fragments} when is_list(fragments) ->
         extract_encapsulated_frames(fragments, ds)
 
+      %DataElement{value: {:encapsulated, fragments}} when is_list(fragments) ->
+        extract_encapsulated_frames(fragments, ds)
+
       %DataElement{value: data} when is_binary(data) ->
         extract_native_frames(data, ds)
     end
@@ -80,13 +84,10 @@ defmodule Dicom.PixelData do
         extract_native_frame(data, ds, index)
 
       %DataElement{value: fragments} when is_list(fragments) ->
-        # For encapsulated data, fall back to extracting all frames
-        {:ok, all_frames} = extract_encapsulated_frames(fragments, ds)
+        extract_encapsulated_frame(fragments, ds, index)
 
-        case Enum.fetch(all_frames, index) do
-          {:ok, frame} -> {:ok, frame}
-          :error -> {:error, :frame_index_out_of_range}
-        end
+      %DataElement{value: {:encapsulated, fragments}} when is_list(fragments) ->
+        extract_encapsulated_frame(fragments, ds, index)
     end
   end
 
@@ -146,34 +147,66 @@ defmodule Dicom.PixelData do
     cols = decode_us(ds, Tag.columns(), 0)
     bits = decode_us(ds, Tag.bits_allocated(), 16)
     samples = decode_us(ds, Tag.samples_per_pixel(), 1)
-    rows * cols * div(bits, 8) * samples
+    ceil_div(rows * cols * bits * samples, 8)
   end
 
   # ── Encapsulated frame extraction ─────────────────────────────
 
   defp extract_encapsulated_frames([bot | fragments], ds) do
     num_frames = get_number_of_frames(ds)
-    bot_offsets = parse_bot(bot)
 
-    cond do
-      bot_offsets != [] and length(bot_offsets) == num_frames ->
-        group_fragments_by_bot(bot_offsets, fragments)
+    with {:ok, bot_offsets} <- parse_bot(bot) do
+      cond do
+        bot_offsets != [] and length(bot_offsets) != num_frames ->
+          {:error, :invalid_basic_offset_table}
 
-      num_frames == 1 ->
-        {:ok, [IO.iodata_to_binary(fragments)]}
+        bot_offsets != [] ->
+          group_fragments_by_bot(bot_offsets, fragments)
 
-      true ->
-        {:ok, fragments}
+        num_frames == 1 ->
+          {:ok, [IO.iodata_to_binary(fragments)]}
+
+        length(fragments) == num_frames ->
+          {:ok, fragments}
+
+        true ->
+          {:error, :invalid_pixel_data}
+      end
     end
   end
 
-  defp parse_bot(<<>>), do: []
+  defp extract_encapsulated_frames(_fragments, _ds), do: {:error, :invalid_pixel_data}
 
-  defp parse_bot(bot) when is_binary(bot) do
-    for <<offset::little-32 <- bot>>, do: offset
+  defp extract_encapsulated_frame(fragments, ds, index) do
+    case extract_encapsulated_frames(fragments, ds) do
+      {:ok, all_frames} ->
+        case Enum.fetch(all_frames, index) do
+          {:ok, frame} -> {:ok, frame}
+          :error -> {:error, :frame_index_out_of_range}
+        end
+
+      {:error, _} = error ->
+        error
+    end
   end
 
+  defp parse_bot(<<>>), do: {:ok, []}
+
+  defp parse_bot(bot) when is_binary(bot) and rem(byte_size(bot), 4) == 0 do
+    {:ok, for(<<offset::little-32 <- bot>>, do: offset)}
+  end
+
+  defp parse_bot(_bot), do: {:error, :invalid_basic_offset_table}
+
   defp group_fragments_by_bot(offsets, fragments) do
+    if offsets != Enum.sort(offsets) do
+      {:error, :invalid_basic_offset_table}
+    else
+      do_group_fragments_by_bot(offsets, fragments)
+    end
+  end
+
+  defp do_group_fragments_by_bot(offsets, fragments) do
     # Each offset marks the start of a frame in the fragment stream.
     # Fragment boundaries include 8-byte item headers (tag + length).
     indexed_frags = Enum.with_index(fragments)
@@ -187,20 +220,28 @@ defmodule Dicom.PixelData do
     # Group fragments by which frame they belong to
     frame_ranges = Enum.zip(offsets, Enum.drop(offsets, 1) ++ [:end])
 
-    frames =
-      Enum.map(frame_ranges, fn {start_offset, end_offset} ->
-        matching =
-          Enum.filter(frag_offsets, fn {offset, _frag} ->
-            offset >= start_offset and
-              (end_offset == :end or offset < end_offset)
-          end)
+    Enum.reduce_while(frame_ranges, {:ok, []}, fn {start_offset, end_offset}, {:ok, acc} ->
+      matching =
+        Enum.filter(frag_offsets, fn {offset, _frag} ->
+          offset >= start_offset and
+            (end_offset == :end or offset < end_offset)
+        end)
 
-        matching
-        |> Enum.map(fn {_offset, frag} -> frag end)
-        |> IO.iodata_to_binary()
-      end)
+      if matching == [] do
+        {:halt, {:error, :invalid_basic_offset_table}}
+      else
+        frame =
+          matching
+          |> Enum.map(fn {_offset, frag} -> frag end)
+          |> IO.iodata_to_binary()
 
-    {:ok, frames}
+        {:cont, {:ok, [frame | acc]}}
+      end
+    end)
+    |> case do
+      {:ok, frames} -> {:ok, Enum.reverse(frames)}
+      {:error, _} = error -> error
+    end
   end
 
   # ── Helpers ───────────────────────────────────────────────────
@@ -232,4 +273,7 @@ defmodule Dicom.PixelData do
       val when is_integer(val) -> val
     end
   end
+
+  defp ceil_div(0, _denominator), do: 0
+  defp ceil_div(numerator, denominator), do: div(numerator + denominator - 1, denominator)
 end

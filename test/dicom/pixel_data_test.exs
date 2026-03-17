@@ -128,6 +128,15 @@ defmodule Dicom.PixelDataTest do
       assert byte_size(frame) == 32 * 32
     end
 
+    test "handles bit-packed native data when BitsAllocated is 1" do
+      pixels = <<0b10101010, 0b11001100>>
+      ds = image_ds(4, 4, 1, 1, pixel_data: pixels)
+
+      assert {:ok, [frame]} = PixelData.frames(ds)
+      assert frame == pixels
+      assert byte_size(frame) == 2
+    end
+
     test "returns error for native pixel data shorter than declared geometry" do
       ds = image_ds(2, 2, 16, 1, frames: 2, pixel_data: <<0, 1, 2, 3, 4, 5, 6, 7>>)
       assert {:error, :invalid_pixel_data} = PixelData.frames(ds)
@@ -231,6 +240,44 @@ defmodule Dicom.PixelDataTest do
       assert Enum.at(frames, 0) == frag1a <> frag1b
       assert Enum.at(frames, 1) == frag2
     end
+
+    test "returns error when BOT offset count does not match NumberOfFrames" do
+      frag1 = :crypto.strong_rand_bytes(30)
+      frag2 = :crypto.strong_rand_bytes(30)
+      bot = <<0::little-32>>
+
+      ds = image_ds(10, 3, 8, 1, frames: 2)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [bot, frag1, frag2],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_basic_offset_table} = PixelData.frames(ds)
+    end
+
+    test "returns error when multi-frame encapsulated data without BOT cannot be split safely" do
+      frag1a = :crypto.strong_rand_bytes(30)
+      frag1b = :crypto.strong_rand_bytes(20)
+      frag2 = :crypto.strong_rand_bytes(40)
+
+      ds = image_ds(10, 5, 8, 1, frames: 2)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [<<>>, frag1a, frag1b, frag2],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_pixel_data} = PixelData.frames(ds)
+    end
   end
 
   # ── frame/2 - encapsulated pixel data ────────────────────────
@@ -322,7 +369,7 @@ defmodule Dicom.PixelDataTest do
   # ── encapsulated? with {:encapsulated, _} value ─────────────
 
   describe "encapsulated? with {:encapsulated, _} tuple" do
-    test "returns false for {:encapsulated, fragments} tuple (not list)" do
+    test "returns true for {:encapsulated, fragments} tuple" do
       ds = DataSet.new()
 
       elem = %DataElement{
@@ -333,8 +380,7 @@ defmodule Dicom.PixelDataTest do
       }
 
       ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
-      # {:encapsulated, _} is a tuple, not a list, so encapsulated? returns false
-      refute PixelData.encapsulated?(ds)
+      assert PixelData.encapsulated?(ds)
     end
   end
 
@@ -373,7 +419,7 @@ defmodule Dicom.PixelDataTest do
       elem = %DataElement{
         tag: Tag.pixel_data(),
         vr: :OB,
-        value: [<<>>, fragment],
+        value: {:encapsulated, [<<>>, fragment]},
         length: :undefined
       }
 
