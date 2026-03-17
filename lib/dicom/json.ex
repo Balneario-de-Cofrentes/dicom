@@ -558,17 +558,41 @@ defmodule Dicom.Json do
     end
   end
 
-  defp decode_charset_text!(_value, _vr, [_first, _second | _rest]) do
-    raise ArgumentError, "multi-valued SpecificCharacterSet is not supported for JSON export"
+  defp decode_charset_text!(value, _vr, [_first, _second | _rest]) do
+    if ascii_binary?(value) do
+      value
+    else
+      raise ArgumentError, "multi-valued SpecificCharacterSet is not supported for JSON export"
+    end
   end
 
   defp decode_charset_text!(value, vr, [charset]) do
-    case CharacterSet.decode(value, charset) do
-      {:ok, decoded} ->
-        decoded
+    if preserve_utf8_value?(value, charset) do
+      value
+    else
+      case CharacterSet.decode(value, charset) do
+        {:ok, decoded} ->
+          decoded
 
-      {:error, reason} ->
-        raise ArgumentError, "invalid text value for VR #{vr}: #{inspect(reason)}"
+        {:error, reason} ->
+          raise ArgumentError, "invalid text value for VR #{vr}: #{inspect(reason)}"
+      end
     end
   end
+
+  defp preserve_utf8_value?(value, _charset) when not is_binary(value), do: false
+
+  defp preserve_utf8_value?(value, charset) do
+    String.valid?(value) and
+      case String.trim(charset) do
+        "ISO_IR 13" -> not ascii_binary?(value)
+        "ISO_IR 192" -> true
+        "ISO_IR 6" -> ascii_binary?(value)
+        "ISO 2022 IR 6" -> ascii_binary?(value)
+        _ -> true
+      end
+  end
+
+  defp ascii_binary?(value) when is_binary(value),
+    do: Enum.all?(:binary.bin_to_list(value), &(&1 <= 0x7F))
 end

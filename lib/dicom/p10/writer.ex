@@ -299,8 +299,11 @@ defmodule Dicom.P10.Writer do
 
   defp parse_encapsulated_value_field(binary) do
     case parse_encapsulated_fragments(binary, []) do
-      {:ok, fragments, <<>>} when fragments != [] -> {:ok, fragments}
-      _ -> :error
+      {:ok, [bot | fragments], <<>>} when is_binary(bot) and fragments != [] ->
+        {:ok, [bot | fragments]}
+
+      _ ->
+        :error
     end
   end
 

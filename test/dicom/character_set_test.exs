@@ -19,6 +19,14 @@ defmodule Dicom.CharacterSetTest do
     test "accepts ISO 2022 IR 6 when no escape sequences are present" do
       assert {:ok, "TEST"} = CharacterSet.decode("TEST", "ISO 2022 IR 6")
     end
+
+    test "rejects non-ASCII bytes with nil charset" do
+      assert {:error, {:decode_failed, :ascii}} = CharacterSet.decode(<<0xC4>>, nil)
+    end
+
+    test "rejects non-ASCII bytes with ISO_IR 6" do
+      assert {:error, {:decode_failed, :ascii}} = CharacterSet.decode(<<0xC4>>, "ISO_IR 6")
+    end
   end
 
   describe "decode/2 — ISO_IR 100 (Latin-1)" do

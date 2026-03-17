@@ -223,6 +223,25 @@ defmodule Dicom.JsonTest do
         Json.to_map(ds)
       end
     end
+
+    test "allows ASCII-only text export with multiple SpecificCharacterSet values" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100\\ISO_IR 101")
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+
+      map = Json.to_map(ds)
+
+      assert map["00100010"]["Value"] == [%{"Alphabetic" => "DOE^JOHN"}]
+    end
+
+    test "raises when default repertoire bytes are not ASCII" do
+      ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, <<0xC4>>)
+
+      assert_raise ArgumentError, ~r/invalid text value/, fn ->
+        Json.to_map(ds)
+      end
+    end
   end
 
   describe "Json.to_map/2 - numeric VRs" do

@@ -32,9 +32,9 @@ defmodule Dicom.CharacterSet do
   # Maps DICOM Specific Character Set values to Erlang encoding atoms
   @charset_map %{
     # Default repertoire (ISO IR 6 = ASCII subset of UTF-8)
-    "" => :latin1,
-    "ISO_IR 6" => :latin1,
-    "ISO 2022 IR 6" => {:iso2022_single, :latin1},
+    "" => :ascii,
+    "ISO_IR 6" => :ascii,
+    "ISO 2022 IR 6" => {:iso2022_single, :ascii},
     # Latin-1 (Western European)
     "ISO_IR 100" => :latin1,
     "ISO 2022 IR 100" => {:iso2022_single, :latin1},
@@ -90,6 +90,9 @@ defmodule Dicom.CharacterSet do
         else
           {:error, :invalid_utf8}
         end
+
+      :ascii ->
+        decode_ascii(binary)
 
       :latin1 ->
         {:ok, :unicode.characters_to_binary(binary, :latin1)}
@@ -166,11 +169,27 @@ defmodule Dicom.CharacterSet do
 
   alias Dicom.CharacterSet.Tables
 
+  defp decode_iso2022_single(binary, charset_key, :ascii) do
+    if contains_iso2022_escape?(binary) do
+      {:error, {:unsupported_iso2022_escape_sequences, charset_key}}
+    else
+      decode_ascii(binary)
+    end
+  end
+
   defp decode_iso2022_single(binary, charset_key, :latin1) do
     if contains_iso2022_escape?(binary) do
       {:error, {:unsupported_iso2022_escape_sequences, charset_key}}
     else
       {:ok, :unicode.characters_to_binary(binary, :latin1)}
+    end
+  end
+
+  defp decode_ascii(binary) do
+    if ascii_binary?(binary) do
+      {:ok, binary}
+    else
+      {:error, {:decode_failed, :ascii}}
     end
   end
 
@@ -200,6 +219,8 @@ defmodule Dicom.CharacterSet do
   defp iso8859_to_unicode(byte, n), do: Tables.lookup(byte, n)
 
   defp contains_iso2022_escape?(binary), do: :binary.match(binary, <<0x1B>>) != :nomatch
+
+  defp ascii_binary?(binary), do: Enum.all?(:binary.bin_to_list(binary), &(&1 <= 0x7F))
 
   defp normalize_charset(nil), do: ""
   defp normalize_charset(charset) when is_binary(charset), do: String.trim(charset)
