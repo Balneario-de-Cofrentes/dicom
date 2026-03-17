@@ -58,7 +58,13 @@ defmodule Dicom.DeIdentificationTest do
       refute profile.clean_descriptions
       refute profile.clean_structured_content
       refute profile.clean_graphics
+      refute profile.retain_private_tags
       refute profile.retain_safe_private
+    end
+
+    test "retain_private_tags option" do
+      profile = %DeIdentification.Profile{retain_private_tags: true}
+      assert profile.retain_private_tags
     end
   end
 
@@ -372,9 +378,9 @@ defmodule Dicom.DeIdentificationTest do
     end
   end
 
-  # ── apply/2 - retain_safe_private option ──────────────────────
+  # ── apply/2 - retain_private_tags option ──────────────────────
 
-  describe "apply/2 - with retain_safe_private option" do
+  describe "apply/2 - with retain_private_tags option" do
     test "removes private tags by default" do
       ds =
         sample_data_set()
@@ -388,7 +394,20 @@ defmodule Dicom.DeIdentificationTest do
       refute DataSet.has_tag?(result, {0x0009, 0x1001})
     end
 
-    test "retain_safe_private preserves private tags" do
+    test "retain_private_tags preserves private tags" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0009, 0x0010}, :LO, "PrivateCreator")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "PrivateValue")
+
+      profile = %DeIdentification.Profile{retain_private_tags: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, {0x0009, 0x0010}) == "PrivateCreator"
+      assert DataSet.get(result, {0x0009, 0x1001}) == "PrivateValue"
+    end
+
+    test "retain_safe_private remains a compatibility alias for retaining all private tags" do
       ds =
         sample_data_set()
         |> DataSet.put({0x0009, 0x0010}, :LO, "PrivateCreator")

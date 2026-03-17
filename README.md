@@ -18,7 +18,7 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 - **Data dictionary** -- comprehensive PS3.6 tag registry (5,035 entries) with VR, VM, keyword lookup, and retired flags
 - **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb, with strict decode errors and explicit `BulkDataURI` resolution
 - **Pixel data frames** -- extract individual frames from native and encapsulated pixel data (PS3.5 Section A.4)
-- **De-identification** -- best-effort PS3.15 Basic Profile helpers with 10 profile flags, supported-tag cleaning, and consistent UID replacement
+- **De-identification** -- best-effort PS3.15 Basic Profile helpers with supported-tag cleaning, consistent UID replacement, and an explicit `retain_private_tags` switch for retaining all private tags
 - **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1 through Latin-5, Cyrillic, Arabic, Greek, Hebrew, JIS X 0201, UTF-8)
 - **Value decoding** -- automatic VR-aware decoding (numeric, string, date, UID, etc.)
 - **SOP Class registry** -- 232 SOP Classes (183 storage + service/Q-R/print/worklist) with modality mapping, retired flags, and O(1) lookup
@@ -41,6 +41,7 @@ It is not a full DICOM stack. In particular:
 - It does not implement DIMSE networking or provide a DICOMweb server
 - It preserves encapsulated pixel payloads and frame boundaries, but it does not decode JPEG/JPEG 2000/JPEG-LS/MPEG/HEVC codec bitstreams
 - De-identification support is a best-effort helper over the library's supported tag/action set, not a regulatory or standards-conformance guarantee
+- `retain_private_tags` retains all private tags; this library does not claim PS3.15 safe-private evaluation
 
 ## Installation
 

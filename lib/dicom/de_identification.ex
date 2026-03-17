@@ -6,6 +6,10 @@ defmodule Dicom.DeIdentification do
   for the supported tag set, with 10 profile flags that affect behavior.
   Supports action codes D, Z, X, K, C, and U.
 
+  `retain_private_tags` retains all private tags. The older
+  `retain_safe_private` flag is supported as a compatibility alias for the
+  same behavior, but it does not implement PS3.15 safe-private semantics.
+
   ## Action Codes
 
   - **D** — Replace with dummy value (per VR)
@@ -487,10 +491,12 @@ defmodule Dicom.DeIdentification do
     end)
   end
 
-  defp strip_private_tags(%DataSet{} = ds, %__MODULE__.Profile{retain_safe_private: true}), do: ds
-
-  defp strip_private_tags(%DataSet{} = ds, _profile) do
-    %{ds | elements: Map.filter(ds.elements, fn {tag, _} -> not Tag.private?(tag) end)}
+  defp strip_private_tags(%DataSet{} = ds, profile) do
+    if retain_private_tags?(profile) do
+      ds
+    else
+      %{ds | elements: Map.filter(ds.elements, fn {tag, _} -> not Tag.private?(tag) end)}
+    end
   end
 
   defp add_deidentification_markers(%DataSet{} = ds, _profile) do
@@ -521,9 +527,9 @@ defmodule Dicom.DeIdentification do
 
   defp apply_profile_overrides(:X_or_C, _tag, _profile), do: :X
 
-  defp apply_profile_overrides(_action, {group, _}, %__MODULE__.Profile{retain_safe_private: true})
+  defp apply_profile_overrides(action, {group, _}, %__MODULE__.Profile{} = profile)
        when rem(group, 2) == 1,
-       do: :K
+       do: if(retain_private_tags?(profile), do: :K, else: action)
 
   defp apply_profile_overrides(_action, tag, %__MODULE__.Profile{retain_device_identity: true})
        when tag in [
@@ -594,6 +600,13 @@ defmodule Dicom.DeIdentification do
        do: :C
 
   defp apply_profile_overrides(action, _tag, _profile), do: action
+
+  defp retain_private_tags?(%__MODULE__.Profile{
+         retain_private_tags: retain_private_tags,
+         retain_safe_private: retain_safe_private
+       }) do
+    retain_private_tags or retain_safe_private
+  end
 
   defp temporal_tag?(tag) do
     tag in [

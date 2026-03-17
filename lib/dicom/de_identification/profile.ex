@@ -4,6 +4,10 @@ defmodule Dicom.DeIdentification.Profile do
 
   The 10 boolean options mirror the standard profile flags and are applied
   to the supported tag set in `Dicom.DeIdentification`.
+
+  `retain_private_tags` is a library-specific switch that retains all private
+  tags. `retain_safe_private` is kept as a compatibility alias for the same
+  behavior, but it does not implement the PS3.15 Retain Safe Private Option.
   """
 
   @type t :: %__MODULE__{
@@ -16,6 +20,7 @@ defmodule Dicom.DeIdentification.Profile do
           clean_descriptions: boolean(),
           clean_structured_content: boolean(),
           clean_graphics: boolean(),
+          retain_private_tags: boolean(),
           retain_safe_private: boolean()
         }
 
@@ -28,5 +33,6 @@ defmodule Dicom.DeIdentification.Profile do
             clean_descriptions: false,
             clean_structured_content: false,
             clean_graphics: false,
+            retain_private_tags: false,
             retain_safe_private: false
 end
