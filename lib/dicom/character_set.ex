@@ -138,24 +138,25 @@ defmodule Dicom.CharacterSet do
     end
   end
 
-  # ISO 8859-{2..9}: byte-by-byte conversion to Unicode codepoints.
-  # ISO 8859-1 is handled natively by :latin1 encoding.
-  # For 8859-2..9 we use a lookup-based approach.
-  defp decode_iso8859(binary, {:iso8859, n}) do
-    try do
-      result =
-        for <<byte <- binary>>, into: <<>> do
-          codepoint = iso8859_to_unicode(byte, n)
-          <<codepoint::utf8>>
-        end
+  alias Dicom.CharacterSet.Tables
 
-      {:ok, result}
-    rescue
-      _ -> {:error, {:decode_failed, {:iso8859, n}}}
-    end
+  defp decode_iso8859(binary, {:iso8859, n}) do
+    decode_bytewise(binary, &iso8859_to_unicode(&1, n), {:iso8859, n})
   end
 
-  alias Dicom.CharacterSet.Tables
+  defp decode_jis_x0201(binary) do
+    decode_bytewise(binary, &Tables.jis_x0201/1, :jis_x0201)
+  end
+
+  # Shared byte-by-byte decoder: maps each byte through a lookup function
+  defp decode_bytewise(binary, lookup_fn, encoding_label) do
+    try do
+      result = for <<byte <- binary>>, into: <<>>, do: <<lookup_fn.(byte)::utf8>>
+      {:ok, result}
+    rescue
+      _ -> {:error, {:decode_failed, encoding_label}}
+    end
+  end
 
   # Characters 0x00-0x7F are the same across all ISO 8859 variants
   defp iso8859_to_unicode(byte, _n) when byte <= 0x7F, do: byte
@@ -165,21 +166,6 @@ defmodule Dicom.CharacterSet do
   defp iso8859_to_unicode(byte, 1), do: byte
   # For ISO 8859-{2..9}, use full lookup tables
   defp iso8859_to_unicode(byte, n), do: Tables.lookup(byte, n)
-
-  # JIS X 0201: byte-by-byte conversion to Unicode codepoints
-  defp decode_jis_x0201(binary) do
-    try do
-      result =
-        for <<byte <- binary>>, into: <<>> do
-          codepoint = Tables.jis_x0201(byte)
-          <<codepoint::utf8>>
-        end
-
-      {:ok, result}
-    rescue
-      _ -> {:error, {:decode_failed, :jis_x0201}}
-    end
-  end
 
   defp normalize_charset(nil), do: ""
   defp normalize_charset(charset) when is_binary(charset), do: String.trim(charset)

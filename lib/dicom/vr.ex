@@ -79,6 +79,18 @@ defmodule Dicom.VR do
 
   def long_length?(_vr), do: false
 
+  @doc "Returns the list of string VR atoms."
+  @spec string_vrs() :: [t()]
+  def string_vrs, do: @string_vrs
+
+  @doc "Returns the list of binary VR atoms."
+  @spec binary_vrs() :: [t()]
+  def binary_vrs, do: @binary_vrs
+
+  @doc "Returns the list of numeric VR atoms."
+  @spec numeric_vrs() :: [t()]
+  def numeric_vrs, do: @numeric_vrs
+
   @doc """
   Returns true if the VR represents a string type.
   """

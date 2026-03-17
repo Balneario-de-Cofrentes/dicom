@@ -67,25 +67,55 @@ defmodule Dicom.PixelData do
 
   @doc """
   Extracts a single frame by zero-based index.
+
+  For native pixel data, uses zero-copy `binary_part/3` without extracting all frames.
   """
   @spec frame(DataSet.t(), non_neg_integer()) :: {:ok, binary()} | {:error, term()}
   def frame(%DataSet{} = ds, index) when is_integer(index) and index >= 0 do
-    case frames(ds) do
-      {:ok, all_frames} ->
-        if index < length(all_frames) do
-          {:ok, Enum.at(all_frames, index)}
-        else
-          {:error, :frame_index_out_of_range}
-        end
+    case get_pixel_element(ds) do
+      nil ->
+        {:error, :no_pixel_data}
 
-      error ->
-        error
+      %DataElement{value: data} when is_binary(data) ->
+        extract_native_frame(data, ds, index)
+
+      %DataElement{value: fragments} when is_list(fragments) ->
+        # For encapsulated data, fall back to extracting all frames
+        case extract_encapsulated_frames(fragments, ds) do
+          {:ok, all_frames} ->
+            case Enum.fetch(all_frames, index) do
+              {:ok, frame} -> {:ok, frame}
+              :error -> {:error, :frame_index_out_of_range}
+            end
+
+          error ->
+            error
+        end
     end
   end
 
   def frame(_ds, _index), do: {:error, :frame_index_out_of_range}
 
   # ── Native frame extraction ───────────────────────────────────
+
+  defp extract_native_frame(data, ds, index) do
+    num_frames = get_number_of_frames(ds)
+    frame_size = compute_frame_size(ds)
+
+    cond do
+      index >= num_frames ->
+        {:error, :frame_index_out_of_range}
+
+      frame_size > 0 ->
+        {:ok, binary_part(data, index * frame_size, frame_size)}
+
+      index == 0 ->
+        {:ok, data}
+
+      true ->
+        {:error, :frame_index_out_of_range}
+    end
+  end
 
   defp extract_native_frames(data, ds) do
     num_frames = get_number_of_frames(ds)

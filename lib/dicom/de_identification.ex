@@ -167,7 +167,8 @@ defmodule Dicom.DeIdentification do
   end
 
   defp apply_action(:D, %DataElement{} = elem, _profile, uid_map) do
-    {%{elem | value: dummy_value(elem.vr), length: 0}, uid_map}
+    dummy = dummy_value(elem.vr)
+    {%{elem | value: dummy, length: byte_size(dummy)}, uid_map}
   end
 
   defp apply_action(:Z, %DataElement{} = elem, _profile, uid_map) do
@@ -189,7 +190,8 @@ defmodule Dicom.DeIdentification do
   end
 
   defp apply_action(:C, %DataElement{} = elem, _profile, uid_map) do
-    {%{elem | value: "CLEANED", length: 7}, uid_map}
+    cleaned = "CLEANED"
+    {%{elem | value: cleaned, length: byte_size(cleaned)}, uid_map}
   end
 
   defp apply_action(:U, %DataElement{value: value} = elem, _profile, uid_map)
@@ -233,12 +235,7 @@ defmodule Dicom.DeIdentification do
   defp strip_private_tags(%DataSet{} = ds, %__MODULE__.Profile{retain_safe_private: true}), do: ds
 
   defp strip_private_tags(%DataSet{} = ds, _profile) do
-    elements =
-      ds.elements
-      |> Enum.reject(fn {{group, _}, _} -> rem(group, 2) == 1 end)
-      |> Map.new()
-
-    %{ds | elements: elements}
+    %{ds | elements: Map.filter(ds.elements, fn {tag, _} -> not Tag.private?(tag) end)}
   end
 
   defp add_deidentification_markers(%DataSet{} = ds, _profile) do

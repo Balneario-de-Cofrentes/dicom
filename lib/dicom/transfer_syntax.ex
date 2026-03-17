@@ -201,19 +201,20 @@ defmodule Dicom.TransferSyntax do
   @spec known?(String.t()) :: boolean()
   def known?(uid), do: Map.has_key?(@registry, uid)
 
+  @all_syntaxes Map.values(@registry)
+  @active_syntaxes Enum.filter(@all_syntaxes, &(not &1.retired))
+
   @doc """
   Returns all registered transfer syntaxes.
   """
   @spec all() :: [t()]
-  def all, do: Map.values(@registry)
+  def all, do: @all_syntaxes
 
   @doc """
   Returns only active (non-retired) transfer syntaxes.
   """
   @spec active() :: [t()]
-  def active do
-    @registry |> Map.values() |> Enum.filter(&(not &1.retired))
-  end
+  def active, do: @active_syntaxes
 
   @doc """
   Returns true if the transfer syntax is retired.

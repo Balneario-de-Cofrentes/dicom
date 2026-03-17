@@ -22,9 +22,9 @@ defmodule Dicom.Json do
 
   alias Dicom.{DataSet, DataElement, Value, VR}
 
-  @string_vrs [:AE, :AS, :CS, :DA, :DS, :DT, :IS, :LO, :LT, :SH, :ST, :TM, :UC, :UI, :UR, :UT]
-  @numeric_vrs [:US, :SS, :UL, :SL, :FL, :FD, :UV, :SV]
-  @binary_vrs [:OB, :OD, :OF, :OL, :OV, :OW, :UN]
+  @string_vrs VR.string_vrs()
+  @numeric_vrs VR.numeric_vrs()
+  @binary_vrs VR.binary_vrs()
 
   # ── Encoder ───────────────────────────────────────────────────
 
