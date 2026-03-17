@@ -1,11 +1,19 @@
 defmodule Dicom.BenchmarkTest do
   @moduledoc """
-  Performance benchmarks and regression tests for the DICOM library.
+  Lightweight performance benchmarks for the DICOM library.
 
-  These tests measure parse/write throughput and ensure performance
-  doesn't regress. Each test verifies correctness AND measures timing.
+  These tests verify correctness and print timing measurements.
+  Hard performance budgets are opt-in via `DICOM_ENFORCE_BENCHMARKS=1`,
+  because microbenchmark thresholds are too noisy to serve as reliable
+  default gates on arbitrary developer or CI machines.
   """
   use ExUnit.Case, async: true
+
+  @enforce_benchmark_thresholds System.get_env("DICOM_ENFORCE_BENCHMARKS") in [
+                                  "1",
+                                  "true",
+                                  "TRUE"
+                                ]
 
   alias Dicom.DataSet
 
@@ -25,7 +33,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 1000
       IO.puts("\n  [bench] parse 50-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 1000
+      assert_within_budget(avg_us, 1000, "parse 50-elem")
     end
 
     test "parses a 200-element data set efficiently" do
@@ -40,7 +48,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] parse 200-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 5000
+      assert_within_budget(avg_us, 5000, "parse 200-elem")
     end
 
     test "parses data set with sequences efficiently" do
@@ -54,7 +62,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] parse 10-seq×5-items: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 5000
+      assert_within_budget(avg_us, 5000, "parse 10-seq×5-items")
     end
 
     test "parses large pixel data efficiently" do
@@ -69,7 +77,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 100
       IO.puts("\n  [bench] parse 1MB pixel: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 5000
+      assert_within_budget(avg_us, 5000, "parse 1MB pixel")
     end
   end
 
@@ -85,7 +93,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 1000
       IO.puts("\n  [bench] write 50-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 1000
+      assert_within_budget(avg_us, 1000, "write 50-elem")
     end
 
     test "serializes a 200-element data set efficiently" do
@@ -99,7 +107,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] write 200-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 5000
+      assert_within_budget(avg_us, 5000, "write 200-elem")
     end
 
     test "serializes data set with sequences efficiently" do
@@ -115,7 +123,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] write 10-seq×5-items: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 5000
+      assert_within_budget(avg_us, 5000, "write 10-seq×5-items")
     end
   end
 
@@ -135,7 +143,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] roundtrip 100-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 5000
+      assert_within_budget(avg_us, 5000, "roundtrip 100-elem")
     end
   end
 
@@ -153,7 +161,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(vrs)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] VR.from_binary: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 500
+      assert_within_budget(ns_per_op, 500, "VR.from_binary")
     end
   end
 
@@ -171,7 +179,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 1000
       IO.puts("\n  [bench] stream parse 50-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 2000
+      assert_within_budget(avg_us, 2000, "stream parse 50-elem")
     end
 
     test "stream-parses a 200-element data set efficiently" do
@@ -187,7 +195,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] stream parse 200-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 10000
+      assert_within_budget(avg_us, 10000, "stream parse 200-elem")
     end
 
     test "stream-parses data set with sequences efficiently" do
@@ -203,7 +211,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] stream parse 10-seq×5-items: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 10000
+      assert_within_budget(avg_us, 10000, "stream parse 10-seq×5-items")
     end
 
     test "stream event enumeration (no materialization) is fast" do
@@ -221,7 +229,7 @@ defmodule Dicom.BenchmarkTest do
 
       avg_us = time_us / 500
       IO.puts("\n  [bench] stream enumerate 200-elem: #{Float.round(avg_us, 1)} µs/op")
-      assert avg_us < 10000
+      assert_within_budget(avg_us, 10000, "stream enumerate 200-elem")
     end
   end
 
@@ -250,7 +258,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(tags)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Registry.lookup: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 500
+      assert_within_budget(ns_per_op, 500, "Registry.lookup")
     end
   end
 
@@ -270,7 +278,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(vrs)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] VR.description: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 500
+      assert_within_budget(ns_per_op, 500, "VR.description")
     end
 
     test "VR.max_length throughput" do
@@ -286,7 +294,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(vrs)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] VR.max_length: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 500
+      assert_within_budget(ns_per_op, 500, "VR.max_length")
     end
 
     test "VR.fixed_length? throughput" do
@@ -302,7 +310,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(vrs)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] VR.fixed_length?: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 500
+      assert_within_budget(ns_per_op, 500, "VR.fixed_length?")
     end
   end
 
@@ -320,7 +328,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(tags)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Tag.parse: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 1000
+      assert_within_budget(ns_per_op, 1000, "Tag.parse")
     end
 
     test "Tag.from_keyword throughput" do
@@ -336,7 +344,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 50_000 * length(keywords)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Tag.from_keyword: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 5000
+      assert_within_budget(ns_per_op, 5000, "Tag.from_keyword")
     end
   end
 
@@ -354,7 +362,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(dates)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Value.to_date: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 2000
+      assert_within_budget(ns_per_op, 2000, "Value.to_date")
     end
 
     test "Value.to_time throughput" do
@@ -370,7 +378,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(times)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Value.to_time: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 2000
+      assert_within_budget(ns_per_op, 2000, "Value.to_time")
     end
 
     test "Value.to_datetime throughput" do
@@ -386,7 +394,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 50_000 * length(datetimes)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] Value.to_datetime: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 10000
+      assert_within_budget(ns_per_op, 10000, "Value.to_datetime")
     end
   end
 
@@ -425,7 +433,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(tags)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] ds[tag]: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 500
+      assert_within_budget(ns_per_op, 500, "ds[tag]")
     end
 
     test "DataSet decoded_value throughput" do
@@ -448,7 +456,7 @@ defmodule Dicom.BenchmarkTest do
       ops = 100_000 * length(tags)
       ns_per_op = time_us * 1000 / ops
       IO.puts("\n  [bench] decoded_value: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
-      assert ns_per_op < 1000
+      assert_within_budget(ns_per_op, 1000, "decoded_value")
     end
   end
 
@@ -655,5 +663,15 @@ defmodule Dicom.BenchmarkTest do
         "VALUE_#{String.pad_leading(Integer.to_string(i), 6, "0")}"
       )
     end)
+  end
+
+  defp assert_within_budget(value, budget, label) do
+    if @enforce_benchmark_thresholds do
+      assert value < budget
+    else
+      IO.puts(
+        "  [bench] threshold skipped for #{label}; set DICOM_ENFORCE_BENCHMARKS=1 to enforce"
+      )
+    end
   end
 end

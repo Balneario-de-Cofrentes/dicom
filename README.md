@@ -193,6 +193,7 @@ Benchmarked on Apple Silicon (Elixir 1.18, OTP 27):
 | Parse 1 MB pixel data | ~1 us |
 
 Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
+Set `DICOM_ENFORCE_BENCHMARKS=1` only on a stable machine if you want to enforce the documented timing budgets.
 
 ## Testing
 
