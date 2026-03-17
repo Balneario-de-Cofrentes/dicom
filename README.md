@@ -21,6 +21,7 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 - **De-identification** -- anonymize data sets per PS3.15 Basic Profile with 10 option columns and consistent UID replacement
 - **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1 through Latin-5, Cyrillic, Arabic, Greek, Hebrew, JIS X 0201, UTF-8)
 - **Value decoding** -- automatic VR-aware decoding (numeric, string, date, UID, etc.)
+- **SOP Class registry** -- 232 SOP Classes (175 storage + service/Q-R/print/worklist) with modality mapping, retired flags, and O(1) lookup
 - **Transfer syntaxes** -- all 62 DICOM transfer syntaxes (49 active + 13 retired); strict rejection of unknown UIDs with opt-in lenient mode
 - **Sequences** -- defined-length and undefined-length SQ with nested items
 - **Encapsulated pixel data** -- fragments with Basic Offset Table
@@ -100,6 +101,7 @@ lib/dicom/
   uid.ex                -- UID constants, generation, and validation
   value.ex              -- VR-aware value encoding and decoding
   transfer_syntax.ex    -- Transfer syntax registry (62 TSes) and encoding dispatch
+  sop_class.ex          -- SOP Class registry (232 classes) with modality mapping
   character_set.ex      -- Specific Character Set decoding (0008,0005)
   character_set/
     tables.ex           -- ISO 8859-{2..9} and JIS X 0201 lookup tables
@@ -125,6 +127,7 @@ lib/dicom/
 
 | Part | Title | Coverage |
 |------|-------|----------|
+| PS3.4 | Service Class Specifications | 232 SOP Classes (storage, Q/R, print, worklist, etc.) with modality mapping |
 | PS3.5 | Data Structures and Encoding | VR types, 62 transfer syntaxes, data encoding, sequences, pixel data frame extraction |
 | PS3.6 | Data Dictionary | Comprehensive tag registry (5,035 entries), keyword lookup, retired flags |
 | PS3.10 | Media Storage and File Format | P10 read/write, File Meta Information, preamble |
@@ -165,7 +168,7 @@ Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 ## Testing
 
 ```bash
-mix test              # Run all tests (621 tests)
+mix test              # Run all tests (665 tests)
 mix test --cover      # Run with coverage report (91%+)
 mix format --check-formatted
 ```
@@ -198,7 +201,8 @@ Five DICOM libraries exist for the BEAM. Only two others are published to Hex.pm
 | **DICOM JSON** | Yes (PS3.18 F.2) | No | No | Yes | No |
 | **Anonymization** | Yes (PS3.15 Basic Profile) | No | No | Yes | No |
 | **Pixel data frames** | Yes (native + encapsulated) | No | No | Yes | No |
-| **Test suite** | 621 tests, 91%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
+| **SOP Class registry** | 232 classes, modality mapping | None | None | Yes | None |
+| **Test suite** | 665 tests, 91%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
 | **CI** | Passing | None | None | Failing | Passing |
 | **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
 | **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |
@@ -206,7 +210,7 @@ Five DICOM libraries exist for the BEAM. Only two others are published to Hex.pm
 
 **dicom** is the most feature-complete DICOM library on Hex.pm: zero
 dependencies, streaming + read + write, DICOM JSON, anonymization, pixel
-data extraction, 62 transfer syntaxes, and MIT-licensed. DCMfx has a larger
+data extraction, 232 SOP classes, 62 transfer syntaxes, and MIT-licensed. DCMfx has a larger
 tag dictionary (including well-known private tags) and full CJK/ISO 2022
 character set support but requires the Gleam toolchain, carries AGPL-3.0
 licensing, and is not published to Hex.pm. For DIMSE networking, `dicom_ex`
