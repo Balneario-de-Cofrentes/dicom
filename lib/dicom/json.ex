@@ -81,8 +81,8 @@ defmodule Dicom.Json do
     Map.put(base, "Value", values)
   end
 
-  defp encode_value(base, _tag, :SQ, items, _bulk_fn) when is_list(items) do
-    Map.put(base, "Value", Enum.map(items, &encode_item/1))
+  defp encode_value(base, _tag, :SQ, items, bulk_fn) when is_list(items) do
+    Map.put(base, "Value", Enum.map(items, &encode_item(&1, bulk_fn)))
   end
 
   defp encode_value(base, _tag, :AT, value, _bulk_fn) when is_binary(value) do
@@ -123,14 +123,13 @@ defmodule Dicom.Json do
 
   defp encode_value(base, tag, vr, value, bulk_fn)
        when vr in @binary_vrs and is_binary(value) do
-    if bulk_fn do
-      case bulk_fn.(tag, vr) do
-        nil -> Map.put(base, "InlineBinary", Base.encode64(value))
-        uri -> Map.put(base, "BulkDataURI", uri)
-      end
-    else
-      Map.put(base, "InlineBinary", Base.encode64(value))
-    end
+    encode_binary_value(base, tag, vr, value, bulk_fn)
+  end
+
+  defp encode_value(base, tag, vr, {:encapsulated, fragments}, bulk_fn)
+       when vr in @binary_vrs and is_list(fragments) do
+    base
+    |> encode_binary_value(tag, vr, serialize_encapsulated_value(fragments), bulk_fn)
   end
 
   defp encode_value(base, _tag, _vr, value, _bulk_fn) when is_binary(value) do
@@ -152,10 +151,30 @@ defmodule Dicom.Json do
     end
   end
 
-  defp encode_item(item) when is_map(item) do
+  defp encode_binary_value(base, tag, vr, value, bulk_fn) do
+    if bulk_fn do
+      case bulk_fn.(tag, vr) do
+        nil -> Map.put(base, "InlineBinary", Base.encode64(value))
+        uri -> Map.put(base, "BulkDataURI", uri)
+      end
+    else
+      Map.put(base, "InlineBinary", Base.encode64(value))
+    end
+  end
+
+  defp encode_item(item, bulk_fn) when is_map(item) do
     Map.new(item, fn {tag, elem} ->
-      {format_tag(tag), encode_element(tag, elem, nil)}
+      {format_tag(tag), encode_element(tag, elem, bulk_fn)}
     end)
+  end
+
+  defp serialize_encapsulated_value(fragments) do
+    fragments_iodata =
+      Enum.map(fragments, fn fragment ->
+        [<<0xFE, 0xFF, 0x00, 0xE0, byte_size(fragment)::little-32>>, fragment]
+      end)
+
+    IO.iodata_to_binary([fragments_iodata, <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>])
   end
 
   # ── Decoder ───────────────────────────────────────────────────

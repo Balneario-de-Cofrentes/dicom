@@ -280,6 +280,23 @@ defmodule Dicom.JsonTest do
       assert map["7FE00010"]["BulkDataURI"] == "http://example.com/pixel"
       refute Map.has_key?(map["7FE00010"], "InlineBinary")
     end
+
+    test "encodes encapsulated pixel data as InlineBinary" do
+      fragments = [<<0::little-32>>, <<1, 2, 3, 4>>]
+      elem = DataElement.new({0x7FE0, 0x0010}, :OB, {:encapsulated, fragments})
+      ds = %DataSet{elements: %{{0x7FE0, 0x0010} => elem}}
+
+      expected_binary =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      map = Json.to_map(ds)
+
+      assert map["7FE00010"]["InlineBinary"] == Base.encode64(expected_binary)
+    end
   end
 
   describe "Json.to_map/2 - SQ (Sequence)" do
@@ -329,6 +346,27 @@ defmodule Dicom.JsonTest do
       [outer] = map["00081115"]["Value"]
       [inner] = outer["0040A730"]["Value"]
       assert inner["00081150"]["Value"] == ["1.2.3"]
+    end
+
+    test "propagates bulk_data_uri callback into sequence items" do
+      item = %{
+        {0x7FE0, 0x0010} => DataElement.new({0x7FE0, 0x0010}, :OB, <<1, 2, 3, 4>>)
+      }
+
+      ds = %DataSet{
+        elements: %{
+          {0x0008, 0x1111} => DataElement.new({0x0008, 0x1111}, :SQ, [item])
+        }
+      }
+
+      map =
+        Json.to_map(ds,
+          bulk_data_uri: fn {0x7FE0, 0x0010}, :OB -> "http://example.com/nested-pixel" end
+        )
+
+      [encoded_item] = map["00081111"]["Value"]
+      assert encoded_item["7FE00010"]["BulkDataURI"] == "http://example.com/nested-pixel"
+      refute Map.has_key?(encoded_item["7FE00010"], "InlineBinary")
     end
   end
 
