@@ -175,7 +175,7 @@ verify encode/decode roundtrips across all VR types and streaming parser equival
 
 ## Comparison with Other BEAM DICOM Libraries
 
-Five DICOM libraries exist for the BEAM. Only three are published to Hex.pm.
+Five DICOM libraries exist for the BEAM. Only two others are published to Hex.pm.
 
 | Feature | **dicom** | dicom\_ex 0.3.0 | ex\_dicom 0.2.0 | DCMfx 0.43.0 | WolfPACS |
 |---------|-----------|-----------------|-----------------|--------------|----------|
@@ -187,29 +187,30 @@ Five DICOM libraries exist for the BEAM. Only three are published to Hex.pm.
 | **P10 write** | Yes | Yes | No | Yes | No |
 | **Transfer syntaxes** | 62 (49 active + 13 retired) | 3 | 3 | 47 | 3 |
 | **Sequences (SQ)** | Yes | Yes | Yes | Yes | Yes |
-| **Tag dictionary** | 5,035 tags | 5,249 tags | None | 13,689 tags | None |
+| **Tag dictionary** | 5,035 tags | ~5,200 tags | None | ~13,600+ tags | None |
 | **UID generation** | Yes | Yes | No | No | No |
 | **UID validation** | Yes | No | No | No | No |
 | **File Meta validation** | Yes | Partial | Partial | Yes | Yes |
-| **Character sets** | ISO 8859-{1..9}, JIS X 0201, UTF-8 | No | No | Full (CJK, GB18030) | No |
+| **Character sets** | ISO 8859-{1..9}, JIS X 0201, UTF-8 | No | No | Full (ISO 2022, CJK, GB18030) | No |
 | **Value decoding** | Yes (36 VRs) | Yes | Basic | Yes | Yes (25 VRs) |
 | **Streaming parser** | Yes | No | No | Yes | No |
 | **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
 | **DICOM JSON** | Yes (PS3.18 F.2) | No | No | Yes | No |
 | **Anonymization** | Yes (PS3.15 Basic Profile) | No | No | Yes | No |
 | **Pixel data frames** | Yes (native + encapsulated) | No | No | Yes | No |
-| **Test suite** | 621 tests, 91%+ cov | Unknown | 1 test file | 39 test files | 80+ tests |
-| **CI** | Passing | None | None | Failing | Failing |
+| **Test suite** | 621 tests, 91%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
+| **CI** | Passing | None | None | Failing | Passing |
 | **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
 | **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |
 | **Gleam toolchain** | Not required | Not required | Not required | Required | Not required |
 
-**dicom** is the most complete pure-Elixir DICOM library: zero dependencies,
-streaming + read + write, DICOM JSON, anonymization, pixel data extraction,
-62 transfer syntaxes, and MIT-licensed. DCMfx has a larger tag dictionary
-and full CJK character set support but requires the Gleam toolchain, carries
-AGPL-3.0 licensing, and is not published to Hex.pm. For DIMSE networking,
-`dicom_ex` provides C-ECHO/C-FIND/C-STORE SCP support.
+**dicom** is the most feature-complete DICOM library on Hex.pm: zero
+dependencies, streaming + read + write, DICOM JSON, anonymization, pixel
+data extraction, 62 transfer syntaxes, and MIT-licensed. DCMfx has a larger
+tag dictionary (including well-known private tags) and full CJK/ISO 2022
+character set support but requires the Gleam toolchain, carries AGPL-3.0
+licensing, and is not published to Hex.pm. For DIMSE networking, `dicom_ex`
+provides C-ECHO/C-FIND/C-STORE SCP support (educational, not production).
 
 ## AI-Assisted Development
 
