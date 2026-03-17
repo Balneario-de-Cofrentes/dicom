@@ -2374,7 +2374,6 @@ defmodule Dicom.P10.StreamTest do
       item_tag = <<0xFE, 0xFF, 0x00, 0xE0>>
       item_length = <<byte_size(inner_elem)::little-32>>
 
-      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
       seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
 
       sq = sq_tag <> sq_length <> item_tag <> item_length <> inner_elem <> seq_delim

@@ -526,7 +526,6 @@ defmodule Dicom.BenchmarkTest do
 
     test "JSON roundtrip throughput" do
       ds = build_data_set(20)
-      map = Dicom.Json.to_map(ds)
 
       {time_us, _} =
         :timer.tc(fn ->
