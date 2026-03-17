@@ -10,7 +10,7 @@ MIT licensed. See [AGENTS.md](AGENTS.md) for agent-specific instructions.
 ```bash
 mix deps.get                     # Install dev/test deps (ex_doc, stream_data)
 mix compile                      # Compile
-mix test                         # Run tests (259 tests, 100% coverage)
+mix test                         # Run tests (323 tests, 100% coverage)
 mix test --cover                 # Run with HTML coverage report
 mix format                       # Format code
 mix format --check-formatted     # Check formatting (CI uses this)
@@ -28,13 +28,14 @@ lib/dicom/
   vr.ex                 -- Value Representation types, parsing, padding
   uid.ex                -- UID constants, generation, validation
   value.ex              -- VR-aware value encoding and decoding
-  transfer_syntax.ex    -- Transfer syntax registry and encoding dispatch
+  transfer_syntax.ex    -- Transfer syntax registry (29 TSes) and encoding dispatch
+  character_set.ex      -- Specific Character Set decoding (0008,0005)
   p10/
     reader.ex           -- P10 binary parser (list accumulator + Map.new)
     writer.ex           -- P10 binary serializer (iodata pipeline)
     file_meta.ex        -- Preamble validation and File Meta Information
   dictionary/
-    registry.ex         -- PS3.6 tag -> {name, vr, vm} lookup table
+    registry.ex         -- PS3.6 tag -> {name, vr, vm} lookup (5032 entries)
 ```
 
 ## Conventions

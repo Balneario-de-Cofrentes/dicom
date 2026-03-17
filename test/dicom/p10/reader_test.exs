@@ -260,8 +260,8 @@ defmodule Dicom.P10.ReaderTest do
       ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
 
       truncated_sq =
-        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 12::little-32, 0xFE, 0xFF, 0x00, 0xE0, 4::little-32,
-          0x08, 0x00>>
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 12::little-32, 0xFE, 0xFF, 0x00, 0xE0,
+          4::little-32, 0x08, 0x00>>
 
       binary =
         <<0::1024, "DICM">> <>

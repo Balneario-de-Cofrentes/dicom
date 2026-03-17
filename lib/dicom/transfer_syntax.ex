@@ -5,6 +5,11 @@ defmodule Dicom.TransferSyntax do
   A Transfer Syntax specifies how DICOM data is encoded: byte order,
   whether VR is explicit or implicit, and pixel data compression.
 
+  All known DICOM transfer syntaxes are registered. Unknown transfer
+  syntaxes are rejected by default — use `encoding/2` with
+  `lenient: true` to fall back to Explicit VR Little Endian for
+  unrecognized compressed transfer syntaxes.
+
   Reference: DICOM PS3.5 Section 10.
   """
 
@@ -22,8 +27,9 @@ defmodule Dicom.TransferSyntax do
   defstruct [:uid, :name, :endianness, :vr_encoding, compressed: false]
 
   # Registry computed once at compile time — no per-call allocation.
-  # Uses raw map form because %__MODULE__{} syntax is unavailable in module attributes.
+  # All standard DICOM transfer syntaxes including compressed variants.
   @registry [
+              # Uncompressed
               {Dicom.UID.implicit_vr_little_endian(), "Implicit VR Little Endian", :little,
                :implicit, false},
               {Dicom.UID.explicit_vr_little_endian(), "Explicit VR Little Endian", :little,
@@ -32,13 +38,60 @@ defmodule Dicom.TransferSyntax do
                "Deflated Explicit VR Little Endian", :little, :explicit, false},
               {Dicom.UID.explicit_vr_big_endian(), "Explicit VR Big Endian (Retired)", :big,
                :explicit, false},
+              # JPEG
               {Dicom.UID.jpeg_baseline(), "JPEG Baseline (Process 1)", :little, :explicit, true},
+              {"1.2.840.10008.1.2.4.51", "JPEG Extended (Process 2 & 4)", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.57", "JPEG Lossless, Non-Hierarchical (Process 14)", :little,
+               :explicit, true},
               {Dicom.UID.jpeg_lossless(),
                "JPEG Lossless, Non-Hierarchical, First-Order Prediction", :little, :explicit,
                true},
+              # JPEG-LS
+              {"1.2.840.10008.1.2.4.80", "JPEG-LS Lossless Image Compression", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.81", "JPEG-LS Lossy (Near-Lossless) Image Compression",
+               :little, :explicit, true},
+              # JPEG 2000
               {Dicom.UID.jpeg_2000_lossless(), "JPEG 2000 Image Compression (Lossless Only)",
                :little, :explicit, true},
               {Dicom.UID.jpeg_2000(), "JPEG 2000 Image Compression", :little, :explicit, true},
+              {"1.2.840.10008.1.2.4.92", "JPEG 2000 Part 2 Multi-component (Lossless)", :little,
+               :explicit, true},
+              {"1.2.840.10008.1.2.4.93", "JPEG 2000 Part 2 Multi-component", :little, :explicit,
+               true},
+              # MPEG / HEVC
+              {"1.2.840.10008.1.2.4.100", "MPEG2 Main Profile / Main Level", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.101", "MPEG2 Main Profile / High Level", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.102", "MPEG-4 AVC/H.264 High Profile / Level 4.1", :little,
+               :explicit, true},
+              {"1.2.840.10008.1.2.4.103",
+               "MPEG-4 AVC/H.264 BD-compatible High Profile / Level 4.1", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.104",
+               "MPEG-4 AVC/H.264 High Profile / Level 4.2 For 2D Video", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.105",
+               "MPEG-4 AVC/H.264 High Profile / Level 4.2 For 3D Video", :little, :explicit,
+               true},
+              {"1.2.840.10008.1.2.4.106", "MPEG-4 AVC/H.264 Stereo High Profile / Level 4.2",
+               :little, :explicit, true},
+              {"1.2.840.10008.1.2.4.107", "HEVC/H.265 Main Profile / Level 5.1", :little,
+               :explicit, true},
+              {"1.2.840.10008.1.2.4.108", "HEVC/H.265 Main 10 Profile / Level 5.1", :little,
+               :explicit, true},
+              # HTJ2K
+              {"1.2.840.10008.1.2.4.201", "High-Throughput JPEG 2000 (Lossless Only)", :little,
+               :explicit, true},
+              {"1.2.840.10008.1.2.4.202", "High-Throughput JPEG 2000 with RPCL (Lossless Only)",
+               :little, :explicit, true},
+              {"1.2.840.10008.1.2.4.203", "High-Throughput JPEG 2000", :little, :explicit, true},
+              # JPIP
+              {"1.2.840.10008.1.2.4.94", "JPIP Referenced", :little, :explicit, true},
+              {"1.2.840.10008.1.2.4.95", "JPIP Referenced Deflate", :little, :explicit, true},
+              # RLE
               {Dicom.UID.rle_lossless(), "RLE Lossless", :little, :explicit, true}
             ]
             |> Map.new(fn {uid, name, endian, vr_enc, compressed} ->
@@ -84,14 +137,29 @@ defmodule Dicom.TransferSyntax do
   @doc """
   Returns the VR encoding and endianness for a given transfer syntax UID.
 
-  Falls back to Explicit VR Little Endian for unknown UIDs (e.g., compressed
-  transfer syntaxes not in the registry still use explicit VR LE for metadata).
+  Returns `{:ok, {vr_encoding, endianness}}` for known transfer syntaxes,
+  or `{:error, :unknown_transfer_syntax}` for unknown UIDs.
+
+  ## Options
+
+  - `lenient: true` — falls back to `{:ok, {:explicit, :little}}` for
+    unknown UIDs instead of returning an error. Use this only when you
+    need to attempt parsing files with unrecognized private or future
+    transfer syntaxes.
   """
-  @spec encoding(String.t()) :: {vr_encoding(), endianness()}
-  def encoding(uid) do
+  @spec encoding(String.t(), keyword()) ::
+          {:ok, {vr_encoding(), endianness()}} | {:error, :unknown_transfer_syntax}
+  def encoding(uid, opts \\ []) do
     case from_uid(uid) do
-      {:ok, %{vr_encoding: vr_enc, endianness: endian}} -> {vr_enc, endian}
-      _ -> {:explicit, :little}
+      {:ok, %{vr_encoding: vr_enc, endianness: endian}} ->
+        {:ok, {vr_enc, endian}}
+
+      {:error, :unknown_transfer_syntax} ->
+        if Keyword.get(opts, :lenient, false) do
+          {:ok, {:explicit, :little}}
+        else
+          {:error, :unknown_transfer_syntax}
+        end
     end
   end
 
