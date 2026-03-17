@@ -293,10 +293,10 @@ defmodule Dicom.P10.ReaderTest do
       assert DataSet.get(ds, {0x0009, 0x0010}) == un_data
     end
 
-    test "reads UN element with undefined length and no delimiter (reads to EOF)" do
+    test "returns error for UN element with undefined length and no delimiter" do
       ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
 
-      # UN with undefined length, no sequence delimiter — should read to end of binary
+      # UN with undefined length, no sequence delimiter — malformed
       un_data = <<"ALL_REMAINING_DATA">>
 
       un_elem =
@@ -307,8 +307,23 @@ defmodule Dicom.P10.ReaderTest do
           build_group_length_element(ts_elem) <>
           ts_elem <> un_elem
 
-      {:ok, ds} = Dicom.P10.Reader.parse(binary)
-      assert DataSet.get(ds, {0x0009, 0x0010}) == un_data
+      assert {:error, :unexpected_end} = Dicom.P10.Reader.parse(binary)
+    end
+
+    test "does not swallow following elements when undefined-length value is missing a delimiter" do
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      undef_elem =
+        <<0x09, 0x00, 0x10, 0x00, "UN", 0::16, 0xFF, 0xFF, 0xFF, 0xFF, "ABC">>
+
+      trailing_elem = <<0x10, 0x00, 0x10, 0x00, "PN", 0x08, 0x00, "DOE^JOHN">>
+
+      binary =
+        <<0::1024, "DICM">> <>
+          build_group_length_element(ts_elem) <>
+          ts_elem <> undef_elem <> trailing_elem
+
+      assert {:error, :unexpected_end} = Dicom.P10.Reader.parse(binary)
     end
 
     test "does not stop on sequence delimiter tag bytes unless the full delimiter is present" do

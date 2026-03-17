@@ -1460,6 +1460,15 @@ defmodule Dicom.P10.StreamTest do
              end)
     end
 
+    test "returns error for undefined-length non-SQ element without a delimiter" do
+      elem = <<0x09, 0x00, 0x10, 0x00, "UN", 0::16, 0xFF, 0xFF, 0xFF, 0xFF, "ABC">>
+
+      binary = build_p10_binary([], [elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, :unexpected_end}, &1))
+    end
+
     test "deflated with empty buffer" do
       # File meta followed by empty deflated content
       binary = build_p10_with_ts("1.2.840.10008.1.2.1.99", <<>>)
@@ -2025,7 +2034,7 @@ defmodule Dicom.P10.StreamTest do
       binary = build_p10_binary([], [undef_elem])
       events = collect_events(binary)
 
-      assert {:element, %Dicom.DataElement{tag: {0x0009, 0x0010}, vr: :OB, value: ""}} in events
+      assert Enum.any?(events, &match?({:error, :unexpected_end}, &1))
     end
   end
 

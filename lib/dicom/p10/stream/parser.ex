@@ -620,8 +620,10 @@ defmodule Dicom.P10.Stream.Parser do
   end
 
   defp read_value_for_element(state, tag, vr, 0xFFFFFFFF) do
-    {:ok, value, state} = consume_undefined_length_value(state)
-    {:ok, DataElement.new(tag, vr, value), state}
+    case consume_undefined_length_value(state) do
+      {:ok, value, state} -> {:ok, DataElement.new(tag, vr, value), state}
+      {:error, _} = error -> error
+    end
   end
 
   defp read_value_for_element(state, tag, vr, length) do
@@ -702,10 +704,15 @@ defmodule Dicom.P10.Stream.Parser do
   end
 
   defp read_value_by_length(state, tag, vr, length) when length == 0xFFFFFFFF do
-    {:ok, value, state} = consume_undefined_length_value(state)
-    bytes = 6 + header_size(vr, state.vr_encoding) + byte_size(value) + 8
-    state = update_frame_consumed(state, bytes)
-    {{:element, DataElement.new(tag, vr, value)}, state}
+    case consume_undefined_length_value(state) do
+      {:ok, value, state} ->
+        bytes = 6 + header_size(vr, state.vr_encoding) + byte_size(value) + 8
+        state = update_frame_consumed(state, bytes)
+        {{:element, DataElement.new(tag, vr, value)}, state}
+
+      {:error, reason} ->
+        {{:error, reason}, %{state | phase: :done}}
+    end
   end
 
   defp read_value_by_length(state, tag, vr, length) do
@@ -747,8 +754,10 @@ defmodule Dicom.P10.Stream.Parser do
         read_encapsulated_fragments_eager(state, tag, vr)
 
       {:ok, 0xFFFFFFFF, state} ->
-        {:ok, value, state} = consume_undefined_length_value(state)
-        {:ok, DataElement.new(tag, vr, value), state}
+        case consume_undefined_length_value(state) do
+          {:ok, value, state} -> {:ok, DataElement.new(tag, vr, value), state}
+          {:error, _} = error -> error
+        end
 
       {:ok, length, state} ->
         case Source.ensure(state.source, length) do
@@ -829,8 +838,10 @@ defmodule Dicom.P10.Stream.Parser do
   end
 
   defp consume_undefined_length_value(state) do
-    {:ok, value, source} = Source.consume_until(state.source, @seq_delim_bytes)
-    {:ok, value, %{state | source: source}}
+    case Source.consume_until_required(state.source, @seq_delim_bytes) do
+      {:ok, value, source} -> {:ok, value, %{state | source: source}}
+      {:error, _} = error -> error
+    end
   end
 
   defp ensure_bytes(state, n) do

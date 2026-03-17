@@ -452,7 +452,7 @@ defmodule Dicom.P10.Reader do
         {:ok, DataElement.new(tag, vr, value), rest}
 
       :error ->
-        {:ok, DataElement.new(tag, vr, binary), <<>>}
+        {:error, :unexpected_end}
     end
   end
 
