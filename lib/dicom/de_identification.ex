@@ -507,10 +507,43 @@ defmodule Dicom.DeIdentification do
     end
   end
 
-  defp add_deidentification_markers(%DataSet{} = ds, _profile) do
+  defp add_deidentification_markers(%DataSet{} = ds, profile) do
     ds
-    |> DataSet.put({0x0012, 0x0062}, :CS, "YES")
-    |> DataSet.put({0x0012, 0x0063}, :LO, "Basic Application Level Confidentiality Profile")
+    |> DataSet.put({0x0012, 0x0062}, :CS, patient_identity_removed_marker(profile))
+    |> DataSet.put({0x0012, 0x0063}, :LO, deidentification_method_marker(profile))
+  end
+
+  defp patient_identity_removed_marker(profile) do
+    if retain_private_tags?(profile), do: "NO", else: "YES"
+  end
+
+  defp deidentification_method_marker(profile) do
+    case profile_option_labels(profile) do
+      [] ->
+        "Best-effort de-identification"
+
+      labels ->
+        "Best-effort de-identification; options: " <> Enum.join(labels, ", ")
+    end
+  end
+
+  defp profile_option_labels(profile) do
+    [
+      retain_uids: "retain_uids",
+      retain_device_identity: "retain_device_identity",
+      retain_patient_characteristics: "retain_patient_characteristics",
+      retain_institution_identity: "retain_institution_identity",
+      retain_long_full_dates: "retain_long_full_dates",
+      retain_long_modified_dates: "retain_long_modified_dates",
+      clean_descriptions: "clean_descriptions",
+      clean_structured_content: "clean_structured_content",
+      clean_graphics: "clean_graphics",
+      retain_private_tags: "retain_private_tags",
+      retain_safe_private: "retain_safe_private"
+    ]
+    |> Enum.flat_map(fn {field, label} ->
+      if Map.get(profile, field), do: [label], else: []
+    end)
   end
 
   # ── Dummy values per VR ───────────────────────────────────────

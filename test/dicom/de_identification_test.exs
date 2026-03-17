@@ -209,7 +209,25 @@ defmodule Dicom.DeIdentificationTest do
       # De-identification Method (0012,0063)
       method = DataSet.get(result, {0x0012, 0x0063})
       assert method != nil
-      assert String.contains?(method, "Basic")
+      assert method == "Best-effort de-identification"
+    end
+
+    test "marker tags reflect retention options instead of claiming a generic Basic Profile" do
+      ds = sample_data_set()
+
+      profile = %DeIdentification.Profile{
+        retain_uids: true,
+        retain_private_tags: true
+      }
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      assert DataSet.get(result, {0x0012, 0x0062}) == "NO"
+
+      method = DataSet.get(result, {0x0012, 0x0063})
+      assert String.contains?(method, "Best-effort")
+      assert String.contains?(method, "retain_uids")
+      assert String.contains?(method, "retain_private_tags")
     end
 
     test "removes private tags" do
