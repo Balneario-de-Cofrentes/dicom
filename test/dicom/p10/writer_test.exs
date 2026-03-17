@@ -93,6 +93,16 @@ defmodule Dicom.P10.WriterTest do
       # First element should be (0002,0000) with UL VR
       <<0x02, 0x00, 0x00, 0x00, "UL", _::binary>> = rest
     end
+
+    test "returns an error when required File Meta Information is missing" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5")
+
+      assert {:error, {:missing_required_meta, {0x0002, 0x0010}}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
   end
 
   describe "validate_file_meta/1" do
@@ -191,7 +201,7 @@ defmodule Dicom.P10.WriterTest do
   end
 
   describe "to_binary value encoding" do
-    test "encodes integer values to 32-bit little-endian binary" do
+    test "encodes integer values according to the VR width" do
       ds =
         minimal_data_set()
 
@@ -203,7 +213,7 @@ defmodule Dicom.P10.WriterTest do
       {:ok, parsed} = Dicom.P10.Reader.parse(binary)
 
       raw = parsed.elements[{0x0028, 0x0010}].value
-      assert is_binary(raw)
+      assert raw == <<512::little-16>>
     end
 
     test "encodes non-binary non-integer values via to_string" do
@@ -217,6 +227,23 @@ defmodule Dicom.P10.WriterTest do
       {:ok, parsed} = Dicom.P10.Reader.parse(binary)
 
       assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "test_name"
+    end
+
+    test "encodes integer values using transfer syntax endianness" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_big_endian())
+
+      int_elem = DataElement.new({0x0028, 0x0010}, :US, 512)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x0010}, int_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      raw = parsed.elements[{0x0028, 0x0010}].value
+      assert raw == <<512::big-16>>
     end
   end
 

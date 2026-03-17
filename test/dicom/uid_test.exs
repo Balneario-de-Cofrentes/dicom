@@ -66,6 +66,12 @@ defmodule Dicom.UIDTest do
       refute Dicom.UID.valid?("1..2.3")
     end
 
+    test "rejects invalid root arcs" do
+      refute Dicom.UID.valid?("3.40.5")
+      refute Dicom.UID.valid?("1.40.5")
+      refute Dicom.UID.valid?("2.-1.5")
+    end
+
     test "rejects non-binary input" do
       refute Dicom.UID.valid?(123)
       refute Dicom.UID.valid?(nil)

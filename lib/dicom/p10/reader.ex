@@ -242,13 +242,18 @@ defmodule Dicom.P10.Reader do
     read_items_until_delimiter(binary, vr_enc, endian, [])
   end
 
-  defp read_sequence_items(binary, length, vr_enc, endian) when is_integer(length) do
+  defp read_sequence_items(binary, length, vr_enc, endian)
+       when is_integer(length) and byte_size(binary) >= length do
     <<seq_data::binary-size(length), rest::binary>> = binary
 
     case read_items_from_binary(seq_data, vr_enc, endian, []) do
       {:ok, items, _remaining} -> {:ok, items, rest}
       {:error, _} = error -> error
     end
+  end
+
+  defp read_sequence_items(_binary, length, _vr_enc, _endian) when is_integer(length) do
+    {:error, :unexpected_end}
   end
 
   # Read items until we hit a sequence delimiter

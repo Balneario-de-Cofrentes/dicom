@@ -104,12 +104,27 @@ defmodule Dicom.UID do
   defp valid_components?(uid) do
     components = String.split(uid, ".")
 
-    length(components) >= 2 and
-      Enum.all?(components, &valid_component?/1)
+    case components do
+      [first, second | _rest] ->
+        Enum.all?(components, &valid_component?/1) and valid_root_components?(first, second)
+
+      _ ->
+        false
+    end
   end
 
   defp valid_component?(""), do: false
   defp valid_component?("0"), do: true
   defp valid_component?(<<"0", _::binary>>), do: false
   defp valid_component?(_), do: true
+
+  defp valid_root_components?(first, second) do
+    with {first_arc, ""} <- Integer.parse(first),
+         {second_arc, ""} <- Integer.parse(second),
+         true <- first_arc in 0..2 do
+      if first_arc < 2, do: second_arc <= 39, else: true
+    else
+      _ -> false
+    end
+  end
 end

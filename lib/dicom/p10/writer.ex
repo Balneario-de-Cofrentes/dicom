@@ -15,8 +15,7 @@ defmodule Dicom.P10.Writer do
 
   alias Dicom.{DataElement, DataSet, TransferSyntax, VR}
 
-  @compile {:inline,
-            encode_tag: 2, encode_u32: 2, encode_u16: 2, to_binary: 1, ensure_meta_element: 4}
+  @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
   @implementation_class_uid "1.2.826.0.1.3680043.10.1137"
   @implementation_version_name "DICOM_EX_0.1.0"
@@ -74,35 +73,37 @@ defmodule Dicom.P10.Writer do
   @doc """
   Serializes a data set to P10 binary.
   """
-  @spec serialize(DataSet.t()) :: {:ok, binary()}
+  @spec serialize(DataSet.t()) :: {:ok, binary()} | {:error, term()}
   def serialize(%DataSet{} = data_set) do
     preamble = Dicom.P10.FileMeta.preamble()
     file_meta = ensure_required_meta(data_set.file_meta)
 
-    # Encode all file meta elements except group length first (as iodata)
-    meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
-    meta_iodata = encode_elements(meta_without_group_length, :explicit, :little)
+    with :ok <- validate_file_meta(%{data_set | file_meta: file_meta}) do
+      # Encode all file meta elements except group length first (as iodata)
+      meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
+      meta_iodata = encode_elements(meta_without_group_length, :explicit, :little)
 
-    # Compute and prepend group length (iolist_size avoids intermediate binary)
-    group_length_elem =
-      DataElement.new({0x0002, 0x0000}, :UL, <<:erlang.iolist_size(meta_iodata)::little-32>>)
+      # Compute and prepend group length (iolist_size avoids intermediate binary)
+      group_length_elem =
+        DataElement.new({0x0002, 0x0000}, :UL, <<:erlang.iolist_size(meta_iodata)::little-32>>)
 
-    group_length_iodata = encode_element(group_length_elem, :explicit, :little)
+      group_length_iodata = encode_element(group_length_elem, :explicit, :little)
 
-    # Encode main data set (as iodata)
-    transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
-    {vr_encoding, endianness} = TransferSyntax.encoding(transfer_syntax_uid)
-    data_set_iodata = encode_elements(data_set.elements, vr_encoding, endianness)
+      # Encode main data set (as iodata)
+      transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
+      {vr_encoding, endianness} = TransferSyntax.encoding(transfer_syntax_uid)
+      data_set_iodata = encode_elements(data_set.elements, vr_encoding, endianness)
 
-    # Deflate if transfer syntax requires it (PS3.5 Section 10)
-    final_data_set =
-      if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
-        :zlib.compress(data_set_iodata)
-      else
-        data_set_iodata
-      end
+      # Deflate if transfer syntax requires it (PS3.5 Section 10)
+      final_data_set =
+        if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
+          :zlib.compress(data_set_iodata)
+        else
+          data_set_iodata
+        end
 
-    {:ok, IO.iodata_to_binary([preamble, group_length_iodata, meta_iodata, final_data_set])}
+      {:ok, IO.iodata_to_binary([preamble, group_length_iodata, meta_iodata, final_data_set])}
+    end
   end
 
   defp ensure_required_meta(file_meta) do
@@ -167,7 +168,7 @@ defmodule Dicom.P10.Writer do
        ) do
     tag_bytes = encode_tag(tag, endian)
     vr_bytes = VR.to_binary(vr)
-    padded_value = value |> to_binary() |> VR.pad_value(vr)
+    padded_value = value |> Dicom.Value.encode(vr, endian) |> VR.pad_value(vr)
 
     if VR.long_length?(vr) do
       [tag_bytes, vr_bytes, <<0::16>>, encode_u32(byte_size(padded_value), endian), padded_value]
@@ -198,7 +199,7 @@ defmodule Dicom.P10.Writer do
          :implicit,
          :little
        ) do
-    padded_value = value |> to_binary() |> VR.pad_value(vr)
+    padded_value = value |> Dicom.Value.encode(vr, :little) |> VR.pad_value(vr)
 
     [encode_tag(tag, :little), encode_u32(byte_size(padded_value), :little), padded_value]
   end
@@ -234,7 +235,4 @@ defmodule Dicom.P10.Writer do
   defp encode_u16(value, :little), do: <<value::little-16>>
   defp encode_u16(value, :big), do: <<value::big-16>>
 
-  defp to_binary(value) when is_binary(value), do: value
-  defp to_binary(value) when is_integer(value), do: <<value::little-32>>
-  defp to_binary(value), do: to_string(value)
 end

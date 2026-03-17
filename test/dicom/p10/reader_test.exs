@@ -255,6 +255,21 @@ defmodule Dicom.P10.ReaderTest do
 
       assert {:error, :unexpected_end} = Dicom.P10.Reader.parse(binary)
     end
+
+    test "returns error for a truncated defined-length sequence payload" do
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+
+      truncated_sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 12::little-32, 0xFE, 0xFF, 0x00, 0xE0, 4::little-32,
+          0x08, 0x00>>
+
+      binary =
+        <<0::1024, "DICM">> <>
+          build_group_length_element(ts_elem) <>
+          ts_elem <> truncated_sq
+
+      assert {:error, :unexpected_end} = Dicom.P10.Reader.parse(binary)
+    end
   end
 
   describe "UN with undefined length (PS3.5 7.1)" do

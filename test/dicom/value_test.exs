@@ -75,6 +75,14 @@ defmodule Dicom.ValueTest do
     test "IS multi-value" do
       assert Value.decode("1\\2\\3 ", :IS) == [1, 2, 3]
     end
+
+    test "UT preserves leading spaces while trimming trailing padding" do
+      assert Value.decode("  leading text  ", :UT) == "  leading text"
+    end
+
+    test "LT preserves leading spaces while trimming trailing padding" do
+      assert Value.decode("  long text  ", :LT) == "  long text"
+    end
   end
 
   describe "decode/2 empty values" do
@@ -202,6 +210,26 @@ defmodule Dicom.ValueTest do
 
     test "SV encodes signed 64-bit" do
       assert Value.encode(-100, :SV) == <<-100::little-signed-64>>
+    end
+  end
+
+  describe "decode/3 endianness-aware numeric decoding" do
+    test "US decodes big-endian values" do
+      assert Value.decode(<<512::big-16>>, :US, :big) == 512
+    end
+
+    test "AT decodes big-endian tag tuples" do
+      assert Value.decode(<<0x0010::big-16, 0x0010::big-16>>, :AT, :big) == {0x0010, 0x0010}
+    end
+  end
+
+  describe "encode/3 endianness-aware numeric encoding" do
+    test "US encodes big-endian values" do
+      assert Value.encode(512, :US, :big) == <<512::big-16>>
+    end
+
+    test "AT encodes big-endian tag tuples" do
+      assert Value.encode({0x0010, 0x0010}, :AT, :big) == <<0x0010::big-16, 0x0010::big-16>>
     end
   end
 
