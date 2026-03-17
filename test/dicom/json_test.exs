@@ -558,10 +558,25 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
 
-    test "decodes BulkDataURI (stores URI as value)" do
+    test "returns an error for unresolved BulkDataURI by default" do
       json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "http://example.com/pixel"}}
-      assert {:ok, ds} = Json.from_map(json)
-      assert DataSet.get(ds, {0x7FE0, 0x0010}) == "http://example.com/pixel"
+
+      assert {:error,
+              {:unresolved_bulk_data_uri, {0x7FE0, 0x0010}, :OB, "http://example.com/pixel"}} =
+               Json.from_map(json)
+    end
+
+    test "resolves BulkDataURI when a resolver is provided" do
+      json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "memory://pixel"}}
+
+      assert {:ok, ds} =
+               Json.from_map(json,
+                 bulk_data_resolver: fn {0x7FE0, 0x0010}, :OB, "memory://pixel" ->
+                   {:ok, <<1, 2, 3, 4>>}
+                 end
+               )
+
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
   end
 
@@ -638,6 +653,19 @@ defmodule Dicom.JsonTest do
       }
 
       assert {:error, :invalid_sequence_item} = Json.from_map(json)
+    end
+
+    test "returns error for mixed JSON representations on one element" do
+      json = %{
+        "7FE00010" => %{
+          "vr" => "OB",
+          "InlineBinary" => Base.encode64(<<1, 2, 3, 4>>),
+          "BulkDataURI" => "http://example.com/pixel"
+        }
+      }
+
+      assert {:error, {:multiple_value_representations, {0x7FE0, 0x0010}}} =
+               Json.from_map(json)
     end
   end
 
@@ -717,7 +745,9 @@ defmodule Dicom.JsonTest do
   describe "Json.from_map/1 - invalid base64" do
     test "returns error for invalid InlineBinary" do
       json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => "!!!invalid!!!"}}
-      assert {:error, :invalid_base64} = Json.from_map(json)
+
+      assert {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :invalid_base64}} =
+               Json.from_map(json)
     end
   end
 
@@ -738,11 +768,18 @@ defmodule Dicom.JsonTest do
   end
 
   describe "Json.from_map/1 - Value with unmatched type" do
-    test "element with Value containing unsupported type returns nil" do
+    test "element with Value containing unsupported type returns an error" do
       json = %{"00100020" => %{"vr" => "LO", "Value" => [42]}}
-      assert {:ok, ds} = Json.from_map(json)
-      # LO expects string, gets number → falls through to nil
-      assert DataSet.get(ds, {0x0010, 0x0020}) == nil
+
+      assert {:error, {:invalid_value, {0x0010, 0x0020}, :LO, :expected_string_values}} =
+               Json.from_map(json)
+    end
+
+    test "binary VR with Value array returns an error" do
+      json = %{"7FE00010" => %{"vr" => "OB", "Value" => ["abcd"]}}
+
+      assert {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :expected_binary_representation}} =
+               Json.from_map(json)
     end
   end
 

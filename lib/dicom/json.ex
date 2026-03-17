@@ -17,6 +17,14 @@ defmodule Dicom.Json do
       # Decode a DICOM JSON map back to a DataSet
       {:ok, data_set} = Dicom.Json.from_map(map)
 
+      # Resolve BulkDataURI references during decode
+      {:ok, data_set} =
+        Dicom.Json.from_map(map,
+          bulk_data_resolver: fn _tag, _vr, uri ->
+            File.read(uri)
+          end
+        )
+
   Reference: DICOM PS3.18 Annex F.2.
   """
 
@@ -155,14 +163,20 @@ defmodule Dicom.Json do
   @doc """
   Decodes a DICOM JSON map into a `Dicom.DataSet`.
 
+  ## Options
+
+  - `bulk_data_resolver` — `fn tag, vr, uri -> {:ok, binary} | {:error, reason} end`
+    used to resolve `BulkDataURI` entries during decode. Without a resolver,
+    `BulkDataURI` returns an error instead of being stored as element bytes.
+
   Returns `{:ok, data_set}` or `{:error, reason}`.
   """
-  @spec from_map(map()) :: {:ok, DataSet.t()} | {:error, term()}
-  def from_map(json) when is_map(json) do
+  @spec from_map(map(), keyword()) :: {:ok, DataSet.t()} | {:error, term()}
+  def from_map(json, opts \\ []) when is_map(json) do
     Enum.reduce_while(json, {:ok, DataSet.new()}, fn {tag_hex, elem_map}, {:ok, ds} ->
       with {:ok, tag} <- parse_tag_hex(tag_hex),
            {:ok, vr} <- parse_vr(elem_map),
-           {:ok, value} <- decode_value(vr, elem_map) do
+           {:ok, value} <- decode_value(tag, vr, elem_map, opts) do
         elem = DataElement.new(tag, vr, value)
         {group, _} = tag
 
@@ -197,13 +211,49 @@ defmodule Dicom.Json do
 
   defp parse_vr(_), do: {:error, :missing_vr}
 
-  defp decode_value(:PN, %{"Value" => pn_values}) when is_list(pn_values) do
-    {:ok, Enum.map_join(pn_values, "\\", &decode_pn/1)}
+  defp decode_value(tag, vr, elem_map, opts) do
+    with :ok <- validate_single_value_representation(tag, elem_map) do
+      case elem_map do
+        %{"Value" => values} ->
+          decode_json_value(tag, vr, values, opts)
+
+        %{"InlineBinary" => value} ->
+          decode_inline_binary(tag, vr, value)
+
+        %{"BulkDataURI" => value} ->
+          decode_bulk_data_uri(tag, vr, value, opts)
+
+        _ ->
+          {:ok, nil}
+      end
+    end
   end
 
-  defp decode_value(:SQ, %{"Value" => items}) when is_list(items) do
+  defp decode_json_value(_tag, :PN, [], _opts), do: {:ok, nil}
+
+  defp decode_json_value(tag, :PN, pn_values, _opts) when is_list(pn_values) do
+    Enum.reduce_while(pn_values, {:ok, []}, fn
+      pn_map, {:ok, acc} when is_map(pn_map) ->
+        {:cont, {:ok, [decode_pn(pn_map) | acc]}}
+
+      _value, _acc ->
+        {:halt, {:error, {:invalid_value, tag, :PN, :expected_person_name_components}}}
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, decoded |> Enum.reverse() |> Enum.join("\\")}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp decode_json_value(tag, :PN, _value, _opts) do
+    {:error, {:invalid_value, tag, :PN, :expected_value_array}}
+  end
+
+  defp decode_json_value(_tag, :SQ, [], _opts), do: {:ok, []}
+
+  defp decode_json_value(_tag, :SQ, items, opts) when is_list(items) do
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
-      case decode_item(item) do
+      case decode_item(item, opts) do
         {:ok, decoded_item} -> {:cont, {:ok, [decoded_item | acc]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -214,7 +264,13 @@ defmodule Dicom.Json do
     end
   end
 
-  defp decode_value(:AT, %{"Value" => values}) when is_list(values) do
+  defp decode_json_value(tag, :SQ, _value, _opts) do
+    {:error, {:invalid_value, tag, :SQ, :expected_value_array}}
+  end
+
+  defp decode_json_value(_tag, :AT, [], _opts), do: {:ok, nil}
+
+  defp decode_json_value(tag, :AT, values, _opts) when is_list(values) do
     Enum.reduce_while(values, {:ok, <<>>}, fn
       hex, {:ok, acc} when is_binary(hex) ->
         with {:ok, {group, element}} <- parse_tag_hex(hex) do
@@ -224,46 +280,106 @@ defmodule Dicom.Json do
         end
 
       _value, _acc ->
-        {:halt, {:error, :invalid_at_value}}
+        {:halt, {:error, {:invalid_value, tag, :AT, :expected_tag_hex}}}
     end)
   end
 
-  defp decode_value(vr, %{"Value" => values})
+  defp decode_json_value(tag, :AT, _value, _opts) do
+    {:error, {:invalid_value, tag, :AT, :expected_value_array}}
+  end
+
+  defp decode_json_value(_tag, vr, [], _opts) when vr in @string_vrs, do: {:ok, nil}
+
+  defp decode_json_value(tag, vr, values, _opts)
        when vr in @string_vrs and is_list(values) do
     if Enum.all?(values, &is_binary/1) do
       {:ok, Enum.join(values, "\\")}
     else
-      {:ok, nil}
+      {:error, {:invalid_value, tag, vr, :expected_string_values}}
     end
   end
 
-  defp decode_value(vr, %{"Value" => values})
+  defp decode_json_value(tag, vr, _value, _opts) when vr in @string_vrs do
+    {:error, {:invalid_value, tag, vr, :expected_value_array}}
+  end
+
+  defp decode_json_value(_tag, vr, [], _opts) when vr in @numeric_vrs, do: {:ok, nil}
+
+  defp decode_json_value(tag, vr, values, _opts)
        when vr in @numeric_vrs and is_list(values) do
     if Enum.all?(values, &is_number/1) do
       {:ok, IO.iodata_to_binary(Enum.map(values, &Value.encode(&1, vr)))}
     else
-      {:ok, nil}
+      {:error, {:invalid_value, tag, vr, :expected_numeric_values}}
     end
   end
 
-  defp decode_value(vr, %{"InlineBinary" => b64})
-       when vr in @binary_vrs and is_binary(b64) do
+  defp decode_json_value(tag, vr, _value, _opts) when vr in @numeric_vrs do
+    {:error, {:invalid_value, tag, vr, :expected_value_array}}
+  end
+
+  defp decode_json_value(tag, vr, _value, _opts) when vr in @binary_vrs do
+    {:error, {:invalid_value, tag, vr, :expected_binary_representation}}
+  end
+
+  defp decode_json_value(_tag, _vr, [], _opts), do: {:ok, nil}
+
+  defp decode_json_value(tag, vr, values, _opts) when is_list(values) do
+    if Enum.all?(values, &is_binary/1) do
+      {:ok, Enum.join(values, "\\")}
+    else
+      {:error, {:invalid_value, tag, vr, :expected_string_values}}
+    end
+  end
+
+  defp decode_json_value(tag, vr, _value, _opts) do
+    {:error, {:invalid_value, tag, vr, :expected_value_array}}
+  end
+
+  defp decode_inline_binary(tag, vr, b64) when vr in @binary_vrs and is_binary(b64) do
     case Base.decode64(b64) do
       {:ok, binary} -> {:ok, binary}
-      :error -> {:error, :invalid_base64}
+      :error -> {:error, {:invalid_value, tag, vr, :invalid_base64}}
     end
   end
 
-  defp decode_value(_vr, %{"BulkDataURI" => uri}) when is_binary(uri) do
-    {:ok, uri}
+  defp decode_inline_binary(tag, vr, _value) do
+    {:error, {:invalid_value, tag, vr, :expected_inline_binary}}
   end
 
-  defp decode_value(_vr, %{"Value" => _} = _elem_map) do
-    {:ok, nil}
+  defp decode_bulk_data_uri(tag, vr, uri, opts) when vr in @binary_vrs and is_binary(uri) do
+    case Keyword.get(opts, :bulk_data_resolver) do
+      nil ->
+        {:error, {:unresolved_bulk_data_uri, tag, vr, uri}}
+
+      resolver when is_function(resolver, 3) ->
+        case resolver.(tag, vr, uri) do
+          {:ok, binary} when is_binary(binary) -> {:ok, binary}
+          {:error, reason} -> {:error, {:bulk_data_resolution_failed, tag, vr, uri, reason}}
+          other -> {:error, {:invalid_bulk_data_resolution, tag, vr, uri, other}}
+        end
+
+      other ->
+        {:error, {:invalid_bulk_data_resolver, other}}
+    end
   end
 
-  defp decode_value(_vr, _elem_map) do
-    {:ok, nil}
+  defp decode_bulk_data_uri(tag, vr, _value, _opts) do
+    {:error, {:invalid_value, tag, vr, :expected_bulk_data_uri}}
+  end
+
+  defp validate_single_value_representation(tag, elem_map) do
+    reps =
+      Enum.count(
+        ["Value", "InlineBinary", "BulkDataURI"],
+        &Map.has_key?(elem_map, &1)
+      )
+
+    if reps > 1 do
+      {:error, {:multiple_value_representations, tag}}
+    else
+      :ok
+    end
   end
 
   defp decode_pn(pn_map) do
@@ -282,11 +398,11 @@ defmodule Dicom.Json do
     String.split(value, "\\")
   end
 
-  defp decode_item(item_map) when is_map(item_map) do
+  defp decode_item(item_map, opts) when is_map(item_map) do
     Enum.reduce_while(item_map, {:ok, %{}}, fn {tag_hex, elem_map}, {:ok, acc} ->
       with {:ok, tag} <- parse_tag_hex(tag_hex),
            {:ok, vr} <- parse_vr(elem_map),
-           {:ok, value} <- decode_value(vr, elem_map) do
+           {:ok, value} <- decode_value(tag, vr, elem_map, opts) do
         {:cont, {:ok, Map.put(acc, tag, DataElement.new(tag, vr, value))}}
       else
         {:error, _} = error -> {:halt, error}
@@ -294,7 +410,7 @@ defmodule Dicom.Json do
     end)
   end
 
-  defp decode_item(_item_map), do: {:error, :invalid_sequence_item}
+  defp decode_item(_item_map, _opts), do: {:error, :invalid_sequence_item}
 
   # ── Helpers ───────────────────────────────────────────────────
 
