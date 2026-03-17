@@ -14,6 +14,20 @@ releases have been cut yet.
 
 - BEAM DICOM library comparison table in the README covering licensing, features,
   test coverage, and CI status
+- **Comprehensive PS3.6 data dictionary** — expanded from ~95 hand-written entries
+  to 5032 entries generated from the DICOM standard. Overlay repeating group (60XX)
+  support included. Previously-unknown tags (especially SQ) now resolve correctly
+  in Implicit VR parsing.
+- **Specific Character Set support** (`Dicom.CharacterSet`) — decodes text values
+  according to (0008,0005). Supports default repertoire, ISO_IR 100 (Latin-1),
+  ISO 8859-2 through 9, and ISO_IR 192 (UTF-8). Returns explicit errors for
+  unsupported charsets instead of silently producing incorrect text.
+- **Expanded transfer syntax registry** — from 9 to 29 entries. Added JPEG-LS,
+  JPEG 2000 Part 2, MPEG-2/4, HEVC/H.265, HTJ2K, and JPIP transfer syntaxes.
+- Interoperability test suite exercising unknown TS rejection, expanded dictionary
+  in implicit VR parsing, rich multi-element roundtrips across all four uncompressed
+  transfer syntaxes, encapsulated pixel data with compressed TSes, and character set
+  integration through the parse pipeline.
 
 ### Fixed
 
@@ -28,7 +42,11 @@ releases have been cut yet.
 
 ### Changed
 
-- Expanded regression coverage to 269 tests with the suite remaining at 100% coverage
+- **Strict transfer syntax policy** — `TransferSyntax.encoding/2` now returns
+  `{:error, :unknown_transfer_syntax}` for unrecognized UIDs instead of silently
+  falling back to Explicit VR Little Endian. Use `encoding(uid, lenient: true)` to
+  opt in to the old fallback behavior. Reader and writer now propagate this error.
+- Expanded test suite to 323 tests (from 269) with 100% coverage maintained
 
 ## [0.1.0] - 2026-03-17
 

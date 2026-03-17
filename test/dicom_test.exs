@@ -310,16 +310,16 @@ defmodule DicomTest do
         {{0x0028, 0x1051}, "WindowWidth", :DS, "1-n"},
         {{0x0028, 0x1052}, "RescaleIntercept", :DS, "1"},
         {{0x0028, 0x1053}, "RescaleSlope", :DS, "1"},
-        # Common Sequences
-        {{0x0008, 0x1115}, "ReferencedSeriesSequence", :SQ, "1-n"},
-        {{0x0008, 0x1120}, "ReferencedPatientSequence", :SQ, "1-n"},
-        {{0x0008, 0x1140}, "ReferencedImageSequence", :SQ, "1-n"},
+        # Common Sequences (SQ VM is always "1" per PS3.6; multiplicity is via items)
+        {{0x0008, 0x1115}, "ReferencedSeriesSequence", :SQ, "1"},
+        {{0x0008, 0x1120}, "ReferencedPatientSequence", :SQ, "1"},
+        {{0x0008, 0x1140}, "ReferencedImageSequence", :SQ, "1"},
         {{0x0008, 0x1150}, "ReferencedSOPClassUID", :UI, "1"},
         {{0x0008, 0x1155}, "ReferencedSOPInstanceUID", :UI, "1"},
-        {{0x0040, 0x0275}, "RequestAttributesSequence", :SQ, "1-n"},
-        {{0x0040, 0xA730}, "ContentSequence", :SQ, "1-n"},
-        # Pixel Data and Trailing Padding
-        {{0x7FE0, 0x0010}, "PixelData", :OW, "1"},
+        {{0x0040, 0x0275}, "RequestAttributesSequence", :SQ, "1"},
+        {{0x0040, 0xA730}, "ContentSequence", :SQ, "1"},
+        # Pixel Data and Trailing Padding (PS3.6: OB or OW; OB listed first in standard)
+        {{0x7FE0, 0x0010}, "PixelData", :OB, "1"},
         {{0xFFFC, 0xFFFC}, "DataSetTrailingPadding", :OB, "1"}
       ]
 
@@ -438,13 +438,19 @@ defmodule DicomTest do
     end
 
     test "encoding returns VR encoding and endianness" do
-      assert {:implicit, :little} = Dicom.TransferSyntax.encoding("1.2.840.10008.1.2")
-      assert {:explicit, :little} = Dicom.TransferSyntax.encoding("1.2.840.10008.1.2.1")
-      assert {:explicit, :big} = Dicom.TransferSyntax.encoding("1.2.840.10008.1.2.2")
+      assert {:ok, {:implicit, :little}} = Dicom.TransferSyntax.encoding("1.2.840.10008.1.2")
+      assert {:ok, {:explicit, :little}} = Dicom.TransferSyntax.encoding("1.2.840.10008.1.2.1")
+      assert {:ok, {:explicit, :big}} = Dicom.TransferSyntax.encoding("1.2.840.10008.1.2.2")
     end
 
-    test "encoding falls back to explicit LE for unknown UID" do
-      assert {:explicit, :little} = Dicom.TransferSyntax.encoding("1.2.3.4.5.6.7.8.9")
+    test "encoding returns error for unknown UID by default" do
+      assert {:error, :unknown_transfer_syntax} =
+               Dicom.TransferSyntax.encoding("1.2.3.4.5.6.7.8.9")
+    end
+
+    test "encoding with lenient: true falls back to explicit LE for unknown UID" do
+      assert {:ok, {:explicit, :little}} =
+               Dicom.TransferSyntax.encoding("1.2.3.4.5.6.7.8.9", lenient: true)
     end
 
     test "extract_uid extracts transfer syntax from file meta" do

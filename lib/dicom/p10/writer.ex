@@ -78,7 +78,10 @@ defmodule Dicom.P10.Writer do
     preamble = Dicom.P10.FileMeta.preamble()
     file_meta = ensure_required_meta(data_set.file_meta)
 
-    with :ok <- validate_file_meta(%{data_set | file_meta: file_meta}) do
+    transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
+
+    with :ok <- validate_file_meta(%{data_set | file_meta: file_meta}),
+         {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid) do
       # Encode all file meta elements except group length first (as iodata)
       meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
       meta_iodata = encode_elements(meta_without_group_length, :explicit, :little)
@@ -90,8 +93,6 @@ defmodule Dicom.P10.Writer do
       group_length_iodata = encode_element(group_length_elem, :explicit, :little)
 
       # Encode main data set (as iodata)
-      transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
-      {vr_encoding, endianness} = TransferSyntax.encoding(transfer_syntax_uid)
       data_set_iodata = encode_elements(data_set.elements, vr_encoding, endianness)
 
       # Deflate if transfer syntax requires it (PS3.5 Section 10)

@@ -14,9 +14,10 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 
 - **P10 file parsing** -- read DICOM Part 10 files into structured data sets
 - **P10 file writing** -- serialize data sets back to conformant P10 files
-- **Data dictionary** -- DICOM PS3.6 tag registry with VR and VM definitions
+- **Data dictionary** -- comprehensive PS3.6 tag registry (5032 entries) with VR and VM definitions
+- **Character set support** -- decode text values per (0008,0005) SpecificCharacterSet (Latin-1, UTF-8, ISO 8859-2..9)
 - **Value decoding** -- automatic VR-aware decoding (numeric, string, date, UID, etc.)
-- **Transfer syntaxes** -- Implicit VR LE, Explicit VR LE, Explicit VR BE (retired), Deflated Explicit VR LE
+- **Transfer syntaxes** -- 29 registered transfer syntaxes; strict rejection of unknown UIDs with opt-in lenient mode
 - **Sequences** -- defined-length and undefined-length SQ with nested items
 - **Encapsulated pixel data** -- fragments with Basic Offset Table
 - **Validation** -- File Meta Information validation per PS3.10 Section 7.1
@@ -76,13 +77,14 @@ lib/dicom/
   vr.ex                 -- Value Representation types and padding
   uid.ex                -- UID constants, generation, and validation
   value.ex              -- VR-aware value encoding and decoding
-  transfer_syntax.ex    -- Transfer syntax registry and encoding dispatch
+  transfer_syntax.ex    -- Transfer syntax registry (29 TSes) and encoding dispatch
+  character_set.ex      -- Specific Character Set decoding (0008,0005)
   p10/
     reader.ex           -- P10 binary parser (preamble, file meta, data set)
     writer.ex           -- P10 binary serializer (iodata pipeline)
     file_meta.ex        -- Preamble validation and File Meta Information
   dictionary/
-    registry.ex         -- PS3.6 tag -> {name, VR, VM} lookup
+    registry.ex         -- PS3.6 tag -> {name, VR, VM} lookup (5032 entries)
 ```
 
 ## DICOM Standard Coverage
@@ -90,7 +92,7 @@ lib/dicom/
 | Part | Title | Coverage |
 |------|-------|----------|
 | PS3.5 | Data Structures and Encoding | VR types, transfer syntaxes, data encoding, sequences |
-| PS3.6 | Data Dictionary | Tag registry (most common clinical tags) |
+| PS3.6 | Data Dictionary | Comprehensive tag registry (5032 entries from PS3.6) |
 | PS3.10 | Media Storage and File Format | P10 read/write, File Meta Information, preamble |
 
 ### Transfer Syntaxes
@@ -101,7 +103,10 @@ lib/dicom/
 | Explicit VR Little Endian (1.2.840.10008.1.2.1) | Yes | Yes |
 | Deflated Explicit VR Little Endian (1.2.840.10008.1.2.1.99) | Yes | Yes |
 | Explicit VR Big Endian (1.2.840.10008.1.2.2, retired) | Yes | Yes |
-| JPEG Baseline, JPEG 2000, RLE (compressed) | Metadata only | Metadata only |
+| JPEG, JPEG-LS, JPEG 2000, RLE, MPEG, HEVC, HTJ2K (25 compressed TSes) | Metadata only | Metadata only |
+
+Unknown transfer syntaxes are rejected by default. Use `TransferSyntax.encoding(uid, lenient: true)`
+to fall back to Explicit VR Little Endian for unrecognized UIDs.
 
 ## Performance
 
@@ -121,7 +126,7 @@ Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 ## Testing
 
 ```bash
-mix test              # Run all tests (259 tests)
+mix test              # Run all tests (323 tests)
 mix test --cover      # Run with coverage report (100%)
 mix format --check-formatted
 ```
@@ -139,9 +144,9 @@ verify encode/decode roundtrips across all VR types.
 | **Runtime deps** | 0 | 6 | 0 | Rust NIFs | 2 |
 | **P10 parse** | Yes | Yes | Yes | Yes | No |
 | **P10 write** | Yes | Yes | Stub only | Yes | No |
-| **Transfer syntaxes** | 4 | Unknown | Unknown | Full | N/A |
+| **Transfer syntaxes** | 29 | Unknown | Unknown | Full | N/A |
 | **Sequences (SQ)** | Yes | Yes | Unknown | Yes | N/A |
-| **Tag dictionary** | ~80 tags | 5,249 tags | None | Full PS3.6 | None |
+| **Tag dictionary** | 5,032 tags | 5,249 tags | None | Full PS3.6 | None |
 | **UID generation** | Yes | No | No | No | No |
 | **UID validation** | Yes | No | No | No | No |
 | **File Meta validation** | Yes | No | No | No | No |
@@ -149,7 +154,7 @@ verify encode/decode roundtrips across all VR types.
 | **Streaming** | No | No | No | Yes | No |
 | **DICOM JSON** | No | No | No | Yes | No |
 | **Anonymization** | No | No | No | Yes | No |
-| **Test suite** | 259 tests, 100% coverage | Unknown | 5 tests | Unknown | 3 tests |
+| **Test suite** | 323 tests, 100% coverage | Unknown | 5 tests | Unknown | 3 tests |
 | **CI** | Passing | None | None | Failing | Failing |
 | **Docs** | Full @doc + @moduledoc | None | None | HexDocs | None |
 
