@@ -28,11 +28,12 @@ defmodule Dicom.Json do
   Reference: DICOM PS3.18 Annex F.2.
   """
 
-  alias Dicom.{DataSet, DataElement, Value, VR}
+  alias Dicom.{CharacterSet, DataSet, DataElement, Value, VR}
 
   @string_vrs VR.string_vrs()
   @numeric_vrs VR.numeric_vrs()
   @binary_vrs VR.binary_vrs()
+  @charset_sensitive_vrs [:LO, :LT, :PN, :SH, :ST, :UC, :UT]
 
   # ── Encoder ───────────────────────────────────────────────────
 
@@ -59,35 +60,38 @@ defmodule Dicom.Json do
         ds.elements
       end
 
+    charset = CharacterSet.extract(elements)
+
     elements
     |> Enum.reject(fn {{_group, element}, _elem} -> element == 0x0000 end)
     |> Map.new(fn {tag, elem} ->
-      {format_tag(tag), encode_element(tag, elem, bulk_fn)}
+      {format_tag(tag), encode_element(tag, elem, bulk_fn, charset)}
     end)
   end
 
-  defp encode_element(tag, %DataElement{vr: vr, value: value}, bulk_fn) do
+  defp encode_element(tag, %DataElement{vr: vr, value: value}, bulk_fn, charset) do
     base = %{"vr" => Atom.to_string(vr)}
-    encode_value(base, tag, vr, value, bulk_fn)
+    encode_value(base, tag, vr, value, bulk_fn, charset)
   end
 
-  defp encode_value(base, _tag, _vr, nil, _bulk_fn), do: base
-  defp encode_value(base, _tag, _vr, "", _bulk_fn), do: base
+  defp encode_value(base, _tag, _vr, nil, _bulk_fn, _charset), do: base
+  defp encode_value(base, _tag, _vr, "", _bulk_fn, _charset), do: base
 
-  defp encode_value(base, _tag, :PN, value, _bulk_fn) when is_binary(value) do
+  defp encode_value(base, _tag, :PN, value, _bulk_fn, charset) when is_binary(value) do
     values =
       value
+      |> decode_charset_text!(:PN, charset)
       |> split_multi_string()
       |> Enum.map(&encode_pn/1)
 
     Map.put(base, "Value", values)
   end
 
-  defp encode_value(base, _tag, :SQ, items, bulk_fn) when is_list(items) do
-    Map.put(base, "Value", Enum.map(items, &encode_item(&1, bulk_fn)))
+  defp encode_value(base, _tag, :SQ, items, bulk_fn, charset) when is_list(items) do
+    Map.put(base, "Value", Enum.map(items, &encode_item(&1, bulk_fn, charset)))
   end
 
-  defp encode_value(base, _tag, :AT, value, _bulk_fn) when is_binary(value) do
+  defp encode_value(base, _tag, :AT, value, _bulk_fn, _charset) when is_binary(value) do
     if rem(byte_size(value), 4) != 0 do
       raise ArgumentError, "invalid AT value length: expected a multiple of 4 bytes"
     end
@@ -100,12 +104,23 @@ defmodule Dicom.Json do
     Map.put(base, "Value", values)
   end
 
-  defp encode_value(base, _tag, :AT, {group, element}, _bulk_fn) do
+  defp encode_value(base, _tag, :AT, {group, element}, _bulk_fn, _charset) do
     hex = format_tag({group, element})
     Map.put(base, "Value", [hex])
   end
 
-  defp encode_value(base, _tag, vr, value, _bulk_fn)
+  defp encode_value(base, _tag, vr, value, _bulk_fn, charset)
+       when vr in @charset_sensitive_vrs and vr != :PN and is_binary(value) do
+    values =
+      value
+      |> decode_charset_text!(vr, charset)
+      |> trim_string_padding(vr)
+      |> split_multi_string()
+
+    Map.put(base, "Value", values)
+  end
+
+  defp encode_value(base, _tag, vr, value, _bulk_fn, _charset)
        when vr in @string_vrs and is_binary(value) do
     values =
       value
@@ -115,7 +130,7 @@ defmodule Dicom.Json do
     Map.put(base, "Value", values)
   end
 
-  defp encode_value(base, _tag, vr, value, _bulk_fn)
+  defp encode_value(base, _tag, vr, value, _bulk_fn, _charset)
        when vr in @numeric_vrs and is_binary(value) do
     decoded = Value.decode(value, vr)
 
@@ -131,27 +146,27 @@ defmodule Dicom.Json do
     end
   end
 
-  defp encode_value(base, _tag, vr, value, _bulk_fn)
+  defp encode_value(base, _tag, vr, value, _bulk_fn, _charset)
        when vr in @numeric_vrs and is_number(value) do
     Map.put(base, "Value", [value])
   end
 
-  defp encode_value(base, tag, vr, value, bulk_fn)
+  defp encode_value(base, tag, vr, value, bulk_fn, _charset)
        when vr in @binary_vrs and is_binary(value) do
     encode_binary_value(base, tag, vr, value, bulk_fn)
   end
 
-  defp encode_value(base, tag, vr, {:encapsulated, fragments}, bulk_fn)
+  defp encode_value(base, tag, vr, {:encapsulated, fragments}, bulk_fn, _charset)
        when vr in @binary_vrs and is_list(fragments) do
     base
     |> encode_binary_value(tag, vr, serialize_encapsulated_value(fragments), bulk_fn)
   end
 
-  defp encode_value(base, _tag, _vr, value, _bulk_fn) when is_binary(value) do
+  defp encode_value(base, _tag, _vr, value, _bulk_fn, _charset) when is_binary(value) do
     Map.put(base, "Value", [value])
   end
 
-  defp encode_value(_base, _tag, vr, _value, _bulk_fn) do
+  defp encode_value(_base, _tag, vr, _value, _bulk_fn, _charset) do
     raise ArgumentError, "unsupported value for VR #{vr}"
   end
 
@@ -163,8 +178,11 @@ defmodule Dicom.Json do
       [alphabetic, ideographic] ->
         %{"Alphabetic" => alphabetic, "Ideographic" => ideographic}
 
-      [alphabetic, ideographic, phonetic | _] ->
+      [alphabetic, ideographic, phonetic] ->
         %{"Alphabetic" => alphabetic, "Ideographic" => ideographic, "Phonetic" => phonetic}
+
+      _ ->
+        raise ArgumentError, "invalid PN value: expected at most 3 component groups"
     end
   end
 
@@ -179,9 +197,11 @@ defmodule Dicom.Json do
     end
   end
 
-  defp encode_item(item, bulk_fn) when is_map(item) do
+  defp encode_item(item, bulk_fn, inherited_charset) when is_map(item) do
+    charset = CharacterSet.extract(item) || inherited_charset
+
     Map.new(item, fn {tag, elem} ->
-      {format_tag(tag), encode_element(tag, elem, bulk_fn)}
+      {format_tag(tag), encode_element(tag, elem, bulk_fn, charset)}
     end)
   end
 
@@ -204,16 +224,10 @@ defmodule Dicom.Json do
   - `bulk_data_resolver` — `fn tag, vr, uri -> {:ok, binary} | {:error, reason} end`
     used to resolve `BulkDataURI` entries during decode. Without a resolver,
     `BulkDataURI` returns an error instead of being stored as element bytes.
-  - `transfer_syntax_uid` — transfer syntax context for interpreting Pixel Data
-    binary payloads. When omitted, group `0002` Transfer Syntax UID from the
-    JSON map is used if present.
-
   Returns `{:ok, data_set}` or `{:error, reason}`.
   """
   @spec from_map(map(), keyword()) :: {:ok, DataSet.t()} | {:error, term()}
   def from_map(json, opts \\ []) when is_map(json) do
-    opts = put_transfer_syntax_uid(opts, json)
-
     Enum.reduce_while(json, {:ok, DataSet.new()}, fn {tag_hex, elem_map}, {:ok, ds} ->
       with {:ok, tag} <- parse_tag_hex(tag_hex),
            {:ok, vr} <- parse_vr(elem_map),
@@ -502,65 +516,7 @@ defmodule Dicom.Json do
     end
   end
 
-  defp normalize_binary_value({0x7FE0, 0x0010} = tag, binary, opts) do
-    case Keyword.get(opts, :transfer_syntax_uid) do
-      uid when is_binary(uid) ->
-        if Dicom.TransferSyntax.compressed?(uid) do
-          case parse_encapsulated_value(binary) do
-            {:ok, fragments} -> {:ok, {:encapsulated, fragments}}
-            :error -> {:error, {:invalid_encapsulated_pixel_data, tag, uid}}
-          end
-        else
-          {:ok, binary}
-        end
-
-      _ ->
-        {:ok, binary}
-    end
-  end
-
   defp normalize_binary_value(_tag, binary, _opts), do: {:ok, binary}
-
-  defp parse_encapsulated_value(binary) do
-    case parse_encapsulated_fragments(binary, []) do
-      {:ok, fragments, <<>>} when fragments != [] -> {:ok, fragments}
-      _ -> :error
-    end
-  end
-
-  defp parse_encapsulated_fragments(
-         <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32, rest::binary>>,
-         acc
-       ) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  defp parse_encapsulated_fragments(
-         <<0xFE, 0xFF, 0x00, 0xE0, length::little-32, rest::binary>>,
-         acc
-       )
-       when byte_size(rest) >= length do
-    <<fragment::binary-size(length), remaining::binary>> = rest
-    parse_encapsulated_fragments(remaining, [fragment | acc])
-  end
-
-  defp parse_encapsulated_fragments(_, _acc), do: :error
-
-  defp put_transfer_syntax_uid(opts, json) do
-    case Keyword.has_key?(opts, :transfer_syntax_uid) do
-      true ->
-        opts
-
-      false ->
-        case Map.get(json, "00020010") do
-          %{"vr" => "UI", "Value" => [uid | _]} when is_binary(uid) ->
-            Keyword.put(opts, :transfer_syntax_uid, String.trim(uid))
-
-          _ ->
-            opts
-        end
-    end
-  end
 
   defp decode_item(item_map, opts) when is_map(item_map) do
     Enum.reduce_while(item_map, {:ok, %{}}, fn {tag_hex, elem_map}, {:ok, acc} ->
@@ -582,5 +538,19 @@ defmodule Dicom.Json do
     g = group |> Integer.to_string(16) |> String.pad_leading(4, "0") |> String.upcase()
     e = element |> Integer.to_string(16) |> String.pad_leading(4, "0") |> String.upcase()
     "#{g}#{e}"
+  end
+
+  defp decode_charset_text!(value, vr, charset) do
+    if String.valid?(value) do
+      value
+    else
+      case CharacterSet.decode(value, charset) do
+        {:ok, decoded} ->
+          decoded
+
+        {:error, reason} ->
+          raise ArgumentError, "invalid text value for VR #{vr}: #{inspect(reason)}"
+      end
+    end
   end
 end

@@ -13,7 +13,7 @@ defmodule Dicom.P10.Writer do
   Reference: DICOM PS3.10 Section 7.
   """
 
-  alias Dicom.{DataElement, DataSet, TransferSyntax, VR}
+  alias Dicom.{DataElement, DataSet, PixelData, TransferSyntax, VR}
 
   @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
@@ -216,15 +216,13 @@ defmodule Dicom.P10.Writer do
 
   defp validate_encapsulated_pixel_data(:OB, [bot | fragments], %DataSet{} = data_set)
        when is_binary(bot) do
-    cond do
-      rem(byte_size(bot), 4) != 0 ->
-        {:error, :invalid_basic_offset_table}
-
-      not valid_basic_offset_table_count?(bot, data_set) ->
-        {:error, :invalid_basic_offset_table}
-
-      true ->
-        validate_fragment_lengths(fragments, 1)
+    with :ok <- PixelData.validate_basic_offset_table(bot, fragments),
+         true <- valid_basic_offset_table_count?(bot, data_set),
+         :ok <- validate_fragment_lengths(fragments, 1) do
+      :ok
+    else
+      false -> {:error, :invalid_basic_offset_table}
+      {:error, _} = error -> error
     end
   end
 

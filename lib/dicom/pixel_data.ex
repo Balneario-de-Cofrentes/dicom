@@ -93,6 +93,15 @@ defmodule Dicom.PixelData do
 
   def frame(_ds, _index), do: {:error, :frame_index_out_of_range}
 
+  @doc false
+  @spec validate_basic_offset_table(binary(), [binary()]) ::
+          :ok | {:error, :invalid_basic_offset_table}
+  def validate_basic_offset_table(bot, fragments) when is_binary(bot) and is_list(fragments) do
+    with {:ok, offsets} <- parse_bot(bot) do
+      validate_bot_offsets(offsets, fragments)
+    end
+  end
+
   # ── Native frame extraction ───────────────────────────────────
 
   defp extract_native_frame(data, ds, index) do
@@ -199,9 +208,7 @@ defmodule Dicom.PixelData do
   defp parse_bot(_bot), do: {:error, :invalid_basic_offset_table}
 
   defp group_fragments_by_bot(offsets, fragments) do
-    if offsets != Enum.sort(offsets) or offsets == [] or hd(offsets) != 0 do
-      {:error, :invalid_basic_offset_table}
-    else
+    with :ok <- validate_bot_offsets(offsets, fragments) do
       do_group_fragments_by_bot(offsets, fragments)
     end
   end
@@ -248,6 +255,31 @@ defmodule Dicom.PixelData do
       {:ok, frames} -> {:ok, Enum.reverse(frames)}
       {:error, _} = error -> error
     end
+  end
+
+  defp validate_bot_offsets([], _fragments), do: :ok
+
+  defp validate_bot_offsets(offsets, fragments) do
+    if offsets != Enum.sort(offsets) or hd(offsets) != 0 do
+      {:error, :invalid_basic_offset_table}
+    else
+      valid_offsets = fragment_start_offsets(fragments)
+
+      if Enum.all?(offsets, &MapSet.member?(valid_offsets, &1)) do
+        :ok
+      else
+        {:error, :invalid_basic_offset_table}
+      end
+    end
+  end
+
+  defp fragment_start_offsets(fragments) do
+    {offsets, _} =
+      Enum.map_reduce(fragments, 0, fn fragment, acc ->
+        {acc, acc + 8 + byte_size(fragment)}
+      end)
+
+    MapSet.new(offsets)
   end
 
   # ── Helpers ───────────────────────────────────────────────────

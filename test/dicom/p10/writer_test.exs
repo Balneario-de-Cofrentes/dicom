@@ -204,6 +204,20 @@ defmodule Dicom.P10.WriterTest do
 
       assert {:error, :invalid_basic_offset_table} = Dicom.P10.Writer.serialize(ds)
     end
+
+    test "returns an error when BOT offsets do not start at fragment boundaries" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x0028, 0x0008}, :IS, "2")
+        |> DataSet.put(
+          {0x7FE0, 0x0010},
+          :OB,
+          {:encapsulated, [<<2::little-32, 10::little-32>>, <<1, 2>>, <<3, 4>>]}
+        )
+
+      assert {:error, :invalid_basic_offset_table} = Dicom.P10.Writer.serialize(ds)
+    end
   end
 
   describe "validate_file_meta/1" do

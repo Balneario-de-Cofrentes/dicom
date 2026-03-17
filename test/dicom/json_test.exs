@@ -182,6 +182,25 @@ defmodule Dicom.JsonTest do
                %{"Alphabetic" => "SMITH^JANE"}
              ]
     end
+
+    test "decodes PN bytes using SpecificCharacterSet before JSON export" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100")
+        |> DataSet.put({0x0010, 0x0010}, :PN, <<0x4D, 0xDC, 0x4C, 0x4C, 0x45, 0x52>>)
+
+      map = Json.to_map(ds)
+
+      assert map["00100010"]["Value"] == [%{"Alphabetic" => "MÜLLER"}]
+    end
+
+    test "raises when PN contains more than three component groups" do
+      ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, "A=B=C=D")
+
+      assert_raise ArgumentError, ~r/invalid PN value/, fn ->
+        Json.to_map(ds)
+      end
+    end
   end
 
   describe "Json.to_map/2 - numeric VRs" do
@@ -397,6 +416,26 @@ defmodule Dicom.JsonTest do
       [encoded_item] = map["00081111"]["Value"]
       assert encoded_item["7FE00010"]["BulkDataURI"] == "http://example.com/nested-pixel"
       refute Map.has_key?(encoded_item["7FE00010"], "InlineBinary")
+    end
+
+    test "inherits top-level SpecificCharacterSet when encoding nested text values" do
+      item = %{
+        {0x0010, 0x0010} =>
+          DataElement.new({0x0010, 0x0010}, :PN, <<0x4D, 0xDC, 0x4C, 0x4C, 0x45, 0x52>>)
+      }
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100")
+        |> then(fn ds ->
+          elem = DataElement.new({0x0008, 0x1111}, :SQ, [item])
+          %{ds | elements: Map.put(ds.elements, {0x0008, 0x1111}, elem)}
+        end)
+
+      map = Json.to_map(ds)
+
+      [encoded_item] = map["00081111"]["Value"]
+      assert encoded_item["00100010"]["Value"] == [%{"Alphabetic" => "MÜLLER"}]
     end
   end
 
@@ -653,7 +692,7 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
 
-    test "decodes encapsulated pixel data InlineBinary back into fragments" do
+    test "keeps Pixel Data InlineBinary as raw binary even with compressed transfer syntax context" do
       encapsulated =
         IO.iodata_to_binary([
           <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
@@ -665,8 +704,7 @@ defmodule Dicom.JsonTest do
 
       assert {:ok, ds} = Json.from_map(json, transfer_syntax_uid: Dicom.UID.jpeg_baseline())
 
-      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
-               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) == encapsulated
     end
 
     test "keeps Pixel Data as raw binary without compressed transfer syntax context" do
@@ -703,7 +741,7 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
 
-    test "resolves encapsulated pixel data BulkDataURI back into fragments" do
+    test "keeps resolved Pixel Data BulkDataURI as raw binary even with compressed transfer syntax context" do
       encapsulated =
         IO.iodata_to_binary([
           <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
@@ -721,8 +759,7 @@ defmodule Dicom.JsonTest do
                  end
                )
 
-      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
-               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) == encapsulated
     end
   end
 
@@ -1021,7 +1058,15 @@ defmodule Dicom.JsonTest do
       map = Json.to_map(ds, include_file_meta: true)
 
       assert {:ok, ds2} = Json.from_map(map)
-      assert DataSet.get(ds2, {0x7FE0, 0x0010}) == value
+
+      expected_binary =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      assert DataSet.get(ds2, {0x7FE0, 0x0010}) == expected_binary
     end
 
     test "roundtrips sequence elements" do
