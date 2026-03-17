@@ -129,6 +129,34 @@ mix format --check-formatted
 Property-based tests using [StreamData](https://hex.pm/packages/stream_data)
 verify encode/decode roundtrips across all VR types.
 
+## Comparison with Other BEAM DICOM Libraries
+
+| Feature | **dicom** | dicom\_ex 0.3.0 | ex\_dicom 0.2.0 | DCMfx 0.43.0 | WolfPACS 0.4.0 |
+|---------|-----------|-----------------|-----------------|--------------|----------------|
+| **Language** | Elixir | Elixir | Elixir | Gleam + Rust | Erlang |
+| **License** | MIT | Apache-2.0 | Unknown | AGPL-3.0 | AGPL-3.0 |
+| **On Hex.pm** | Yes | Yes | Yes | No (git only) | No (git only) |
+| **Runtime deps** | 0 | 6 | 0 | Rust NIFs | 2 |
+| **P10 parse** | Yes | Yes | Yes | Yes | No |
+| **P10 write** | Yes | Yes | Stub only | Yes | No |
+| **Transfer syntaxes** | 4 | Unknown | Unknown | Full | N/A |
+| **Sequences (SQ)** | Yes | Yes | Unknown | Yes | N/A |
+| **Tag dictionary** | ~80 tags | 5,249 tags | None | Full PS3.6 | None |
+| **UID generation** | Yes | No | No | No | No |
+| **UID validation** | Yes | No | No | No | No |
+| **File Meta validation** | Yes | No | No | No | No |
+| **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
+| **Streaming** | No | No | No | Yes | No |
+| **DICOM JSON** | No | No | No | Yes | No |
+| **Anonymization** | No | No | No | Yes | No |
+| **Test suite** | 259 tests, 100% coverage | Unknown | 5 tests | Unknown | 3 tests |
+| **CI** | Passing | None | None | Failing | Failing |
+| **Docs** | Full @doc + @moduledoc | None | None | HexDocs | None |
+
+**dicom** prioritizes correctness, zero dependencies, and production readiness.
+For projects that need the full PS3.6 tag dictionary or DIMSE networking, consider
+combining `dicom` with complementary libraries.
+
 ## AI-Assisted Development
 
 This project welcomes AI-assisted contributions. See [AGENTS.md](AGENTS.md)
