@@ -43,7 +43,9 @@ defmodule Dicom.Json do
 
   - `include_file_meta` — include group 0002 elements (default: `false`)
   - `bulk_data_uri` — `fn tag, vr -> url | nil end` to emit BulkDataURI
-    instead of InlineBinary for binary VRs
+    instead of InlineBinary for binary VRs. For encapsulated pixel data, the
+    URI or inline payload represents the full DICOM Value Field, including the
+    Basic Offset Table item, fragment items, and sequence delimiter.
   """
   @spec to_map(DataSet.t(), keyword()) :: map()
   def to_map(%DataSet{} = ds, opts \\ []) do

@@ -297,6 +297,20 @@ defmodule Dicom.JsonTest do
 
       assert map["7FE00010"]["InlineBinary"] == Base.encode64(expected_binary)
     end
+
+    test "uses BulkDataURI for encapsulated pixel data without flattening fragments" do
+      fragments = [<<0::little-32>>, <<1, 2, 3, 4>>]
+      elem = DataElement.new({0x7FE0, 0x0010}, :OB, {:encapsulated, fragments})
+      ds = %DataSet{elements: %{{0x7FE0, 0x0010} => elem}}
+
+      map =
+        Json.to_map(ds,
+          bulk_data_uri: fn {0x7FE0, 0x0010}, :OB -> "http://example.com/encapsulated" end
+        )
+
+      assert map["7FE00010"]["BulkDataURI"] == "http://example.com/encapsulated"
+      refute Map.has_key?(map["7FE00010"], "InlineBinary")
+    end
   end
 
   describe "Json.to_map/2 - SQ (Sequence)" do

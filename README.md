@@ -221,6 +221,11 @@ For DICOM JSON specifically, `BulkDataURI` entries are not treated as raw bytes.
 Use `Dicom.Json.from_map/2` with `bulk_data_resolver:` when you want to resolve
 external bulk data during decode.
 
+On export, binary `InlineBinary` and `BulkDataURI` payloads follow PS3.18 Annex
+F.2.7 and refer to the attribute's full Value Field. For encapsulated Pixel
+Data, that means the Basic Offset Table item, fragment items, and sequence
+delimiter are preserved as part of the exported payload.
+
 ## AI-Assisted Development
 
 This project welcomes AI-assisted contributions. See [AGENTS.md](AGENTS.md)
