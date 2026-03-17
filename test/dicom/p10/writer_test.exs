@@ -118,6 +118,18 @@ defmodule Dicom.P10.WriterTest do
                Dicom.P10.Writer.serialize(ds)
     end
 
+    test "returns a structured error for invalid element value shapes" do
+      ds =
+        minimal_data_set()
+        |> then(fn ds ->
+          elem = DataElement.new({0x0010, 0x0010}, :PN, %{bad: :shape})
+          %{ds | elements: Map.put(ds.elements, {0x0010, 0x0010}, elem)}
+        end)
+
+      assert {:error, {:invalid_element_value, {0x0010, 0x0010}, :PN, Protocol.UndefinedError}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
+
     test "returns an error when compressed transfer syntax uses native Pixel Data" do
       ds =
         minimal_data_set()

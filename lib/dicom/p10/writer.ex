@@ -144,24 +144,22 @@ defmodule Dicom.P10.Writer do
   def serialize(%DataSet{} = data_set) do
     preamble = Dicom.P10.FileMeta.preamble()
     file_meta = ensure_required_meta(data_set.file_meta)
+    meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
 
     transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
 
     with :ok <- validate_file_meta(%{data_set | file_meta: file_meta}),
          :ok <- validate_pixel_data_encoding(data_set, transfer_syntax_uid),
-         {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid) do
-      # Encode all file meta elements except group length first (as iodata)
-      meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
-      meta_iodata = encode_elements(meta_without_group_length, :explicit, :little)
-
+         {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid),
+         {:ok, meta_iodata} <-
+           safe_encode_elements(meta_without_group_length, :explicit, :little),
+         {:ok, data_set_iodata} <-
+           safe_encode_elements(data_set.elements, vr_encoding, endianness) do
       # Compute and prepend group length (iolist_size avoids intermediate binary)
       group_length_elem =
         DataElement.new({0x0002, 0x0000}, :UL, <<:erlang.iolist_size(meta_iodata)::little-32>>)
 
       group_length_iodata = encode_element(group_length_elem, :explicit, :little)
-
-      # Encode main data set (as iodata)
-      data_set_iodata = encode_elements(data_set.elements, vr_encoding, endianness)
 
       # Deflate if transfer syntax requires it (PS3.5 Section 10)
       final_data_set =
@@ -214,6 +212,27 @@ defmodule Dicom.P10.Writer do
     elements
     |> Enum.sort()
     |> Enum.map(fn {_tag, elem} -> encode_element(elem, vr_encoding, endianness) end)
+  end
+
+  defp safe_encode_elements(elements, vr_encoding, endianness) do
+    Enum.reduce_while(Enum.sort(elements), {:ok, []}, fn {_tag, elem}, {:ok, acc} ->
+      try do
+        {:cont, {:ok, [encode_element(elem, vr_encoding, endianness) | acc]}}
+      rescue
+        error in [
+          ArgumentError,
+          ArithmeticError,
+          FunctionClauseError,
+          MatchError,
+          Protocol.UndefinedError
+        ] ->
+          {:halt, {:error, {:invalid_element_value, elem.tag, elem.vr, error.__struct__}}}
+      end
+    end)
+    |> case do
+      {:ok, encoded} -> {:ok, Enum.reverse(encoded)}
+      {:error, _} = error -> error
+    end
   end
 
   # Explicit VR: Sequence (LE and BE)
