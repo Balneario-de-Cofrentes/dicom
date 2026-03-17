@@ -260,4 +260,88 @@ defmodule Dicom.VRTest do
       end
     end
   end
+
+  describe "all/0" do
+    test "returns exactly 34 VR atoms" do
+      assert length(Dicom.VR.all()) == 34
+    end
+
+    test "returns unique values" do
+      all = Dicom.VR.all()
+      assert length(all) == length(Enum.uniq(all))
+    end
+
+    test "is sorted" do
+      all = Dicom.VR.all()
+      assert all == Enum.sort(all)
+    end
+
+    test "includes all known VR categories" do
+      all = MapSet.new(Dicom.VR.all())
+
+      for vr <-
+            Dicom.VR.string_vrs() ++ Dicom.VR.binary_vrs() ++ Dicom.VR.numeric_vrs() ++ [:SQ, :AT] do
+        assert MapSet.member?(all, vr), "#{vr} missing from all/0"
+      end
+    end
+  end
+
+  describe "description/1" do
+    test "returns human name for each VR" do
+      for vr <- Dicom.VR.all() do
+        desc = Dicom.VR.description(vr)
+        assert is_binary(desc), "description/1 should return a string for #{vr}"
+        assert String.length(desc) > 0, "description/1 should not be empty for #{vr}"
+      end
+    end
+
+    test "known descriptions match PS3.5 Table 6.2-1" do
+      assert Dicom.VR.description(:PN) == "Person Name"
+      assert Dicom.VR.description(:DA) == "Date"
+      assert Dicom.VR.description(:SQ) == "Sequence of Items"
+      assert Dicom.VR.description(:OB) == "Other Byte"
+      assert Dicom.VR.description(:UI) == "Unique Identifier"
+    end
+  end
+
+  describe "max_length/1" do
+    test "returns known max lengths" do
+      assert Dicom.VR.max_length(:PN) == 64
+      assert Dicom.VR.max_length(:US) == 2
+      assert Dicom.VR.max_length(:SS) == 2
+      assert Dicom.VR.max_length(:UL) == 4
+      assert Dicom.VR.max_length(:DA) == 8
+      assert Dicom.VR.max_length(:UI) == 64
+      assert Dicom.VR.max_length(:LO) == 64
+      assert Dicom.VR.max_length(:SH) == 16
+      assert Dicom.VR.max_length(:CS) == 16
+    end
+
+    test "returns :unlimited for unbounded VRs" do
+      for vr <- [:UT, :OB, :OW, :UN, :SQ, :UC, :UR, :OV, :OD, :OF, :OL] do
+        assert Dicom.VR.max_length(vr) == :unlimited, "#{vr} should be :unlimited"
+      end
+    end
+
+    test "every VR has a max_length" do
+      for vr <- Dicom.VR.all() do
+        result = Dicom.VR.max_length(vr)
+        assert is_integer(result) or result == :unlimited, "max_length/1 invalid for #{vr}"
+      end
+    end
+  end
+
+  describe "fixed_length?/1" do
+    test "true for fixed-width numeric VRs" do
+      for vr <- [:AT, :FL, :FD, :SL, :SS, :UL, :US, :SV, :UV] do
+        assert Dicom.VR.fixed_length?(vr), "#{vr} should be fixed length"
+      end
+    end
+
+    test "false for string, binary, and sequence VRs" do
+      for vr <- [:PN, :DA, :LO, :OB, :OW, :SQ, :UN, :UT, :CS, :UI] do
+        refute Dicom.VR.fixed_length?(vr), "#{vr} should not be fixed length"
+      end
+    end
+  end
 end

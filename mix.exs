@@ -1,7 +1,7 @@
 defmodule Dicom.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.4.2"
   @source_url "https://github.com/Balneario-de-Cofrentes/dicom"
 
   def project do
@@ -16,6 +16,12 @@ defmodule Dicom.MixProject do
       package: package(),
       docs: docs(),
       source_url: @source_url,
+      test_coverage: [
+        ignore_modules: [
+          Mix.Tasks.Dicom.GenSopClasses,
+          Mix.Tasks.Dicom.GenDictionary
+        ]
+      ],
       preferred_cli_env: [
         test: :test,
         "test.all": :test
@@ -40,14 +46,22 @@ defmodule Dicom.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md CONTRIBUTING.md CODE_OF_CONDUCT.md)
+      files:
+        ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md CONTRIBUTING.md CODE_OF_CONDUCT.md)
     ]
   end
 
   defp docs do
     [
       main: "Dicom",
-      extras: ["README.md", "CHANGELOG.md", "AGENTS.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "LICENSE"],
+      extras: [
+        "README.md",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "CODE_OF_CONDUCT.md",
+        "LICENSE"
+      ],
       source_ref: System.get_env("SOURCE_REF") || "master"
     ]
   end

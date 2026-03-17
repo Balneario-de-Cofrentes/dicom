@@ -78,6 +78,23 @@ defmodule Dicom.UIDTest do
     end
   end
 
+  describe "transfer_syntax?/1" do
+    test "returns true for known transfer syntaxes" do
+      assert Dicom.UID.transfer_syntax?("1.2.840.10008.1.2")
+      assert Dicom.UID.transfer_syntax?("1.2.840.10008.1.2.1")
+      assert Dicom.UID.transfer_syntax?("1.2.840.10008.1.2.4.50")
+    end
+
+    test "returns false for Storage Commitment Push Model (false positive fix)" do
+      refute Dicom.UID.transfer_syntax?("1.2.840.10008.1.20.1")
+    end
+
+    test "returns false for non-transfer-syntax UIDs" do
+      refute Dicom.UID.transfer_syntax?("1.2.840.10008.5.1.4.1.1.2")
+      refute Dicom.UID.transfer_syntax?("1.2.3.4.5")
+    end
+  end
+
   describe "generate/0 validity" do
     test "generated UIDs always pass valid?/1" do
       for _ <- 1..100 do

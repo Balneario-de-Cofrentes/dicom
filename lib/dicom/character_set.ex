@@ -162,8 +162,6 @@ defmodule Dicom.CharacterSet do
   defp iso8859_to_unicode(byte, _n) when byte <= 0x7F, do: byte
   # Characters 0x80-0x9F are control characters (same across variants)
   defp iso8859_to_unicode(byte, _n) when byte <= 0x9F, do: byte
-  # Characters 0xA0-0xFF: for ISO 8859-1, codepoint == byte value
-  defp iso8859_to_unicode(byte, 1), do: byte
   # For ISO 8859-{2..9}, use full lookup tables
   defp iso8859_to_unicode(byte, n), do: Tables.lookup(byte, n)
 

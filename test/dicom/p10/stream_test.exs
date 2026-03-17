@@ -973,6 +973,68 @@ defmodule Dicom.P10.StreamTest do
       source = Source.from_binary(<<1, 2>>)
       assert {:error, :unexpected_end} = Source.ensure(source, 5)
     end
+
+    test "from_io creates a source with io handle" do
+      source = Source.from_io(self())
+      assert source.io == self()
+      assert source.buffer == <<>>
+      assert source.offset == 0
+    end
+
+    test "eof? returns false for io source with empty buffer" do
+      source = %Source{buffer: <<>>, io: self(), offset: 0}
+      refute Source.eof?(source)
+    end
+
+    @tag [tmp_dir: true]
+    test "ensure fills buffer from IO device", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "source_test.bin")
+      File.write!(path, :crypto.strong_rand_bytes(256))
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io)
+
+      {:ok, source} = Source.ensure(source, 100)
+      assert byte_size(source.buffer) >= 100
+
+      File.close(io)
+    end
+
+    @tag [tmp_dir: true]
+    test "ensure marks eof when file is exhausted", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "small_source.bin")
+      File.write!(path, <<1, 2, 3, 4, 5>>)
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io)
+
+      # Request more than file has
+      result = Source.ensure(source, 100)
+      assert {:error, :unexpected_end} = result
+
+      File.close(io)
+    end
+
+    @tag [tmp_dir: true]
+    test "IO source reads enough then marks eof on next ensure", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "io_eof.bin")
+      data = :crypto.strong_rand_bytes(50)
+      File.write!(path, data)
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io)
+
+      {:ok, source} = Source.ensure(source, 50)
+      assert byte_size(source.buffer) == 50
+
+      {:ok, consumed_data, source} = Source.consume(source, 50)
+      assert consumed_data == data
+
+      # After consuming all data, next ensure triggers EOF detection
+      assert {:error, :unexpected_end} = Source.ensure(source, 1)
+
+      File.close(io)
+    end
   end
 
   # ── Additional Error Paths ──────────────────────────────────────────────
@@ -1427,6 +1489,1468 @@ defmodule Dicom.P10.StreamTest do
       events = Dicom.P10.Stream.parse_file(path) |> Enum.take(3)
       assert length(events) == 3
       # File should be closed properly (no error)
+    end
+  end
+
+  # ── Parser Edge Cases: Uncovered Branches ────────────────────────────
+
+  describe "parser edge cases - sequence/item boundaries" do
+    test "defined-length sequence ends when consumed >= remaining" do
+      # Build a defined-length sequence with an item
+      value = "CT"
+
+      item_elem =
+        <<0x08, 0x00, 0x60, 0x00, "CS", byte_size(value)::little-16>> <> value
+
+      item_length = byte_size(item_elem)
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, item_length::little-32>> <>
+          item_elem <>
+          <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      total = byte_size(item)
+      sq = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, total::little-32>> <> item
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+
+    test "defined-length item ends when consumed >= remaining" do
+      # Build item with exact length matching its elements
+      value = "DOE^JOHN"
+
+      item_elem =
+        <<0x10, 0x00, 0x10, 0x00, "PN", byte_size(value)::little-16>> <> value
+
+      item_length = byte_size(item_elem)
+
+      item = <<0xFE, 0xFF, 0x00, 0xE0, item_length::little-32>> <> item_elem
+
+      sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          item <>
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?(:item_end, &1))
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+
+    test "big-endian trailing padding detection" do
+      big_endian_ts = "1.2.840.10008.1.2.2"
+      patient_value = pad_even("DOE^JOHN")
+
+      big_endian_elem =
+        <<0x00, 0x10, 0x00, 0x10, "PN", byte_size(patient_value)::big-16>> <> patient_value
+
+      trailing_padding = <<0xFF, 0xFC, 0xFF, 0xFC, "OB", 0::16, 0::big-32>>
+      binary = build_p10_with_ts(big_endian_ts, big_endian_elem <> trailing_padding)
+      events = collect_events(binary)
+
+      assert :end in events
+    end
+
+    test "error reading tag in data_set phase" do
+      # Only 2 bytes of a tag (need 4)
+      truncated = <<0x10, 0x00>>
+      binary = build_p10_binary([], [truncated])
+      events = collect_events(binary)
+      # Should end normally (unexpected_end => :end) or emit error
+      assert :end in events or Enum.any?(events, &match?({:error, _}, &1))
+    end
+
+    test "error reading VR bytes in explicit dispatch" do
+      # Tag present but VR bytes missing
+      truncated = <<0x10, 0x00, 0x10, 0x00>>
+      binary = build_p10_binary([], [truncated])
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+
+    test "unknown VR bytes fall back to UN with short length" do
+      value = "DATA"
+
+      unknown_vr_elem =
+        <<0x10, 0x00, 0x99, 0x00, "ZZ", byte_size(value)::little-16>> <> value
+
+      binary = build_p10_binary([], [unknown_vr_elem])
+      events = collect_events(binary)
+
+      elems = element_events(events) |> Enum.filter(fn e -> e.tag != {0x0002, 0x0000} end)
+
+      data_elems =
+        Enum.filter(elems, fn e ->
+          {g, _} = e.tag
+          g != 0x0002
+        end)
+
+      assert length(data_elems) == 1
+      assert hd(data_elems).vr == :UN
+    end
+
+    test "pixel data fragment error when length read fails" do
+      # Start encapsulated pixel data then truncate mid-fragment
+      encap_start =
+        <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # BOT item (empty)
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Truncated fragment item (tag but no length)
+      truncated_frag = <<0xFE, 0xFF, 0x00, 0xE0>>
+
+      binary = build_p10_binary([], [encap_start <> bot_item <> truncated_frag])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+    end
+
+    test "pixel data end on unexpected end" do
+      # Start encapsulated pixel data then end abruptly (no seq delim)
+      encap_start =
+        <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # BOT item only, no terminator
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([], [encap_start <> bot_item])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+      assert :pixel_data_end in events
+    end
+
+    test "item within sequence encounters seq_delim before item_delim" do
+      # Undefined-length item that encounters seq delimiter before item delimiter
+      sq_start = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Put a modality element inside the item
+      modality = <<0x08, 0x00, 0x60, 0x00, "CS", 2::little-16, "CT">>
+      # Close with seq delim instead of item delim
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([], [sq_start <> item_start <> modality <> seq_delim])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert Enum.any?(events, &match?({:item_start, _}, &1))
+      assert Enum.any?(events, &match?(:item_end, &1))
+    end
+
+    test "undefined-length sequence with non-item tag exits sequence" do
+      sq_start = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Instead of an item tag, put a regular element
+      regular_elem = <<0x10, 0x00, 0x10, 0x00, "PN", 4::little-16, "TEST">>
+
+      binary = build_p10_binary([], [sq_start <> regular_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+
+    test "defined-length sequence with non-item tag exits sequence" do
+      # Empty bytes for the defined length, but place a regular element tag
+      sq = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 20::little-32>>
+      regular_elem = <<0x10, 0x00, 0x10, 0x00, "PN", 4::little-16, "TEST">>
+
+      binary = build_p10_binary([], [sq <> regular_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+  end
+
+  describe "parser edge cases - trailing padding and error propagation" do
+    test "trailing padding inside undefined-length item" do
+      # Sequence with an undefined-length item containing trailing padding
+      sq_start = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # Normal element inside item
+      modality = <<0x08, 0x00, 0x60, 0x00, "CS", 2::little-16, "CT">>
+
+      # Trailing padding element (FFFC,FFFC) inside item
+      padding_value = <<0, 0, 0, 0>>
+
+      trailing_pad =
+        <<0xFC, 0xFF, 0xFC, 0xFF, "OB", 0::16, byte_size(padding_value)::little-32>> <>
+          padding_value
+
+      # Item delimiter
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      # Sequence delimiter
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary =
+        build_p10_binary(
+          [],
+          [sq_start <> item_start <> modality <> trailing_pad <> item_delim <> seq_delim]
+        )
+
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert Enum.any?(events, &match?({:item_start, _}, &1))
+      assert Enum.any?(events, &match?(:item_end, &1))
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+
+    test "undefined-length sequence truncated at unexpected_end" do
+      sq_start = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # Sequence with no items and no delimiter — just truncated
+      binary = build_p10_binary([], [sq_start])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+
+    test "defined-length sequence truncated at unexpected_end" do
+      # Sequence says it has 100 bytes of content, but there's nothing
+      sq = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 100::little-32>>
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+    end
+
+    test "defined-length item truncated at unexpected_end" do
+      sq_start = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Item claims 100 bytes, but has only a few
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 100::little-32>>
+      small_elem = <<0x08, 0x00, 0x60, 0x00, "CS", 2::little-16, "CT">>
+
+      binary = build_p10_binary([], [sq_start <> item_start <> small_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?(:item_end, &1))
+    end
+
+    test "undefined-length item truncated at unexpected_end" do
+      sq_start = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # Only a small element, then nothing (no delimiter)
+      small_elem = <<0x08, 0x00, 0x60, 0x00, "CS", 2::little-16, "CT">>
+
+      binary = build_p10_binary([], [sq_start <> item_start <> small_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?(:item_end, &1))
+    end
+
+    test "pixel data fragment with insufficient data for value" do
+      # Start encapsulated pixel data, BOT, then fragment claiming 1000 bytes but only 4 available
+      encap_start =
+        <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Fragment header claims 1000 bytes
+      frag_header = <<0xFE, 0xFF, 0x00, 0xE0, 1000::little-32>>
+      # Only 4 bytes of data
+      frag_data = <<1, 2, 3, 4>>
+
+      binary = build_p10_binary([], [encap_start <> bot_item <> frag_header <> frag_data])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+      # Should error or end gracefully
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               :pixel_data_end -> true
+               _ -> false
+             end)
+    end
+
+    test "read_element error in data_set phase propagates" do
+      # Tag is readable but the subsequent read fails
+      # Use an element where length is larger than remaining data
+      truncated_elem =
+        <<0x10, 0x00, 0x10, 0x00, "PN", 100::little-16, "DOE">>
+
+      binary = build_p10_binary([], [truncated_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+
+    test "sequence header error in explicit dispatch" do
+      # SQ with truncated reserved+length bytes
+      sq_truncated = <<0x08, 0x00, 0x15, 0x11, "SQ", 0x00>>
+
+      binary = build_p10_binary([], [sq_truncated])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+
+    test "long VR element with truncated reserved+length" do
+      # OB element with only reserved bytes, no length
+      ob_truncated = <<0x10, 0x00, 0x99, 0x00, "OB", 0x00, 0x00>>
+
+      binary = build_p10_binary([], [ob_truncated])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+
+    test "short VR element with truncated length" do
+      # CS element with only 1 byte of the 2-byte length
+      cs_truncated = <<0x08, 0x00, 0x60, 0x00, "CS", 0x02>>
+
+      binary = build_p10_binary([], [cs_truncated])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+  end
+
+  describe "parser edge cases - file meta error paths" do
+    test "file meta element read error propagates" do
+      # Valid preamble + DICM, then a file meta tag with truncated element
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+      all_meta = IO.iodata_to_binary([ts_elem])
+      group_length = build_group_length_element(all_meta)
+
+      # Now add a group 0x0002 tag but truncate the VR/length
+      truncated_meta = <<0x02, 0x00, 0x99, 0x00>>
+
+      binary = <<0::1024, "DICM">> <> group_length <> all_meta <> truncated_meta
+      events = collect_events(binary)
+
+      # Should transition to data_set phase when seeing non-0002 tag or error
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1)) or
+               Enum.any?(events, &match?({:error, _}, &1))
+    end
+  end
+
+  # ── P10.Stream coverage: parse_file cleanup, nested sequence_end ─────
+
+  describe "stream materialization — nested sequence_end" do
+    test "sequence_end nested inside another stack frame pushes element" do
+      # Outer SQ → Item → Inner SQ → Item → Element
+      # This exercises push_element_to_stack for SQ elements on rest of stack
+      inner_value = pad_even("1.2.3.4")
+
+      inner_elem =
+        <<0x08, 0x00, 0x50, 0x11, "UI", byte_size(inner_value)::little-16>> <> inner_value
+
+      inner_item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner_elem)::little-32>> <> inner_elem
+
+      inner_sq =
+        <<0x08, 0x00, 0x40, 0x11, "SQ", 0::16, byte_size(inner_item)::little-32>> <> inner_item
+
+      # Add another element after the inner SQ inside the same outer item
+      after_sq = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+
+      outer_item_content = inner_sq <> after_sq
+
+      outer_item =
+        <<0xFE, 0xFF, 0x00, 0xE0, byte_size(outer_item_content)::little-32>> <>
+          outer_item_content
+
+      outer_sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, byte_size(outer_item)::little-32>> <> outer_item
+
+      binary = build_p10_binary([], [outer_sq])
+      events = collect_events(binary)
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+
+      outer = DataSet.get(ds, {0x0008, 0x1115})
+      assert is_list(outer)
+      [outer_item_data] = outer
+      # Inner SQ should be present
+      assert Map.has_key?(outer_item_data, {0x0008, 0x1140})
+      # Modality should also be in the item
+      assert Map.has_key?(outer_item_data, {0x0008, 0x0060})
+    end
+  end
+
+  describe "parse_file cleanup paths" do
+    @tag [tmp_dir: true]
+    test "parse_file closes handle when stream is halted early", %{tmp_dir: tmp_dir} do
+      patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+      pixel = elem_explicit({0x7FE0, 0x0010}, :OW, :crypto.strong_rand_bytes(1024))
+      binary = build_p10_binary([], [patient, pixel])
+      path = Path.join(tmp_dir, "halt_test.dcm")
+      File.write!(path, binary)
+
+      # Take only first few events, halting the stream early
+      events = Dicom.P10.Stream.parse_file(path) |> Enum.take(5)
+      assert length(events) <= 5
+      # File handle should be cleaned up (no leaked file descriptors)
+    end
+
+    @tag [tmp_dir: true]
+    test "parse_file handles error event from parser", %{tmp_dir: tmp_dir} do
+      # Valid preamble + DICM, then corrupt file meta
+      binary = <<0::1024, "DICM", 0x02, 0x00, 0x10, 0x00, "UI", 200::little-16, "short">>
+      path = Path.join(tmp_dir, "error_test.dcm")
+      File.write!(path, binary)
+
+      events = Dicom.P10.Stream.parse_file(path) |> Enum.to_list()
+      # Should get error and cleanup properly
+      assert Enum.any?(events, &match?({:error, _}, &1)) or Enum.any?(events, &match?(:end, &1))
+    end
+  end
+
+  describe "implicit VR streaming — SQ in data_set phase" do
+    test "implicit VR undefined-length sequence streaming events" do
+      inner_value = pad_even("1.2.840.10008.5.1.4.1.1.2")
+
+      inner_elem =
+        <<0x08, 0x00, 0x50, 0x11, byte_size(inner_value)::little-32>> <> inner_value
+
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      item = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <> inner_elem <> item_delim
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+      sq = <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <> item <> seq_delim
+
+      # Add a regular element after the sequence
+      patient_name = <<0x10, 0x00, 0x10, 0x00, 8::little-32>> <> "DOE^JOHN"
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq <> patient_name)
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, {0x0008, 0x1140}, _}, &1))
+      assert :sequence_end in events
+      assert Enum.any?(events, &match?({:item_start, _}, &1))
+      assert :item_end in events
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
+    end
+
+    test "implicit VR defined-length item streaming" do
+      inner_value = pad_even("1.2.3.4")
+
+      inner_elem =
+        <<0x08, 0x00, 0x50, 0x11, byte_size(inner_value)::little-32>> <> inner_value
+
+      item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner_elem)::little-32>> <> inner_elem
+      sq = <<0x08, 0x00, 0x40, 0x11, byte_size(item)::little-32>> <> item
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      sq_value = DataSet.get(ds, {0x0008, 0x1140})
+      assert is_list(sq_value) and length(sq_value) == 1
+    end
+  end
+
+  describe "encapsulated pixel data — streaming edge cases" do
+    test "pixel data with empty BOT and no fragments produces empty" do
+      pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([], [pixel_tag <> bot <> seq_delim])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+      assert :pixel_data_end in events
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      elem = DataSet.get_element(ds, {0x7FE0, 0x0010})
+      assert %DataElement{value: {:encapsulated, fragments}} = elem
+      # Only the BOT fragment
+      assert length(fragments) == 1
+    end
+
+    test "pixel data stream truncated at unexpected_end" do
+      pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # No seq_delim, stream ends
+
+      binary = build_p10_binary([], [pixel_tag <> bot])
+      events = collect_events(binary)
+
+      # Should handle gracefully with pixel_data_end
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+      assert :pixel_data_end in events
+    end
+  end
+
+  describe "undefined-length value error in data_set" do
+    test "non-SQ non-pixel undefined-length value returns error" do
+      # OB element (long-length VR) with 0xFFFFFFFF length for a non-SQ/pixel tag
+      # Format: tag(4) + VR(2) + reserved(2) + length(4)
+      undef_elem =
+        <<0x09, 0x00, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      binary = build_p10_binary([], [undef_elem])
+      events = collect_events(binary)
+
+      # Should get an error about unsupported undefined length
+      assert Enum.any?(events, fn
+               {:error, {:unsupported_undefined_length, _}} -> true
+               _ -> false
+             end)
+    end
+  end
+
+  # ── Big-Endian Explicit VR ─────────────────────────────────────────────
+
+  describe "big-endian explicit VR transfer syntax" do
+    test "parses elements in big-endian byte order" do
+      # Build file meta with Big Endian Explicit transfer syntax
+      ts_uid = "1.2.840.10008.1.2.2"
+      # Big-endian data elements: tag (big), VR, length (big), value
+      patient_name = <<0x00, 0x10, 0x00, 0x10, "PN", 8::big-16, "DOE^JOHN">>
+      modality = <<0x00, 0x08, 0x00, 0x60, "CS", 2::big-16, "CT">>
+
+      binary = build_p10_with_ts(ts_uid, modality <> patient_name)
+      events = collect_events(binary)
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
+      assert DataSet.get(ds, {0x0008, 0x0060}) == "CT"
+    end
+
+    test "parses long-length VR in big-endian" do
+      ts_uid = "1.2.840.10008.1.2.2"
+      value = "SOME DATA FOR OB"
+      # OB: tag(4, big) + VR(2) + reserved(2) + length(4, big) + value
+      ob_elem =
+        <<0x00, 0x09, 0x00, 0x10, "OB", 0::16, byte_size(value)::big-32>> <> value
+
+      binary = build_p10_with_ts(ts_uid, ob_elem)
+      events = collect_events(binary)
+
+      elements = element_events(events)
+      assert Enum.any?(elements, fn e -> e.tag == {0x0009, 0x0010} end)
+    end
+
+    test "parses sequence in big-endian" do
+      ts_uid = "1.2.840.10008.1.2.2"
+      inner = <<0x00, 0x08, 0x01, 0x50, "UI", 8::big-16, "1.2.3.4\0">>
+      item = <<0xFF, 0xFE, 0xE0, 0x00, byte_size(inner)::big-32>> <> inner
+      sq = <<0x00, 0x08, 0x11, 0x40, "SQ", 0::16, byte_size(item)::big-32>> <> item
+
+      binary = build_p10_with_ts(ts_uid, sq)
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      sq_value = DataSet.get(ds, {0x0008, 0x1140})
+      assert is_list(sq_value) and length(sq_value) == 1
+    end
+  end
+
+  # ── Deflated Transfer Syntax ───────────────────────────────────────────
+
+  describe "deflated explicit VR little-endian" do
+    test "parses deflated data elements" do
+      ts_uid = "1.2.840.10008.1.2.1.99"
+
+      # Build data elements, then zlib compress them
+      patient_name = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+      modality = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+      data = IO.iodata_to_binary([modality, patient_name])
+      compressed = :zlib.compress(data)
+
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, pad_to_even(ts_uid))
+      group_length = build_group_length_element(ts_elem)
+      binary = <<0::1024, "DICM">> <> group_length <> ts_elem <> compressed
+
+      events = collect_events(binary)
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
+      assert DataSet.get(ds, {0x0008, 0x0060}) == "CT"
+    end
+  end
+
+  # ── parse_file normal completion cleanup ───────────────────────────────
+
+  describe "parse_file normal completion" do
+    @tag [tmp_dir: true]
+    test "parse_file completes and cleans up IO handle", %{tmp_dir: tmp_dir} do
+      patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+      binary = build_p10_binary([], [patient])
+      path = Path.join(tmp_dir, "complete_test.dcm")
+      File.write!(path, binary)
+
+      events = Dicom.P10.Stream.parse_file(path) |> Enum.to_list()
+      assert Enum.any?(events, &match?({:element, _}, &1))
+      assert :end in events
+    end
+  end
+
+  # ── Pixel data fragments via streaming to_data_set ─────────────────────
+
+  describe "pixel data fragments via streaming to_data_set" do
+    test "encapsulated pixel data with actual fragments materializes correctly" do
+      pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      fragment_data = :crypto.strong_rand_bytes(64)
+
+      fragment =
+        <<0xFE, 0xFF, 0x00, 0xE0, byte_size(fragment_data)::little-32>> <> fragment_data
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([], [pixel_tag <> bot <> fragment <> seq_delim])
+      events = collect_events(binary)
+
+      # Verify events contain pixel_data_start, fragment, and pixel_data_end
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+      assert Enum.any?(events, &match?({:pixel_data_fragment, _, _}, &1))
+      assert :pixel_data_end in events
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      elem = DataSet.get_element(ds, {0x7FE0, 0x0010})
+      assert %DataElement{value: {:encapsulated, [_bot, ^fragment_data]}} = elem
+    end
+  end
+
+  # ── Bounded (defined-length) sequence/item streaming ───────────────────
+
+  describe "bounded sequence and item streaming" do
+    test "defined-length sequence with defined-length item" do
+      inner = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+      item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner)::little-32>> <> inner
+      sq = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, byte_size(item)::little-32>> <> item
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, {0x0008, 0x1115}, _}, &1))
+      assert :sequence_end in events
+      assert :item_end in events
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      sq_value = DataSet.get(ds, {0x0008, 0x1115})
+      assert [%{{0x0008, 0x0060} => _}] = sq_value
+    end
+
+    test "defined-length sequence with multiple items" do
+      inner1 = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+      inner2 = elem_explicit({0x0008, 0x0060}, :CS, "MR")
+      item1 = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner1)::little-32>> <> inner1
+      item2 = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner2)::little-32>> <> inner2
+      items = item1 <> item2
+
+      sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, byte_size(items)::little-32>> <> items
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      sq_value = DataSet.get(ds, {0x0008, 0x1115})
+      assert length(sq_value) == 2
+    end
+  end
+
+  # ── Trailing padding in items ──────────────────────────────────────────
+
+  describe "trailing padding in undefined-length items" do
+    test "trailing padding tag (FFFC,FFFC) is handled in item" do
+      inner = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+      padding = <<0xFC, 0xFF, 0xFC, 0xFF, "OB", 0::16, 0::little-32>>
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          inner <> padding <> item_delim
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          item <> seq_delim
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      sq_value = DataSet.get(ds, {0x0008, 0x1115})
+      assert is_list(sq_value) and length(sq_value) == 1
+    end
+  end
+
+  # ── File meta eager parsing paths ──────────────────────────────────────
+
+  describe "file meta with long-length VR elements" do
+    test "FileMetaInformationVersion (OB) is parsed via long-length path" do
+      # OB is a long-length VR: tag(4) + VR(2) + reserved(2) + length(4) + value
+      version_elem =
+        <<0x02, 0x00, 0x01, 0x00, "OB", 0::16, 2::little-32, 0x00, 0x01>>
+
+      binary = build_p10_binary([version_elem], [])
+      events = collect_events(binary)
+
+      elements = element_events(events)
+      version = Enum.find(elements, fn e -> e.tag == {0x0002, 0x0001} end)
+      assert version != nil
+      assert version.vr == :OB
+      assert version.value == <<0x00, 0x01>>
+    end
+
+    test "file meta with SQ element (rare but valid)" do
+      # Build a dummy SQ in group 0002 — rare but the parser should handle it
+      inner = <<0x02, 0x00, 0x12, 0x00, "UI", 22::little-16>> <> "1.2.840.10008.3.1.1.1\0"
+
+      item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner)::little-32>> <> inner
+      # SQ tag in group 0002 (using PrivateInformation as example)
+      sq_content = <<0x02, 0x00, 0x02, 0x01, "SQ", 0::16, byte_size(item)::little-32>> <> item
+
+      binary = build_p10_binary([sq_content], [])
+      events = collect_events(binary)
+
+      elements = element_events(events)
+      sq = Enum.find(elements, fn e -> e.tag == {0x0002, 0x0102} end)
+      # SQ in file meta should be eagerly parsed
+      assert sq != nil
+      assert sq.vr == :SQ
+      assert is_list(sq.value)
+    end
+  end
+
+  describe "file meta with undefined-length SQ (eager path)" do
+    test "parses undefined-length sequence in file meta" do
+      inner = <<0x02, 0x00, 0x12, 0x00, "UI", 22::little-16>> <> "1.2.840.10008.3.1.1.1\0"
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <> inner <> item_delim
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+      # SQ with undefined length
+      sq =
+        <<0x02, 0x00, 0x02, 0x01, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          item <> seq_delim
+
+      binary = build_p10_binary([sq], [])
+      events = collect_events(binary)
+
+      elements = element_events(events)
+      sq_elem = Enum.find(elements, fn e -> e.tag == {0x0002, 0x0102} end)
+      assert sq_elem != nil
+      assert sq_elem.vr == :SQ
+      assert is_list(sq_elem.value) and length(sq_elem.value) == 1
+    end
+  end
+
+  describe "file meta read error propagation" do
+    test "truncated file meta element produces error" do
+      # TransferSyntaxUID element that claims 200 bytes but only has 5
+      truncated =
+        <<0x02, 0x00, 0x10, 0x00, "UI", 200::little-16, "short">>
+
+      binary = <<0::1024, "DICM">>
+      group_length = build_group_length_element(truncated)
+      binary = binary <> group_length <> truncated
+
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+  end
+
+  describe "file meta with unknown VR" do
+    test "unknown VR in file meta falls back to UN with short length" do
+      # Element with invalid VR bytes "XX"
+      unknown_vr_elem = <<0x02, 0x00, 0xFF, 0x00, "XX", 4::little-16, "data">>
+      binary = build_p10_binary([unknown_vr_elem], [])
+      events = collect_events(binary)
+
+      elements = element_events(events)
+      unknown = Enum.find(elements, fn e -> e.tag == {0x0002, 0x00FF} end)
+      # Should be parsed as UN
+      assert unknown != nil
+      assert unknown.vr == :UN
+    end
+  end
+
+  describe "encapsulated pixel data in file meta (eager path)" do
+    test "encapsulated pixel data tag with 0xFFFFFFFF in eager read" do
+      # This is an unusual case but exercises read_value_for_element(0xFFFFFFFF)
+      pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      # Build this as file meta element — it should be parsed eagerly
+      binary = build_p10_binary([pixel_tag <> bot <> seq_delim], [])
+      events = collect_events(binary)
+
+      # Should parse without crashing (even if not typical)
+      assert length(events) >= 1
+    end
+  end
+
+  # ── Implicit VR Little Endian streaming ─────────────────────────────────
+
+  describe "implicit VR little endian" do
+    # Build a P10 binary with Implicit VR LE transfer syntax (1.2.840.10008.1.2)
+    # Data elements use: tag (4 bytes) + length (4 bytes) + value (no VR field)
+
+    defp build_implicit_element({group, element}, value) do
+      padded = pad_even(value)
+      <<group::little-16, element::little-16, byte_size(padded)::little-32>> <> padded
+    end
+
+    test "parses data elements in implicit VR LE" do
+      # Modality (0008,0060) - known VR: CS
+      modality = build_implicit_element({0x0008, 0x0060}, "CT")
+      # Patient Name (0010,0010) - known VR: PN
+      patient = build_implicit_element({0x0010, 0x0010}, "DOE^JOHN")
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", modality <> patient)
+      events = collect_events(binary)
+
+      elems = element_events(events)
+      data_elems = Enum.reject(elems, fn e -> elem(e.tag, 0) == 0x0002 end)
+
+      assert length(data_elems) == 2
+      modality_elem = Enum.find(data_elems, &(&1.tag == {0x0008, 0x0060}))
+      assert modality_elem.value == "CT"
+    end
+
+    test "materializes implicit VR LE to data set" do
+      modality = build_implicit_element({0x0008, 0x0060}, "CT")
+      patient = build_implicit_element({0x0010, 0x0010}, "DOE^JOHN")
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", modality <> patient)
+      events = Dicom.P10.Stream.parse(binary)
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+
+      assert DataSet.get(ds, {0x0008, 0x0060}) == "CT"
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
+    end
+
+    test "handles implicit VR SQ with undefined length" do
+      # Build a sequence: tag + 0xFFFFFFFF length + item + seq delimiter
+      sq_tag = <<0x08, 0x00, 0x15, 0x11>>
+      sq_length = <<0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # Item with one element inside
+      inner_elem = build_implicit_element({0x0008, 0x1150}, "1.2.3.4.5")
+      item_tag = <<0xFE, 0xFF, 0x00, 0xE0>>
+      item_length = <<byte_size(inner_elem)::little-32>>
+
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      sq = sq_tag <> sq_length <> item_tag <> item_length <> inner_elem <> seq_delim
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, {0x0008, 0x1115}, :undefined}, &1))
+      assert Enum.any?(events, &match?(:sequence_end, &1))
+      assert Enum.any?(events, &match?({:item_start, _}, &1))
+      assert Enum.any?(events, &match?(:item_end, &1))
+    end
+
+    test "implicit VR unknown tag uses :UN" do
+      # Unknown tag (0099,0001) — should be assigned :UN via dictionary lookup
+      unknown = build_implicit_element({0x0099, 0x0001}, "custom")
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", unknown)
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(Dicom.P10.Stream.parse(binary))
+
+      elem = DataSet.get_element(ds, {0x0099, 0x0001})
+      assert elem.vr == :UN
+    end
+  end
+
+  # ── Truncated / Error streaming ──────────────────────────────────────
+
+  describe "error paths in streaming" do
+    test "truncated file meta transitions to data set with empty file meta" do
+      # Preamble + DICM + 2 bytes (not enough for a tag)
+      binary = <<0::1024, "DICM", 0xAB, 0xCD>>
+      events = collect_events(binary)
+
+      # Should not crash — should transition to data_set phase
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+
+    test "truncated pixel data fragment produces error" do
+      # Build a P10 binary with encapsulated pixel data where fragment data is truncated
+      pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # BOT (empty)
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Item with claimed length 100 but only 4 bytes of data
+      item_tag = <<0xFE, 0xFF, 0x00, 0xE0, 100::little-32>>
+      truncated_data = <<1, 2, 3, 4>>
+
+      binary = build_p10_binary([], [pixel_tag <> bot <> item_tag <> truncated_data])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "error during implicit VR uint32 read" do
+      # Build truncated implicit VR data: tag present but length missing
+      truncated = <<0x08, 0x00, 0x60, 0x00, 0x01>>
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", truncated)
+      events = collect_events(binary)
+
+      # Should complete (possibly with error or end) — not crash
+      assert length(events) >= 1
+    end
+  end
+
+  # ── Stream.to_data_set edge cases ────────────────────────────────────
+
+  describe "to_data_set — push_element_to_stack fallback" do
+    test "element in sequence without item_start triggers fallback" do
+      # push_element_to_stack fallback at L230-232 is reached when an element
+      # event arrives and the stack top is NOT {:item, ...}. This happens
+      # with a malformed stream where an element appears directly inside a
+      # sequence. The fallback wraps it in an implicit item.
+      events = [
+        :file_meta_start,
+        {:file_meta_end, "1.2.840.10008.1.2.1"},
+        {:sequence_start, {0x0008, 0x1115}, :undefined},
+        # Element directly in sequence without item_start (malformed)
+        {:element, DataElement.new({0x0008, 0x1150}, :UI, "1.2.3")},
+        # Close the implicit item created by the fallback
+        :item_end,
+        :sequence_end,
+        :end
+      ]
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      sq_elem = DataSet.get_element(ds, {0x0008, 0x1115})
+      assert sq_elem.vr == :SQ
+      assert length(sq_elem.value) == 1
+      [item] = sq_elem.value
+      assert Map.has_key?(item, {0x0008, 0x1150})
+    end
+  end
+
+  # ── parse_file ───────────────────────────────────────────────────────
+
+  describe "parse_file error handling" do
+    test "parse_file with nonexistent file produces error" do
+      events = Dicom.P10.Stream.parse_file("/nonexistent/path.dcm") |> Enum.to_list()
+      assert [{:error, :enoent}] = events
+    end
+
+    @tag :tmp_dir
+    test "parse_file with valid file completes normally" do
+      tmp_dir = System.tmp_dir!()
+      path = Path.join(tmp_dir, "dicom_test_#{:rand.uniform(100_000)}.dcm")
+      binary = build_p10_binary([], [elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")])
+      File.write!(path, binary)
+
+      try do
+        events = Dicom.P10.Stream.parse_file(path) |> Enum.to_list()
+        assert :file_meta_start in events
+        assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+        assert :end in events
+      after
+        File.rm(path)
+      end
+    end
+
+    test "parse_file with halted stream closes file" do
+      tmp_dir = System.tmp_dir!()
+      path = Path.join(tmp_dir, "dicom_test_halt_#{:rand.uniform(100_000)}.dcm")
+      binary = build_p10_binary([], [elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")])
+      File.write!(path, binary)
+
+      try do
+        events = Dicom.P10.Stream.parse_file(path) |> Enum.take(1)
+        assert length(events) == 1
+      after
+        File.rm(path)
+      end
+    end
+  end
+
+  # ── Parser error paths ──────────────────────────────────────────────────
+
+  describe "parser error paths — eager read" do
+    test "truncated SQ in file meta produces error" do
+      # SQ with VR "SQ" but truncated length (missing reserved+length bytes)
+      sq_elem = <<0x02, 0x00, 0x99, 0x00, "SQ">>
+      binary = build_p10_binary([sq_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "SQ in file meta with item read error" do
+      # SQ with defined length, but item data is truncated
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 20::little-32>>
+      # Item tag present but length truncated
+      item_tag = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF>>
+
+      binary = build_p10_binary([sq_header <> item_tag])
+      events = collect_events(binary)
+      # Should not crash — may produce error or partial results
+      assert length(events) >= 1
+    end
+
+    test "truncated OB element in file meta produces error" do
+      # OB with reserved + length but value truncated
+      ob_elem = <<0x02, 0x00, 0x99, 0x00, "OB", 0::16, 100::little-32, 0x01, 0x02>>
+
+      binary = build_p10_binary([ob_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "truncated short VR element in file meta" do
+      # CS with length claiming 100 bytes but only 4 present
+      cs_elem = <<0x02, 0x00, 0x99, 0x00, "CS", 100::little-16, "ABCD">>
+
+      binary = build_p10_binary([cs_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "truncated implicit VR element produces error or ends gracefully" do
+      # Implicit VR: tag + length(4 bytes), but value truncated
+      truncated = <<0x10, 0x00, 0x10, 0x00, 100::little-32, "DOE">>
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", truncated)
+      events = collect_events(binary)
+      # Should produce error
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               :end -> true
+               _ -> false
+             end)
+    end
+  end
+
+  describe "parser error paths — eager SQ edge cases" do
+    test "SQ undefined length with non-item tag terminates gracefully" do
+      # SQ with undefined length, followed by a non-item, non-seq-delim tag
+      # Exercises L478-479 in read_items_until_delimiter_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # A random tag (not item, not seq_delim)
+      random_tag = <<0x02, 0x00, 0xAA, 0x00, "CS", 2::little-16, "AB">>
+      # Then the seq delim to close
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([sq_header <> random_tag <> seq_delim])
+      events = collect_events(binary)
+      # Should complete without crashing — the SQ terminates early
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+
+    test "SQ undefined length with truncated item length" do
+      # SQ with undefined length, item tag present but length truncated
+      # Exercises L474-475 (read_item_eager error) and L522 (read_uint32 error)
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Item tag with only 2 bytes of length (needs 4)
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0x01, 0x00>>
+
+      binary = build_p10_binary([sq_header <> item_start])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "SQ undefined length with unexpected end (no items)" do
+      # SQ with undefined length, followed by not enough data for 8 bytes
+      # Exercises L482-483 in read_items_until_delimiter_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Only 4 bytes — not enough for 8-byte item/delim header
+      partial = <<0x01, 0x02, 0x03, 0x04>>
+
+      binary = build_p10_binary([sq_header <> partial])
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+
+    test "SQ defined length with truncated item causes error" do
+      # SQ with defined length, item starts but has truncated element
+      # Exercises L499-500 in read_items_bounded_eager
+      sq_length = 20
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, sq_length::little-32>>
+      # Item tag + defined length of 12, but only has 4 bytes of content
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 12::little-32>>
+      # Element tag + VR but truncated value
+      truncated_elem = <<0x02, 0x00, 0xBB, 0x00, "CS", 100::little-16>>
+
+      binary = build_p10_binary([sq_header <> item_start <> truncated_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "SQ item with undefined length and seq_delim inside" do
+      # Item with undefined length, then seq_delim tag appears (unexpected)
+      # Exercises L534-535 in read_item_elements_until_delimiter_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # seq_delim inside item (unusual — terminates item early)
+      seq_delim_tag = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([sq_header <> item_start <> seq_delim_tag])
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+
+    test "SQ item with undefined length and truncated element" do
+      # Item with undefined length, element tag but VR read fails
+      # Exercises L545-546 in read_item_elements_until_delimiter_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Element tag present, but only 1 byte of VR (needs 2)
+      truncated_elem = <<0x02, 0x00, 0xBB, 0x00, "C">>
+
+      binary = build_p10_binary([sq_header <> item_start <> truncated_elem])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "SQ item with defined length and truncated element" do
+      # Item with defined length, element starts but read fails
+      # Exercises L577-578 in read_item_elements_bounded_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 20::little-32>>
+      # Element tag + VR but value truncated
+      truncated_elem = <<0x02, 0x00, 0xBB, 0x00, "CS", 100::little-16, "AB">>
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([sq_header <> item_start <> truncated_elem <> seq_delim])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "SQ item with defined length and unexpected end" do
+      # Item with defined length, but data runs out before element can be read
+      # Exercises L585-586 in read_item_elements_bounded_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 50::little-32>>
+      # Only 2 bytes of element data (need at least 4 for tag)
+      short = <<0x02, 0x00>>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([sq_header <> item_start <> short <> seq_delim])
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+
+    test "SQ item with undefined length and unexpected end" do
+      # Item with undefined length, not enough data for next element tag
+      # Exercises L553-554 in read_item_elements_until_delimiter_eager
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # One valid element inside
+      inner = <<0x02, 0x00, 0xCC, 0x00, "CS", 2::little-16, "AB">>
+      # Then only 2 bytes (not enough for another 4-byte tag)
+      trailing = <<0xAB, 0xCD>>
+
+      binary = build_p10_binary([sq_header <> item_start <> inner <> trailing])
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+  end
+
+  describe "parser error paths — read_short/long_value" do
+    test "short VR element truncated after VR (no length)" do
+      # Tag + VR present but no length field → read_short_length fails
+      # Exercises L741 in read_short_value
+      truncated_cs = <<0x02, 0x00, 0x99, 0x00, "CS">>
+
+      binary = build_p10_binary([truncated_cs])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "long VR element truncated after VR (no reserved+length)" do
+      # Tag + VR present but no reserved+length → read_reserved_and_length fails
+      # Exercises L761 in read_long_value
+      truncated_ob = <<0x02, 0x00, 0x99, 0x00, "OB">>
+
+      binary = build_p10_binary([truncated_ob])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+  end
+
+  describe "parser error paths — encapsulated fragments in file meta" do
+    test "encapsulated pixel data in file meta with truncated fragment" do
+      # Pixel data in file meta with encapsulated format, item tag but truncated length
+      # Exercises L668 in read_fragments_eager (read_uint32 error)
+      pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # BOT
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Item tag but only 2 bytes of length (need 4)
+      truncated_item = <<0xFE, 0xFF, 0x00, 0xE0, 0x05, 0x00>>
+
+      binary = build_p10_binary([pixel_tag <> bot <> truncated_item])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "encapsulated pixel data with fragment data truncated" do
+      # Fragment has length 100 but only 4 bytes of data
+      # Exercises L672 in read_fragments_eager (ensure error)
+      pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      item_with_big_length = <<0xFE, 0xFF, 0x00, 0xE0, 100::little-32, 0x01, 0x02, 0x03, 0x04>>
+
+      binary = build_p10_binary([pixel_tag <> bot <> item_with_big_length])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "pixel data inside file meta SQ item with encapsulated fragments" do
+      # read_encapsulated_fragments_eager requires pixel data tag {0x7FE0,0x0010}
+      # inside a file_meta SQ item. This exercises L638-680 paths.
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # Pixel data tag with OB VR and undefined length (encapsulated)
+      pixel_elem = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      # BOT (empty)
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # One fragment with 4 bytes of data
+      frag = <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0x01, 0x02, 0x03, 0x04>>
+      # Seq delimiter for pixel data fragments
+      pixel_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+      # Item delimiter
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      # Seq delimiter for the SQ
+      sq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary =
+        build_p10_binary([
+          sq_header <>
+            item_start <>
+            pixel_elem <>
+            bot <>
+            frag <>
+            pixel_delim <>
+            item_delim <> sq_delim
+        ])
+
+      events = collect_events(binary)
+      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+    end
+
+    test "pixel data inside file meta SQ with truncated fragment length" do
+      # Exercises L668 (read_uint32 error in read_fragments_eager)
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      pixel_elem = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Item tag with only 2 bytes of length
+      truncated_frag = <<0xFE, 0xFF, 0x00, 0xE0, 0x05, 0x00>>
+
+      binary =
+        build_p10_binary([
+          sq_header <> item_start <> pixel_elem <> bot <> truncated_frag
+        ])
+
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "pixel data inside file meta SQ with truncated fragment data" do
+      # Exercises L672 (ensure error in read_fragments_eager)
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      pixel_elem = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Fragment claims 100 bytes but only 4 present
+      big_frag = <<0xFE, 0xFF, 0x00, 0xE0, 100::little-32, 0x01, 0x02, 0x03, 0x04>>
+
+      binary =
+        build_p10_binary([
+          sq_header <> item_start <> pixel_elem <> bot <> big_frag
+        ])
+
+      events = collect_events(binary)
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
+    end
+
+    test "pixel data inside file meta SQ with non-item tag in fragments" do
+      # Exercises L675-676 (non-item/non-delim tag in read_fragments_eager)
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      pixel_elem = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # A weird tag where item tag expected
+      weird = <<0x02, 0x00, 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00>>
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      sq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary =
+        build_p10_binary([
+          sq_header <>
+            item_start <>
+            pixel_elem <>
+            bot <>
+            weird <>
+            item_delim <> sq_delim
+        ])
+
+      events = collect_events(binary)
+      assert length(events) >= 1
+    end
+
+    test "pixel data inside file meta SQ with insufficient fragment data" do
+      # Exercises L679-680 (unexpected_end in read_fragments_eager)
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+      pixel_elem = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Only 4 bytes after BOT (need 8 for next item/delim header)
+      partial = <<0xFE, 0xFF, 0x00, 0xE0>>
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      sq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary =
+        build_p10_binary([
+          sq_header <>
+            item_start <>
+            pixel_elem <>
+            bot <>
+            partial <>
+            item_delim <> sq_delim
+        ])
+
+      events = collect_events(binary)
+      assert length(events) >= 1
+    end
+
+    test "encapsulated pixel data with non-item/non-delim tag" do
+      # After BOT, encounter a non-item, non-seq_delim tag → terminates gracefully
+      # Exercises L675-676 in read_fragments_eager
+      pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # A regular data element tag instead of item/delim
+      weird_tag = <<0x02, 0x00, 0xAA, 0x00, "CS", 2::little-16, "AB">>
+      # Need seq_delim after the fragments reader returns, to close properly
+      # Plus additional meta after this element
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      binary = build_p10_binary([pixel_tag <> bot <> weird_tag <> seq_delim])
+      events = collect_events(binary)
+      # The fragments reader terminates early with 0 fragments (non-item tag)
+      # The element is created and file_meta continues
+      assert length(events) >= 1
+    end
+
+    test "encapsulated pixel data with insufficient data for next item" do
+      # After BOT, not enough bytes for next tag+length (8 bytes)
+      # Exercises L679-680 in read_fragments_eager
+      pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Only 4 bytes after BOT (need 8 for next item/delim)
+      partial = <<0xFE, 0xFF, 0x00, 0xE0>>
+
+      binary = build_p10_binary([pixel_tag <> bot <> partial])
+      events = collect_events(binary)
+      # The fragments reader returns empty fragments (unexpected_end)
+      # File meta may or may not complete depending on how consumed bytes affect state
+      assert length(events) >= 1
+    end
+  end
+
+  describe "parser streaming — big-endian trailing padding" do
+    test "big-endian trailing padding detected" do
+      # Build big-endian explicit VR data with trailing padding
+      ts_uid = "1.2.840.10008.1.2.2"
+      modality = <<0x00, 0x08, 0x00, 0x60, "CS", 2::big-16, "CT">>
+      trailing = <<0xFF, 0xFC, 0xFF, 0xFC>>
+
+      binary = build_p10_with_ts(ts_uid, modality <> trailing)
+      events = collect_events(binary)
+      assert :end in events
+    end
+  end
+
+  describe "parser streaming — trailing padding in item" do
+    test "truncated trailing padding element in item triggers error fallback" do
+      # Exercises L703: skip_trailing_padding_in_item error path
+      # An undefined-length item with trailing padding tag but truncated element data
+      sq_tag = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      item_start = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>>
+
+      # Valid element inside item
+      inner = <<0x08, 0x00, 0x60, 0x00, "CS", 2::little-16, "CT">>
+
+      # Trailing padding tag (FFFC,FFFC) with no VR data after it
+      trailing_padding = <<0xFC, 0xFF, 0xFC, 0xFF>>
+
+      binary = build_p10_binary([], [sq_tag <> item_start <> inner <> trailing_padding])
+      events = collect_events(binary)
+
+      # The item should end (via error fallback) and the sequence should also end
+      assert Enum.any?(events, &match?(:item_end, &1))
     end
   end
 

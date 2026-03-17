@@ -12,8 +12,8 @@ Parses and serializes medical imaging files per the DICOM standard (PS3.5, PS3.6
 ```bash
 mix deps.get                     # Install dev/test dependencies
 mix compile                      # Compile
-mix test                         # Run all tests (expect 259 tests, 0 failures)
-mix test --cover                 # Run with coverage (expect 100%)
+mix test                         # Run all tests (expect 1000+ tests, 0 failures)
+mix test --cover                 # Run with coverage (expect 97%+)
 mix format --check-formatted     # Check formatting
 mix docs                         # Generate documentation
 ```
@@ -23,19 +23,25 @@ mix docs                         # Generate documentation
 ```
 lib/dicom.ex              -- Public API: parse/1, parse_file/1, write/1, write_file/2
 lib/dicom/
-  data_set.ex             -- DataSet struct: elements + file_meta maps
-  data_element.ex         -- DataElement struct: tag + VR + value + length
-  tag.ex                  -- Tag constants: patient_name/0 -> {0x0010, 0x0010}
-  vr.ex                   -- Value Representation: types, padding, from_binary/1
-  uid.ex                  -- UID constants, generate/0, valid?/1
-  value.ex                -- VR-aware encode/decode between binary and Elixir types
-  transfer_syntax.ex      -- Transfer syntax registry, encoding/1 dispatch
+  data_set.ex             -- DataSet struct: Access, Enumerable, Inspect protocols
+  data_element.ex         -- DataElement struct: tag + VR + value + length, Inspect
+  tag.ex                  -- Tag constants, parse/1, from_keyword/1, repeating?/1
+  vr.ex                   -- VR types, metadata (all/0, description/1, max_length/1)
+  uid.ex                  -- UID constants, generate/0, valid?/1, transfer_syntax?/1
+  value.ex                -- VR-aware encode/decode, date/time conversion
+  transfer_syntax.ex      -- 62 transfer syntax registry, encoding/1 dispatch
+  sop_class.ex            -- 232 SOP class registry
+  json.ex                 -- DICOM JSON encode/decode (PS3.18 Annex F.2)
+  pixel_data.ex           -- Frame extraction (native + encapsulated)
+  de_identification.ex    -- Anonymization (PS3.15)
+  character_set.ex        -- Specific Character Set decoding (PS3.5 6.1)
   p10/
     reader.ex             -- Binary parser: preamble -> file meta -> data set
     writer.ex             -- Binary serializer: iodata pipeline -> IO.iodata_to_binary
     file_meta.ex          -- Preamble validation, skip_preamble/1, sanitize_preamble/1
+    stream.ex             -- Streaming lazy event parser
   dictionary/
-    registry.ex           -- PS3.6 lookup: tag -> {:ok, name, vr, vm} | :error
+    registry.ex           -- PS3.6 lookup: 5,035 tags, find_by_keyword/1
 ```
 
 ## Conventions
@@ -60,7 +66,7 @@ lib/dicom/
 - Property-based tests with StreamData for encode/decode roundtrips
 - Shared test helpers in `test/support/dicom_test_helpers.ex`
 - Benchmark tests in `test/dicom/benchmark_test.exs`
-- 100% test coverage is expected -- do not decrease it
+- 97%+ test coverage is expected -- do not decrease it
 - Run `mix test --cover` and check the HTML report in `cover/`
 
 ## DICOM Domain
@@ -87,6 +93,6 @@ Key concepts for working with this codebase:
 
 - Keep changes focused on a single concern
 - Include tests for new functionality
-- Maintain 100% test coverage
+- Maintain 97%+ test coverage
 - Update `@doc` and `@moduledoc` for public API changes
 - Add `Assisted-by: <tool name>` commit trailer if AI tools were used

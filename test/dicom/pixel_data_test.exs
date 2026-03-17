@@ -228,6 +228,194 @@ defmodule Dicom.PixelDataTest do
     end
   end
 
+  # ── frame/2 - encapsulated pixel data ────────────────────────
+
+  describe "frame/2 - encapsulated pixel data" do
+    test "extracts single frame by index" do
+      fragment = :crypto.strong_rand_bytes(100)
+      ds = image_ds(10, 10, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [<<>>, fragment],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:ok, ^fragment} = PixelData.frame(ds, 0)
+    end
+
+    test "returns error for out-of-range index in encapsulated" do
+      fragment = :crypto.strong_rand_bytes(100)
+      ds = image_ds(10, 10, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [<<>>, fragment],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 1)
+    end
+  end
+
+  # ── frame/2 - no pixel data ─────────────────────────────────
+
+  describe "frame/2 - edge cases" do
+    test "returns error when no pixel data" do
+      ds = DataSet.new()
+      assert {:error, :no_pixel_data} = PixelData.frame(ds, 0)
+    end
+
+    test "native frame with zero frame_size returns whole data for index 0" do
+      # No rows/cols metadata → frame_size is 0
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      assert {:ok, ^data} = PixelData.frame(ds, 0)
+    end
+
+    test "native frame with zero frame_size returns error for index > 0" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 1)
+    end
+
+    test "native frames with zero frame_size returns data as single frame" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      assert {:ok, [^data]} = PixelData.frames(ds)
+    end
+
+    test "number_of_frames as integer" do
+      # Provide NumberOfFrames as an already-decoded integer
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(200)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+
+      elem = %DataElement{
+        tag: Tag.number_of_frames(),
+        vr: :IS,
+        value: 2,
+        length: 0
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.number_of_frames(), elem)}
+
+      # With zero frame_size, returns data as single frame regardless
+      assert {:ok, [^data]} = PixelData.frames(ds)
+    end
+  end
+
+  # ── encapsulated? with {:encapsulated, _} value ─────────────
+
+  describe "encapsulated? with {:encapsulated, _} tuple" do
+    test "returns false for {:encapsulated, fragments} tuple (not list)" do
+      ds = DataSet.new()
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: {:encapsulated, [<<1, 2>>, <<3, 4>>]},
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+      # {:encapsulated, _} is a tuple, not a list, so encapsulated? returns false
+      refute PixelData.encapsulated?(ds)
+    end
+  end
+
+  # ── NumberOfFrames edge cases ─────────────────────────────────
+
+  describe "get_number_of_frames edge cases" do
+    test "unparseable NumberOfFrames string defaults to 1" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      ds = DataSet.put(ds, Tag.number_of_frames(), :IS, "not_a_number")
+      assert {:ok, 1} = PixelData.frame_count(ds)
+    end
+
+    test "empty NumberOfFrames string defaults to 1" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(100)
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+      ds = DataSet.put(ds, Tag.number_of_frames(), :IS, "")
+      assert {:ok, 1} = PixelData.frame_count(ds)
+    end
+  end
+
+  # ── frame/2 with {:encapsulated, _} ─────────────────────────
+
+  describe "frame/2 with encapsulated tuple value" do
+    test "returns frames from {:encapsulated, fragments} via frames path" do
+      ds = DataSet.new()
+      ds = DataSet.put(ds, Tag.rows(), :US, <<10::little-16>>)
+      ds = DataSet.put(ds, Tag.columns(), :US, <<10::little-16>>)
+      ds = DataSet.put(ds, Tag.bits_allocated(), :US, <<8::little-16>>)
+      ds = DataSet.put(ds, Tag.samples_per_pixel(), :US, <<1::little-16>>)
+
+      fragment = :crypto.strong_rand_bytes(100)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [<<>>, fragment],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:ok, ^fragment} = PixelData.frame(ds, 0)
+      assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 1)
+    end
+  end
+
+  # ── decode_us edge case ──────────────────────────────────────
+
+  describe "decode_us edge cases" do
+    test "BitsAllocated as integer works" do
+      ds = DataSet.new()
+      data = :crypto.strong_rand_bytes(32 * 32 * 2)
+
+      ds = DataSet.put(ds, Tag.pixel_data(), :OW, data)
+
+      # Set rows/cols as integers (pre-decoded)
+      ds = %{
+        ds
+        | elements:
+            ds.elements
+            |> Map.put(
+              Tag.rows(),
+              %DataElement{tag: Tag.rows(), vr: :US, value: 32, length: 2}
+            )
+            |> Map.put(
+              Tag.columns(),
+              %DataElement{tag: Tag.columns(), vr: :US, value: 32, length: 2}
+            )
+            |> Map.put(
+              Tag.bits_allocated(),
+              %DataElement{tag: Tag.bits_allocated(), vr: :US, value: 16, length: 2}
+            )
+            |> Map.put(
+              Tag.samples_per_pixel(),
+              %DataElement{tag: Tag.samples_per_pixel(), vr: :US, value: 1, length: 2}
+            )
+      }
+
+      assert {:ok, [frame]} = PixelData.frames(ds)
+      assert byte_size(frame) == 32 * 32 * 2
+    end
+  end
+
   # ── Property: frame_count == length(frames) ───────────────────
 
   describe "property: frame_count matches frames length" do
@@ -243,6 +431,83 @@ defmodule Dicom.PixelDataTest do
         assert count == length(frames),
                "frame_count=#{count} != length(frames)=#{length(frames)} for #{num_frames} frames"
       end
+    end
+  end
+
+  describe "frame/2 - native frame index out of range with unknown frame size" do
+    test "returns error when frame_size is 0 and index > 0" do
+      # Missing BitsAllocated → frame_size computes to nil/0
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.rows(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.columns(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.samples_per_pixel(), :US, <<1::little-16>>)
+        |> DataSet.put({0x7FE0, 0x0010}, :OW, :crypto.strong_rand_bytes(128))
+
+      assert {:error, _} = PixelData.frame(ds, 1)
+    end
+  end
+
+  describe "reassemble_frames error propagation" do
+    test "encapsulated frames with single fragment returns frame" do
+      # BOT (empty) + one fragment
+      frags = [<<>>, <<1, 2, 3, 4>>]
+      elem = DataElement.new({0x7FE0, 0x0010}, :OB, frags)
+
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.rows(), :US, <<2::little-16>>)
+        |> DataSet.put(Tag.columns(), :US, <<2::little-16>>)
+        |> DataSet.put(Tag.bits_allocated(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.samples_per_pixel(), :US, <<1::little-16>>)
+        |> DataSet.put(Tag.number_of_frames(), :IS, "1")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x7FE0, 0x0010}, elem)}
+
+      result = PixelData.frame(ds, 0)
+      assert match?({:ok, _}, result)
+    end
+
+    test "encapsulated frame index out of range" do
+      frags = [<<>>, <<1, 2, 3, 4>>]
+      elem = DataElement.new({0x7FE0, 0x0010}, :OB, frags)
+
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.rows(), :US, <<2::little-16>>)
+        |> DataSet.put(Tag.columns(), :US, <<2::little-16>>)
+        |> DataSet.put(Tag.bits_allocated(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.samples_per_pixel(), :US, <<1::little-16>>)
+        |> DataSet.put(Tag.number_of_frames(), :IS, "1")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x7FE0, 0x0010}, elem)}
+
+      assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 99)
+    end
+  end
+
+  describe "native frame edge cases" do
+    test "frame_size=0 with index>0 returns out of range" do
+      # When Rows=0 → frame_size=0, but NumberOfFrames=2 and index=1
+      # Exercises the `true ->` branch in extract_native_frame (L115)
+      pixel_data = <<1, 2, 3, 4, 5, 6, 7, 8>>
+      elem = DataElement.new({0x7FE0, 0x0010}, :OW, pixel_data)
+
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.rows(), :US, <<0::little-16>>)
+        |> DataSet.put(Tag.columns(), :US, <<4::little-16>>)
+        |> DataSet.put(Tag.bits_allocated(), :US, <<8::little-16>>)
+        |> DataSet.put(Tag.samples_per_pixel(), :US, <<1::little-16>>)
+        |> DataSet.put(Tag.number_of_frames(), :IS, "2")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x7FE0, 0x0010}, elem)}
+
+      # index=0 with frame_size=0 returns entire data
+      assert {:ok, ^pixel_data} = PixelData.frame(ds, 0)
+
+      # index=1 with frame_size=0 returns error (can't slice)
+      assert {:error, :frame_index_out_of_range} = PixelData.frame(ds, 1)
     end
   end
 end

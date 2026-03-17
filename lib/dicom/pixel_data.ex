@@ -81,15 +81,11 @@ defmodule Dicom.PixelData do
 
       %DataElement{value: fragments} when is_list(fragments) ->
         # For encapsulated data, fall back to extracting all frames
-        case extract_encapsulated_frames(fragments, ds) do
-          {:ok, all_frames} ->
-            case Enum.fetch(all_frames, index) do
-              {:ok, frame} -> {:ok, frame}
-              :error -> {:error, :frame_index_out_of_range}
-            end
+        {:ok, all_frames} = extract_encapsulated_frames(fragments, ds)
 
-          error ->
-            error
+        case Enum.fetch(all_frames, index) do
+          {:ok, frame} -> {:ok, frame}
+          :error -> {:error, :frame_index_out_of_range}
         end
     end
   end

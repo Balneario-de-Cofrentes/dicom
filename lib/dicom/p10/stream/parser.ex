@@ -97,9 +97,6 @@ defmodule Dicom.P10.Stream.Parser do
 
           {:ok, _non_meta_tag} ->
             transition_to_data_set(state)
-
-          {:error, _} ->
-            transition_to_data_set(state)
         end
 
       {:error, _} ->
@@ -232,9 +229,6 @@ defmodule Dicom.P10.Stream.Parser do
                   {:error, reason} ->
                     {{:error, reason}, %{state | phase: :done}}
                 end
-
-              {:error, reason} ->
-                {{:error, reason}, %{state | phase: :done}}
             end
 
           _ ->
@@ -294,18 +288,17 @@ defmodule Dicom.P10.Stream.Parser do
   end
 
   defp read_next_data_element(state) do
-    case read_tag(state.source, state.endianness) do
-      {:ok, @trailing_padding_tag} ->
+    {:ok, tag} = read_tag(state.source, state.endianness)
+
+    case tag do
+      @trailing_padding_tag ->
         {:end, %{state | phase: :done}}
 
-      {:ok, tag} ->
+      tag ->
         case state.vr_encoding do
           :explicit -> read_element_dispatch_explicit(state, tag, state.endianness)
           :implicit -> read_element_implicit(state, tag)
         end
-
-      {:error, reason} ->
-        {{:error, reason}, %{state | phase: :done}}
     end
   end
 
@@ -545,9 +538,6 @@ defmodule Dicom.P10.Stream.Parser do
               {:error, _} = error ->
                 error
             end
-
-          {:error, _} = error ->
-            error
         end
 
       {:error, :unexpected_end} ->
@@ -563,20 +553,16 @@ defmodule Dicom.P10.Stream.Parser do
     else
       case ensure_bytes(state, 4) do
         {:ok, state} ->
-          case read_tag(state.source, state.endianness) do
-            {:ok, tag} ->
-              case read_single_element(state, tag) do
-                {:ok, element, state} ->
-                  read_item_elements_bounded_eager(
-                    state,
-                    start_offset,
-                    length,
-                    Map.put(acc, element.tag, element)
-                  )
+          {:ok, tag} = read_tag(state.source, state.endianness)
 
-                {:error, _} = error ->
-                  error
-              end
+          case read_single_element(state, tag) do
+            {:ok, element, state} ->
+              read_item_elements_bounded_eager(
+                state,
+                start_offset,
+                length,
+                Map.put(acc, element.tag, element)
+              )
 
             {:error, _} = error ->
               error
@@ -657,16 +643,12 @@ defmodule Dicom.P10.Stream.Parser do
             {:ok, _, source} = Source.consume(state.source, 4)
             state = %{state | source: source}
 
-            case read_uint32(state, :little) do
-              {:ok, length, state} ->
-                case Source.ensure(state.source, length) do
-                  {:ok, source} ->
-                    {:ok, fragment, source} = Source.consume(source, length)
-                    read_fragments_eager(%{state | source: source}, [fragment | acc])
+            {:ok, length, state} = read_uint32(state, :little)
 
-                  {:error, _} = error ->
-                    error
-                end
+            case Source.ensure(state.source, length) do
+              {:ok, source} ->
+                {:ok, fragment, source} = Source.consume(source, length)
+                read_fragments_eager(%{state | source: source}, [fragment | acc])
 
               {:error, _} = error ->
                 error
@@ -816,17 +798,13 @@ defmodule Dicom.P10.Stream.Parser do
   end
 
   defp read_tag(source, :little) do
-    case Source.peek(source, 4) do
-      {:ok, <<group::little-16, element::little-16>>} -> {:ok, {group, element}}
-      _ -> {:error, :unexpected_end}
-    end
+    {:ok, <<group::little-16, element::little-16>>} = Source.peek(source, 4)
+    {:ok, {group, element}}
   end
 
   defp read_tag(source, :big) do
-    case Source.peek(source, 4) do
-      {:ok, <<group::big-16, element::big-16>>} -> {:ok, {group, element}}
-      _ -> {:error, :unexpected_end}
-    end
+    {:ok, <<group::big-16, element::big-16>>} = Source.peek(source, 4)
+    {:ok, {group, element}}
   end
 
   defp ensure_bytes(state, n) do

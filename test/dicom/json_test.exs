@@ -545,6 +545,150 @@ defmodule Dicom.JsonTest do
     end
   end
 
+  describe "Json.to_map/2 - AT with tag tuple" do
+    test "encodes AT from pre-decoded tag tuple" do
+      ds = DataSet.new()
+
+      elem = %DataElement{
+        tag: {0x0020, 0x5000},
+        vr: :AT,
+        value: {0x0010, 0x0020},
+        length: 4
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0020, 0x5000}, elem)}
+      map = Json.to_map(ds)
+      assert map["00205000"]["Value"] == ["00100020"]
+    end
+  end
+
+  describe "Json.to_map/2 - numeric VR with pre-decoded number" do
+    test "encodes numeric value that is already a number" do
+      ds = DataSet.new()
+
+      elem = %DataElement{
+        tag: {0x0028, 0x0010},
+        vr: :US,
+        value: 256,
+        length: 2
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x0010}, elem)}
+      map = Json.to_map(ds)
+      assert map["00280010"]["Value"] == [256]
+    end
+  end
+
+  describe "Json.to_map/2 - PN with ideographic only" do
+    test "encodes PN with two components (alphabetic=ideographic)" do
+      ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN=ドウ^ジョン")
+      map = Json.to_map(ds)
+
+      assert map["00100010"]["Value"] == [
+               %{"Alphabetic" => "DOE^JOHN", "Ideographic" => "ドウ^ジョン"}
+             ]
+    end
+  end
+
+  describe "Json.to_map/2 - bulk_data_uri returning nil" do
+    test "falls back to InlineBinary when bulk_fn returns nil" do
+      binary = <<1, 2, 3, 4>>
+      ds = DataSet.new() |> DataSet.put({0x7FE0, 0x0010}, :OB, binary)
+
+      map = Json.to_map(ds, bulk_data_uri: fn _tag, _vr -> nil end)
+
+      assert map["7FE00010"]["InlineBinary"] == Base.encode64(binary)
+      refute Map.has_key?(map["7FE00010"], "BulkDataURI")
+    end
+  end
+
+  describe "Json.from_map/1 - PN with ideographic only" do
+    test "decodes PN with two components" do
+      json = %{
+        "00100010" => %{
+          "vr" => "PN",
+          "Value" => [
+            %{"Alphabetic" => "DOE^JOHN", "Ideographic" => "ドウ^ジョン"}
+          ]
+        }
+      }
+
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN=ドウ^ジョン"
+    end
+  end
+
+  describe "Json.from_map/1 - invalid base64" do
+    test "returns error for invalid InlineBinary" do
+      json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => "!!!invalid!!!"}}
+      assert {:error, :invalid_base64} = Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/1 - invalid tag length" do
+    test "returns error for tag with wrong length" do
+      json = %{"001" => %{"vr" => "LO", "Value" => ["test"]}}
+      assert {:error, _} = Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/1 - file meta routing" do
+    test "routes group 0002 to file_meta" do
+      json = %{"00020010" => %{"vr" => "UI", "Value" => ["1.2.840.10008.1.2.1"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert ds.file_meta != %{}
+      assert DataSet.get(ds, {0x0002, 0x0010}) == "1.2.840.10008.1.2.1"
+    end
+  end
+
+  describe "Json.from_map/1 - Value with unmatched type" do
+    test "element with Value containing unsupported type returns nil" do
+      json = %{"00100020" => %{"vr" => "LO", "Value" => [42]}}
+      assert {:ok, ds} = Json.from_map(json)
+      # LO expects string, gets number → falls through to nil
+      assert DataSet.get(ds, {0x0010, 0x0020}) == nil
+    end
+  end
+
+  describe "Json.to_map/2 - fallback encode_value" do
+    test "non-binary non-list non-number value falls through to base only" do
+      ds = DataSet.new()
+
+      elem = %DataElement{
+        tag: {0x0028, 0x0010},
+        vr: :US,
+        value: {1, 2, 3},
+        length: 0
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x0010}, elem)}
+      map = Json.to_map(ds)
+      # Non-standard value falls through to base = %{"vr" => "US"}
+      assert map["00280010"] == %{"vr" => "US"}
+    end
+
+    test "encodes numeric VR with multi-value binary" do
+      binary = <<1::little-16, 2::little-16, 3::little-16>>
+      ds = DataSet.new() |> DataSet.put({0x0028, 0x0010}, :US, binary)
+      map = Json.to_map(ds)
+      assert map["00280010"]["Value"] == [1, 2, 3]
+    end
+  end
+
+  describe "Json.from_map/1 - unknown VR" do
+    test "returns error for unknown VR string" do
+      json = %{"00100020" => %{"vr" => "XX", "Value" => ["test"]}}
+      assert {:error, :unknown_vr} = Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/1 - missing VR" do
+    test "returns error when vr key absent" do
+      json = %{"00100020" => %{"Value" => ["test"]}}
+      assert {:error, :missing_vr} = Json.from_map(json)
+    end
+  end
+
   # ── Roundtrip Tests ─────────────────────────────────────────────
 
   describe "roundtrip: to_map -> from_map" do

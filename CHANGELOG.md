@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-03-17
+
+### Removed
+
+- Dead code in `P10.Stream.Parser`: unreachable error branches guarded by `ensure_bytes`
+  (9 branches across `read_tag`, `read_uint32`, `read_next_data_element`,
+  `read_item_elements_until_delimiter_eager`, `read_item_elements_bounded_eager`,
+  `read_fragments_eager`)
+- Dead code in `CharacterSet`: unreachable `iso8859_to_unicode(byte, 1)` clause
+  (`ISO_IR 100` maps to `:latin1`, never to `{:iso8859, 1}`)
+- Dead code in `PixelData`: unreachable error branch in `frame/2`
+  (`extract_encapsulated_frames` always returns `{:ok, ...}`)
+
+## [0.4.0] - 2026-03-17
+
+### Added
+
+- **VR metadata** — `VR.all/0`, `VR.description/1`, `VR.max_length/1`,
+  `VR.fixed_length?/1` backed by compile-time maps per PS3.5 Table 6.2-1.
+- **Tag utilities** — `Tag.parse/1` for "(GGGG,EEEE)" and "GGGGEEEE" formats,
+  `Tag.from_keyword/1` for dictionary keyword lookup, `Tag.repeating?/1` for
+  50XX/60XX/7FXX repeating groups.
+- **Date/time conversion** — `Value.to_date/1`, `Value.to_time/1`,
+  `Value.to_datetime/1`, `Value.from_date/1`, `Value.from_time/1`,
+  `Value.from_datetime/1` for bidirectional DICOM DA/TM/DT ↔ Elixir Date/Time/DateTime.
+  Supports partial TM, fractional seconds, and timezone offsets.
+- **DataSet ergonomics** — `DataSet.has_tag?/2`, `DataSet.get/3` (with default),
+  `DataSet.fetch/2`, `DataSet.merge/2`, `DataSet.from_list/1`,
+  `DataSet.decoded_value/2` (VR-aware decode).
+- **Protocol implementations** — `Inspect` for `DataElement` (shows tag, VR,
+  truncated value; SQ item count; encapsulated fragment count) and `DataSet`
+  (element count, patient, modality). `Enumerable` for `DataSet` (sorted by tag,
+  file_meta merged). `Access` behaviour for `DataSet` (`ds[tag]`, `get_in`,
+  `put_in`, `pop`).
+
+### Changed
+
+- Expanded test suite to 1000+ tests (35 doctests, 7 property tests) at 97%+ coverage
+- `UID.transfer_syntax?/1` now uses `TransferSyntax.known?/1` for authoritative
+  O(1) registry lookup instead of prefix matching (fixes false positives for UIDs
+  like Storage Commitment `1.2.840.10008.1.20.1`)
+- Implementation version name updated from `DICOM_EX_0.1.1` to `DICOM_0.4.0`
+- Updated AGENTS.md with current test counts and architecture diagram
+
 ## [0.3.0] - 2026-03-17
 
 ### Added
@@ -144,7 +188,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.0...v0.4.2
+[0.4.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Balneario-de-Cofrentes/dicom/commit/cdd216b7adc62cb8282f7a150130f7b51d7e724f

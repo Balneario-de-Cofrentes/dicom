@@ -85,6 +85,78 @@ defmodule Dicom.Tag do
   def sequence_delimitation, do: {0xFFFE, 0xE0DD}
 
   @doc """
+  Parses a tag string in "(GGGG,EEEE)" or "GGGGEEEE" format.
+
+  ## Examples
+
+      iex> Dicom.Tag.parse("(0010,0010)")
+      {:ok, {0x0010, 0x0010}}
+
+      iex> Dicom.Tag.parse("00100010")
+      {:ok, {0x0010, 0x0010}}
+
+      iex> Dicom.Tag.parse("invalid")
+      {:error, :invalid_tag_format}
+  """
+  @spec parse(String.t()) :: {:ok, t()} | {:error, :invalid_tag_format}
+  def parse(<<"(", g1, g2, g3, g4, ",", e1, e2, e3, e4, ")">>)
+      when g1 in ?0..?9 or g1 in ?a..?f or g1 in ?A..?F do
+    parse_hex([g1, g2, g3, g4], [e1, e2, e3, e4])
+  end
+
+  def parse(<<g1, g2, g3, g4, e1, e2, e3, e4>>)
+      when g1 in ?0..?9 or g1 in ?a..?f or g1 in ?A..?F do
+    parse_hex([g1, g2, g3, g4], [e1, e2, e3, e4])
+  end
+
+  def parse(_), do: {:error, :invalid_tag_format}
+
+  defp parse_hex(group_chars, element_chars) do
+    with {group, ""} <- Integer.parse(to_string(group_chars), 16),
+         {element, ""} <- Integer.parse(to_string(element_chars), 16) do
+      {:ok, {group, element}}
+    else
+      _ -> {:error, :invalid_tag_format}
+    end
+  end
+
+  @doc """
+  Finds a tag by its DICOM keyword (e.g., "PatientName").
+
+  Delegates to `Dicom.Dictionary.Registry.find_by_keyword/1`.
+
+  ## Examples
+
+      iex> Dicom.Tag.from_keyword("PatientName")
+      {:ok, {0x0010, 0x0010}}
+  """
+  @spec from_keyword(String.t()) :: {:ok, t()} | :error
+  def from_keyword(keyword) when is_binary(keyword) do
+    case Dicom.Dictionary.Registry.find_by_keyword(keyword) do
+      {:ok, tag, _vr, _vm} -> {:ok, tag}
+      :error -> :error
+    end
+  end
+
+  @doc """
+  Returns true if the tag belongs to a repeating group (50XX, 60XX, 7FXX).
+
+  ## Examples
+
+      iex> Dicom.Tag.repeating?({0x5000, 0x0010})
+      true
+
+      iex> Dicom.Tag.repeating?({0x0010, 0x0010})
+      false
+  """
+  @spec repeating?(t()) :: boolean()
+  def repeating?({group, _element}) do
+    (group >= 0x5000 and group <= 0x501E and rem(group, 2) == 0) or
+      (group >= 0x6000 and group <= 0x601E and rem(group, 2) == 0) or
+      (group >= 0x7F00 and group <= 0x7F1E and rem(group, 2) == 0)
+  end
+
+  @doc """
   Returns the human-readable name for a tag, or a hex string if unknown.
   """
   @spec name(t()) :: String.t()

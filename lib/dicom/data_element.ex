@@ -34,3 +34,44 @@ defmodule Dicom.DataElement do
     %__MODULE__{tag: tag, vr: vr, value: value, length: 0}
   end
 end
+
+defimpl Inspect, for: Dicom.DataElement do
+  import Inspect.Algebra
+
+  def inspect(%Dicom.DataElement{tag: tag, vr: vr, value: value}, opts) do
+    tag_str = Dicom.Tag.format(tag)
+    vr_str = Atom.to_string(vr)
+    value_str = format_value(value, vr, opts)
+    concat(["#Dicom.DataElement<", tag_str, " ", vr_str, " ", value_str, ">"])
+  end
+
+  defp format_value({:encapsulated, fragments}, _vr, _opts) when is_list(fragments) do
+    "#{length(fragments)} fragments"
+  end
+
+  defp format_value(items, :SQ, _opts) when is_list(items) do
+    "#{length(items)} items"
+  end
+
+  defp format_value(binary, _vr, _opts) when is_binary(binary) and byte_size(binary) > 64 do
+    truncated = binary_part(binary, 0, 64)
+
+    if String.printable?(truncated) do
+      "\"#{truncated}...\""
+    else
+      "<<#{byte_size(binary)} bytes>>"
+    end
+  end
+
+  defp format_value(binary, _vr, opts) when is_binary(binary) do
+    if String.printable?(binary) do
+      Inspect.inspect(binary, opts)
+    else
+      "<<#{byte_size(binary)} bytes>>"
+    end
+  end
+
+  defp format_value(other, _vr, opts) do
+    Inspect.inspect(other, opts)
+  end
+end

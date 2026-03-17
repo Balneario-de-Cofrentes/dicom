@@ -254,6 +254,294 @@ defmodule Dicom.BenchmarkTest do
     end
   end
 
+  # ── v0.4.0 Benchmarks ────────────────────────────────────────────────
+
+  describe "VR metadata hot paths" do
+    test "VR.description throughput" do
+      vrs = Dicom.VR.all()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(vrs, &Dicom.VR.description/1)
+          end
+        end)
+
+      ops = 100_000 * length(vrs)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] VR.description: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 500
+    end
+
+    test "VR.max_length throughput" do
+      vrs = Dicom.VR.all()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(vrs, &Dicom.VR.max_length/1)
+          end
+        end)
+
+      ops = 100_000 * length(vrs)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] VR.max_length: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 500
+    end
+
+    test "VR.fixed_length? throughput" do
+      vrs = Dicom.VR.all()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(vrs, &Dicom.VR.fixed_length?/1)
+          end
+        end)
+
+      ops = 100_000 * length(vrs)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] VR.fixed_length?: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 500
+    end
+  end
+
+  describe "Tag parsing hot paths" do
+    test "Tag.parse throughput (parenthesized)" do
+      tags = ["(0010,0010)", "(0020,000D)", "(7FE0,0010)", "(0008,0060)", "(0028,0010)"]
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(tags, &Dicom.Tag.parse/1)
+          end
+        end)
+
+      ops = 100_000 * length(tags)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] Tag.parse: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 1000
+    end
+
+    test "Tag.from_keyword throughput" do
+      keywords = ["PatientName", "StudyInstanceUID", "Modality", "Rows", "PixelData"]
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..50_000 do
+            Enum.each(keywords, &Dicom.Tag.from_keyword/1)
+          end
+        end)
+
+      ops = 50_000 * length(keywords)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] Tag.from_keyword: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 5000
+    end
+  end
+
+  describe "Date/Time conversion hot paths" do
+    test "Value.to_date throughput" do
+      dates = ["20240315", "19800101", "20001231", "20250101", "19000101"]
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(dates, &Dicom.Value.to_date/1)
+          end
+        end)
+
+      ops = 100_000 * length(dates)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] Value.to_date: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 2000
+    end
+
+    test "Value.to_time throughput" do
+      times = ["140000", "235959.999999", "1430", "12", "000000"]
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(times, &Dicom.Value.to_time/1)
+          end
+        end)
+
+      ops = 100_000 * length(times)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] Value.to_time: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 2000
+    end
+
+    test "Value.to_datetime throughput" do
+      datetimes = ["20240315140000", "20240315140000.000000+0100", "19800101000000"]
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..50_000 do
+            Enum.each(datetimes, &Dicom.Value.to_datetime/1)
+          end
+        end)
+
+      ops = 50_000 * length(datetimes)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] Value.to_datetime: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 5000
+    end
+  end
+
+  describe "DataSet ergonomics hot paths" do
+    test "DataSet.from_list throughput" do
+      elements =
+        for i <- 1..20 do
+          group = 0x0008 + rem(i, 8) * 0x0008
+          element = div(i, 8) * 2 + 0x0100
+          {{group, element}, :LO, "VALUE_#{i}"}
+        end
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..10_000 do
+            DataSet.from_list(elements)
+          end
+        end)
+
+      avg_us = time_us / 10_000
+      IO.puts("\n  [bench] DataSet.from_list(20): #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 500
+    end
+
+    test "DataSet bracket access throughput" do
+      ds = build_data_set(50)
+      tags = Enum.map(ds, & &1.tag) |> Enum.take(10)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(tags, fn tag -> ds[tag] end)
+          end
+        end)
+
+      ops = 100_000 * length(tags)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] ds[tag]: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 500
+    end
+
+    test "DataSet decoded_value throughput" do
+      ds =
+        DataSet.from_list([
+          {{0x0010, 0x0010}, :PN, "DOE^JOHN "},
+          {{0x0028, 0x0010}, :US, <<256::little-16>>},
+          {{0x0008, 0x0060}, :CS, "CT "}
+        ])
+
+      tags = [{0x0010, 0x0010}, {0x0028, 0x0010}, {0x0008, 0x0060}]
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..100_000 do
+            Enum.each(tags, &DataSet.decoded_value(ds, &1))
+          end
+        end)
+
+      ops = 100_000 * length(tags)
+      ns_per_op = time_us * 1000 / ops
+      IO.puts("\n  [bench] decoded_value: #{Float.round(ns_per_op, 1)} ns/op (#{ops} ops)")
+      assert ns_per_op < 1000
+    end
+  end
+
+  describe "Protocol implementation hot paths" do
+    test "Enum.count on DataSet throughput" do
+      ds = build_data_set(100)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..50_000, do: Enum.count(ds)
+        end)
+
+      avg_us = time_us / 50_000
+      IO.puts("\n  [bench] Enum.count(100-elem): #{Float.round(avg_us * 1000, 1)} ns/op")
+      assert avg_us < 50
+    end
+
+    test "Inspect protocol throughput" do
+      ds = build_data_set(50)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..10_000, do: inspect(ds)
+        end)
+
+      avg_us = time_us / 10_000
+      IO.puts("\n  [bench] inspect(50-elem ds): #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 500
+    end
+
+    test "Enum.map on DataSet throughput" do
+      ds = build_data_set(50)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..10_000, do: Enum.map(ds, & &1.tag)
+        end)
+
+      avg_us = time_us / 10_000
+      IO.puts("\n  [bench] Enum.map(50-elem): #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 500
+    end
+  end
+
+  describe "De-identification throughput" do
+    test "de-identifies a realistic data set efficiently" do
+      ds = build_realistic_data_set()
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..5_000 do
+            Dicom.DeIdentification.apply(ds)
+          end
+        end)
+
+      avg_us = time_us / 5_000
+      IO.puts("\n  [bench] DeIdentification.apply: #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 1000
+    end
+  end
+
+  describe "DICOM JSON hot paths" do
+    test "JSON to_map throughput" do
+      ds = build_data_set(50)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..5_000, do: Dicom.Json.to_map(ds)
+        end)
+
+      avg_us = time_us / 5_000
+      IO.puts("\n  [bench] Json.to_map(50-elem): #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 2000
+    end
+
+    test "JSON roundtrip throughput" do
+      ds = build_data_set(20)
+      map = Dicom.Json.to_map(ds)
+
+      {time_us, _} =
+        :timer.tc(fn ->
+          for _ <- 1..5_000 do
+            m = Dicom.Json.to_map(ds)
+            Dicom.Json.from_map(m)
+          end
+        end)
+
+      avg_us = time_us / 5_000
+      IO.puts("\n  [bench] Json roundtrip 20-elem: #{Float.round(avg_us, 1)} µs/op")
+      assert avg_us < 2000
+    end
+  end
+
   # ---- Helpers ----
 
   defp build_large_p10(n) do
@@ -329,6 +617,25 @@ defmodule Dicom.BenchmarkTest do
       elem = Dicom.DataElement.new(tag, :SQ, items)
       %{acc | elements: Map.put(acc.elements, tag, elem)}
     end)
+  end
+
+  defp build_realistic_data_set do
+    DataSet.new()
+    |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+    |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+    |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_little_endian())
+    |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+    |> DataSet.put({0x0010, 0x0020}, :LO, "PAT001")
+    |> DataSet.put({0x0010, 0x0030}, :DA, "19800101")
+    |> DataSet.put({0x0010, 0x0040}, :CS, "M")
+    |> DataSet.put({0x0008, 0x0050}, :SH, "ACC123")
+    |> DataSet.put({0x0008, 0x0090}, :PN, "SMITH^JANE^DR")
+    |> DataSet.put({0x0020, 0x000D}, :UI, "1.2.3.4.5.6.7.8.9.10")
+    |> DataSet.put({0x0020, 0x000E}, :UI, "1.2.3.4.5.6.7.8.9.11")
+    |> DataSet.put({0x0008, 0x0018}, :UI, "1.2.3.4.5.6.7.8.9.12")
+    |> DataSet.put({0x0008, 0x0060}, :CS, "CT")
+    |> DataSet.put({0x0008, 0x1030}, :LO, "CT HEAD W/O CONTRAST")
+    |> DataSet.put({0x0020, 0x0013}, :IS, "1")
   end
 
   defp build_data_set(n) do

@@ -44,7 +44,121 @@ defmodule Dicom.VR do
           | :UT
           | :UV
 
-  @compile {:inline, long_length?: 1, to_binary: 1, padding_byte: 1, pad_value: 2}
+  @compile {:inline,
+            long_length?: 1, to_binary: 1, padding_byte: 1, pad_value: 2, fixed_length?: 1}
+
+  @all_vrs [
+    :AE,
+    :AS,
+    :AT,
+    :CS,
+    :DA,
+    :DS,
+    :DT,
+    :FD,
+    :FL,
+    :IS,
+    :LO,
+    :LT,
+    :OB,
+    :OD,
+    :OF,
+    :OL,
+    :OV,
+    :OW,
+    :PN,
+    :SH,
+    :SL,
+    :SQ,
+    :SS,
+    :ST,
+    :SV,
+    :TM,
+    :UC,
+    :UI,
+    :UL,
+    :UN,
+    :UR,
+    :US,
+    :UT,
+    :UV
+  ]
+
+  @descriptions %{
+    AE: "Application Entity",
+    AS: "Age String",
+    AT: "Attribute Tag",
+    CS: "Code String",
+    DA: "Date",
+    DS: "Decimal String",
+    DT: "Date Time",
+    FL: "Floating Point Single",
+    FD: "Floating Point Double",
+    IS: "Integer String",
+    LO: "Long String",
+    LT: "Long Text",
+    OB: "Other Byte",
+    OD: "Other Double",
+    OF: "Other Float",
+    OL: "Other Long",
+    OV: "Other 64-bit Very Long",
+    OW: "Other Word",
+    PN: "Person Name",
+    SH: "Short String",
+    SL: "Signed Long",
+    SQ: "Sequence of Items",
+    SS: "Signed Short",
+    ST: "Short Text",
+    SV: "Signed 64-bit Very Long",
+    TM: "Time",
+    UC: "Unlimited Characters",
+    UI: "Unique Identifier",
+    UL: "Unsigned Long",
+    UN: "Unknown",
+    UR: "URI/URL",
+    US: "Unsigned Short",
+    UT: "Unlimited Text",
+    UV: "Unsigned 64-bit Very Long"
+  }
+
+  @max_lengths %{
+    AE: 16,
+    AS: 4,
+    AT: 4,
+    CS: 16,
+    DA: 8,
+    DS: 16,
+    DT: 26,
+    FL: 4,
+    FD: 8,
+    IS: 12,
+    LO: 64,
+    LT: 10240,
+    OB: :unlimited,
+    OD: :unlimited,
+    OF: :unlimited,
+    OL: :unlimited,
+    OV: :unlimited,
+    OW: :unlimited,
+    PN: 64,
+    SH: 16,
+    SL: 4,
+    SQ: :unlimited,
+    SS: 2,
+    ST: 1024,
+    SV: 8,
+    TM: 14,
+    UC: :unlimited,
+    UI: 64,
+    UL: 4,
+    UN: :unlimited,
+    UR: :unlimited,
+    US: 2,
+    UT: :unlimited,
+    UV: 8
+  }
+
+  @fixed_length_vrs MapSet.new([:AT, :FL, :FD, :SL, :SS, :UL, :US, :SV, :UV])
 
   @string_vrs [
     :AE,
@@ -67,6 +181,54 @@ defmodule Dicom.VR do
   ]
   @binary_vrs [:OB, :OD, :OF, :OL, :OV, :OW, :UN]
   @numeric_vrs [:FL, :FD, :SL, :SS, :SV, :UL, :US, :UV]
+
+  @doc """
+  Returns a sorted list of all 34 VR atoms.
+
+  ## Examples
+
+      iex> :PN in Dicom.VR.all()
+      true
+
+      iex> length(Dicom.VR.all())
+      34
+  """
+  @spec all() :: [t()]
+  def all, do: @all_vrs
+
+  @doc """
+  Returns the human-readable description for a VR per PS3.5 Table 6.2-1.
+
+  ## Examples
+
+      iex> Dicom.VR.description(:PN)
+      "Person Name"
+
+      iex> Dicom.VR.description(:DA)
+      "Date"
+  """
+  @spec description(t()) :: String.t()
+  def description(vr) when is_map_key(@descriptions, vr), do: Map.fetch!(@descriptions, vr)
+
+  @doc """
+  Returns the maximum character/byte length for a VR, or `:unlimited`.
+
+  ## Examples
+
+      iex> Dicom.VR.max_length(:PN)
+      64
+
+      iex> Dicom.VR.max_length(:UT)
+      :unlimited
+  """
+  @spec max_length(t()) :: pos_integer() | :unlimited
+  def max_length(vr) when is_map_key(@max_lengths, vr), do: Map.fetch!(@max_lengths, vr)
+
+  @doc """
+  Returns true if the VR has a fixed byte length (AT, FL, FD, SL, SS, UL, US, SV, UV).
+  """
+  @spec fixed_length?(t()) :: boolean()
+  def fixed_length?(vr), do: MapSet.member?(@fixed_length_vrs, vr)
 
   @doc """
   Returns true if the VR uses explicit length encoding with a 4-byte length field

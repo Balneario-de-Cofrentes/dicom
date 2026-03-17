@@ -179,6 +179,31 @@ defmodule Dicom.Dictionary.RegistryTest do
     end
   end
 
+  describe "repeating group — unknown element within valid group" do
+    test "unknown element in curve group returns :error" do
+      assert :error = Registry.lookup({0x5000, 0xFFFF})
+    end
+
+    test "unknown element in overlay group returns :error" do
+      assert :error = Registry.lookup({0x6000, 0xFFFF})
+    end
+
+    test "unknown element in waveform group returns :error" do
+      assert :error = Registry.lookup({0x7F00, 0xFFFF})
+    end
+
+    test "odd waveform group returns :error" do
+      assert :error = Registry.lookup({0x7F01, 0x0010})
+    end
+  end
+
+  describe "lookup_repeating — catchall" do
+    test "non-repeating unknown tag returns :error" do
+      assert :error = Registry.lookup({0x7777, 0x0001})
+      assert :error = Registry.lookup({0xFFFF, 0xFFFF})
+    end
+  end
+
   describe "implicit VR parsing with expanded dictionary" do
     test "previously unknown SQ tag parses as sequence in implicit VR" do
       # ScheduledProcedureStepSequence (0040,0100) was NOT in old dictionary.

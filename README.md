@@ -35,7 +35,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.3.0"}
+    {:dicom, "~> 0.4.0"}
   ]
 end
 ```
@@ -69,6 +69,17 @@ ds = Dicom.DataSet.new()
 
 # Parse from binary
 {:ok, parsed} = Dicom.parse(binary)
+
+# v0.4.0: bracket access and Enumerable
+patient = data_set[Dicom.Tag.patient_name()]
+tags = Enum.map(data_set, fn {tag, _elem} -> tag end)
+
+# Tag parsing and date/time conversion
+{:ok, tag} = Dicom.Tag.parse("(0010,0010)")
+{:ok, date} = Dicom.Value.to_date("20240115")
+
+# Inspect for quick debugging
+IO.inspect(data_set)
 ```
 
 ### Streaming
@@ -168,8 +179,8 @@ Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 ## Testing
 
 ```bash
-mix test              # Run all tests (665 tests)
-mix test --cover      # Run with coverage report (91%+)
+mix test              # Run all tests (1000+ tests)
+mix test --cover      # Run with coverage report (97%+)
 mix format --check-formatted
 ```
 
@@ -202,7 +213,7 @@ Five DICOM libraries exist for the BEAM. Only two others are published to Hex.pm
 | **Anonymization** | Yes (PS3.15 Basic Profile) | No | No | Yes | No |
 | **Pixel data frames** | Yes (native + encapsulated) | No | No | Yes | No |
 | **SOP Class registry** | 232 classes, modality mapping | None | None | Yes | None |
-| **Test suite** | 665 tests, 91%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
+| **Test suite** | 1000+ tests, 97%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
 | **CI** | Passing | None | None | Failing | Passing |
 | **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
 | **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |

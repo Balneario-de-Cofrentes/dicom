@@ -262,6 +262,79 @@ defmodule Dicom.CharacterSetTest do
       elements = %{{0x0008, 0x0005} => elem}
       assert "ISO_IR 100" = CharacterSet.extract(elements)
     end
+
+    test "returns nil when element value is not binary" do
+      # Element with non-binary value (e.g. already-decoded integer)
+      elem = %Dicom.DataElement{tag: {0x0008, 0x0005}, vr: :CS, value: 42, length: 0}
+      elements = %{{0x0008, 0x0005} => elem}
+      assert nil == CharacterSet.extract(elements)
+    end
+  end
+
+  describe "decode/2 — charset with leading/trailing whitespace" do
+    test "trims whitespace from charset before lookup" do
+      assert {:ok, "ÄÖÜ"} = CharacterSet.decode(<<0xC4, 0xD6, 0xDC>>, " ISO_IR 100 ")
+    end
+  end
+
+  describe "decode/2 — ISO 8859 control character range" do
+    test "passes control characters 0x80-0x9F through unchanged" do
+      assert {:ok, result} = CharacterSet.decode(<<0x80, 0x9F>>, "ISO_IR 101")
+      assert <<0x80::utf8, 0x9F::utf8>> == result
+    end
+  end
+
+  describe "decode/2 — decode_lossy fallback for invalid UTF-8" do
+    test "returns raw binary when UTF-8 validation fails" do
+      binary = <<0xFF, 0xFE>>
+      result = Dicom.CharacterSet.decode_lossy(binary, "ISO_IR 192")
+      assert result == binary
+    end
+  end
+
+  describe "decode/2 — JIS X 0201 full coverage" do
+    test "decodes all ASCII printable via JIS X 0201" do
+      # Regular ASCII chars should pass through
+      assert {:ok, "A"} = Dicom.CharacterSet.decode("A", "ISO_IR 13")
+      assert {:ok, "0"} = Dicom.CharacterSet.decode("0", "ISO_IR 13")
+      assert {:ok, " "} = Dicom.CharacterSet.decode(" ", "ISO_IR 13")
+    end
+
+    test "decodes various half-width katakana" do
+      # ｲ = 0xB2, ｳ = 0xB3, ｴ = 0xB4
+      assert {:ok, "ｲ"} = Dicom.CharacterSet.decode(<<0xB2>>, "ISO_IR 13")
+      assert {:ok, "ｳ"} = Dicom.CharacterSet.decode(<<0xB3>>, "ISO_IR 13")
+      assert {:ok, "ｴ"} = Dicom.CharacterSet.decode(<<0xB4>>, "ISO_IR 13")
+    end
+  end
+
+  describe "supported?/1 edge cases" do
+    test "nil is supported (default repertoire)" do
+      assert Dicom.CharacterSet.supported?(nil)
+    end
+
+    test "whitespace-only charset maps to supported (empty = default)" do
+      assert Dicom.CharacterSet.supported?("  ")
+    end
+  end
+
+  describe "decode/2 — JIS X 0201 undefined byte ranges" do
+    test "bytes 0x80-0xA0 pass through (undefined in JIS X 0201)" do
+      # These bytes are not mapped in JIS X 0201 — they should pass through
+      assert {:ok, result} = CharacterSet.decode(<<0x80>>, "ISO_IR 13")
+      assert <<0x80::utf8>> == result
+
+      assert {:ok, result} = CharacterSet.decode(<<0xA0>>, "ISO_IR 13")
+      assert <<0xA0::utf8>> == result
+    end
+
+    test "bytes 0xE0-0xFF pass through (undefined in JIS X 0201)" do
+      assert {:ok, result} = CharacterSet.decode(<<0xE0>>, "ISO_IR 13")
+      assert <<0xE0::utf8>> == result
+
+      assert {:ok, result} = CharacterSet.decode(<<0xFF>>, "ISO_IR 13")
+      assert <<0xFF::utf8>> == result
+    end
   end
 
   describe "textual VR padding/whitespace behavior" do

@@ -54,11 +54,13 @@ defmodule Dicom.UID do
   def modality_worklist_find, do: "1.2.840.10008.5.1.4.31"
 
   @doc """
-  Returns true if the UID represents a transfer syntax.
+  Returns true if the UID represents a known transfer syntax.
+
+  Uses the `Dicom.TransferSyntax` registry for authoritative O(1) lookup.
   """
   @spec transfer_syntax?(String.t()) :: boolean()
   def transfer_syntax?(uid) when is_binary(uid) do
-    String.starts_with?(uid, "1.2.840.10008.1.2")
+    Dicom.TransferSyntax.known?(uid)
   end
 
   @doc """

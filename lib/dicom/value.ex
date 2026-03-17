@@ -150,6 +150,125 @@ defmodule Dicom.Value do
   def decode(binary, _vr, _endianness), do: binary
 
   @doc """
+  Converts a DICOM DA string ("YYYYMMDD") to an Elixir `Date`.
+
+  ## Examples
+
+      iex> Dicom.Value.to_date("20240315")
+      {:ok, ~D[2024-03-15]}
+
+      iex> Dicom.Value.to_date("invalid")
+      {:error, :invalid_date}
+  """
+  @spec to_date(String.t()) :: {:ok, Date.t()} | {:error, :invalid_date}
+  def to_date(<<y1, y2, y3, y4, m1, m2, d1, d2>>)
+      when y1 in ?0..?9 and y2 in ?0..?9 and y3 in ?0..?9 and y4 in ?0..?9 and
+             m1 in ?0..?9 and m2 in ?0..?9 and d1 in ?0..?9 and d2 in ?0..?9 do
+    case Date.new(
+           list_to_int([y1, y2, y3, y4]),
+           list_to_int([m1, m2]),
+           list_to_int([d1, d2])
+         ) do
+      {:ok, _date} = ok -> ok
+      {:error, _} -> {:error, :invalid_date}
+    end
+  end
+
+  def to_date(_), do: {:error, :invalid_date}
+
+  @doc """
+  Converts a DICOM TM string to an Elixir `Time`.
+
+  Supports full ("HHMMSS.FFFFFF") and partial ("HHMM", "HH") formats.
+
+  ## Examples
+
+      iex> Dicom.Value.to_time("143022")
+      {:ok, ~T[14:30:22]}
+
+      iex> Dicom.Value.to_time("1430")
+      {:ok, ~T[14:30:00]}
+  """
+  @spec to_time(String.t()) :: {:ok, Time.t()} | {:error, :invalid_time}
+  def to_time(str) when is_binary(str) do
+    trimmed = String.trim(str)
+    parse_dicom_time(trimmed)
+  end
+
+  def to_time(_), do: {:error, :invalid_time}
+
+  @doc """
+  Converts a DICOM DT string to `DateTime` (with TZ offset) or `NaiveDateTime` (without).
+
+  ## Examples
+
+      iex> Dicom.Value.to_datetime("20240315143022")
+      {:ok, ~N[2024-03-15 14:30:22]}
+  """
+  @spec to_datetime(String.t()) ::
+          {:ok, DateTime.t() | NaiveDateTime.t()} | {:error, :invalid_datetime}
+  def to_datetime(str) when is_binary(str) do
+    trimmed = String.trim(str)
+    parse_dicom_datetime(trimmed)
+  end
+
+  def to_datetime(_), do: {:error, :invalid_datetime}
+
+  @doc """
+  Converts an Elixir `Date` to a DICOM DA string ("YYYYMMDD").
+
+  ## Examples
+
+      iex> Dicom.Value.from_date(~D[2024-03-15])
+      "20240315"
+  """
+  @spec from_date(Date.t()) :: String.t()
+  def from_date(%Date{year: y, month: m, day: d}) do
+    pad4(y) <> pad2(m) <> pad2(d)
+  end
+
+  @doc """
+  Converts an Elixir `Time` to a DICOM TM string.
+
+  Includes fractional seconds if microsecond precision > 0.
+
+  ## Examples
+
+      iex> Dicom.Value.from_time(~T[14:30:22])
+      "143022"
+  """
+  @spec from_time(Time.t()) :: String.t()
+  def from_time(%Time{hour: h, minute: m, second: s, microsecond: {us, precision}}) do
+    base = pad2(h) <> pad2(m) <> pad2(s)
+
+    if precision > 0 and us > 0 do
+      frac = us |> Integer.to_string() |> String.pad_leading(6, "0") |> String.slice(0, precision)
+      base <> "." <> frac
+    else
+      base
+    end
+  end
+
+  @doc """
+  Converts a `DateTime` or `NaiveDateTime` to a DICOM DT string.
+
+  ## Examples
+
+      iex> Dicom.Value.from_datetime(~N[2024-03-15 14:30:22])
+      "20240315143022"
+  """
+  @spec from_datetime(DateTime.t() | NaiveDateTime.t()) :: String.t()
+  def from_datetime(%NaiveDateTime{} = ndt) do
+    from_date(NaiveDateTime.to_date(ndt)) <> from_time(NaiveDateTime.to_time(ndt))
+  end
+
+  def from_datetime(%DateTime{} = dt) do
+    base = from_date(DateTime.to_date(dt)) <> from_time(DateTime.to_time(dt))
+    offset = format_tz_offset(dt.utc_offset + dt.std_offset)
+    base <> offset
+  end
+
+  @doc """
   Encodes a native Elixir value to binary for a given VR.
   """
   @spec encode(term(), Dicom.VR.t()) :: binary()
@@ -213,5 +332,123 @@ defmodule Dicom.Value do
     else
       binary
     end
+  end
+
+  # Date/time helpers
+
+  defp list_to_int(chars), do: chars |> to_string() |> String.to_integer()
+
+  defp pad2(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
+  defp pad4(n), do: n |> Integer.to_string() |> String.pad_leading(4, "0")
+
+  defp parse_dicom_time(<<h1, h2, m1, m2, s1, s2, ".", frac::binary>>)
+       when h1 in ?0..?9 and h2 in ?0..?9 and m1 in ?0..?9 and m2 in ?0..?9 and
+              s1 in ?0..?9 and s2 in ?0..?9 do
+    h = list_to_int([h1, h2])
+    m = list_to_int([m1, m2])
+    s = list_to_int([s1, s2])
+    {us, precision} = parse_fractional_seconds(frac)
+
+    case Time.new(h, m, s, {us, precision}) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :invalid_time}
+    end
+  end
+
+  defp parse_dicom_time(<<h1, h2, m1, m2, s1, s2>>)
+       when h1 in ?0..?9 and h2 in ?0..?9 and m1 in ?0..?9 and m2 in ?0..?9 and
+              s1 in ?0..?9 and s2 in ?0..?9 do
+    case Time.new(list_to_int([h1, h2]), list_to_int([m1, m2]), list_to_int([s1, s2])) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :invalid_time}
+    end
+  end
+
+  defp parse_dicom_time(<<h1, h2, m1, m2>>)
+       when h1 in ?0..?9 and h2 in ?0..?9 and m1 in ?0..?9 and m2 in ?0..?9 do
+    case Time.new(list_to_int([h1, h2]), list_to_int([m1, m2]), 0) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :invalid_time}
+    end
+  end
+
+  defp parse_dicom_time(<<h1, h2>>) when h1 in ?0..?9 and h2 in ?0..?9 do
+    case Time.new(list_to_int([h1, h2]), 0, 0) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :invalid_time}
+    end
+  end
+
+  defp parse_dicom_time(_), do: {:error, :invalid_time}
+
+  defp parse_fractional_seconds(frac) do
+    padded = String.pad_trailing(frac, 6, "0") |> String.slice(0, 6)
+    precision = min(byte_size(frac), 6)
+    {String.to_integer(padded), precision}
+  end
+
+  defp parse_dicom_datetime(str) when byte_size(str) >= 8 do
+    {date_part, rest} = String.split_at(str, 8)
+
+    with {:ok, date} <- to_date(date_part) do
+      parse_dt_time_and_offset(date, rest)
+    else
+      _ -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_dicom_datetime(_), do: {:error, :invalid_datetime}
+
+  defp parse_dt_time_and_offset(date, "") do
+    {:ok, NaiveDateTime.new!(date, ~T[00:00:00])}
+  end
+
+  defp parse_dt_time_and_offset(date, time_str) do
+    {time_part, offset_part} = split_tz_offset(time_str)
+
+    with {:ok, time} <- parse_dicom_time(time_part) do
+      if offset_part == "" do
+        {:ok, NaiveDateTime.new!(date, time)}
+      else
+        build_datetime_with_offset(date, time, offset_part)
+      end
+    else
+      _ -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp split_tz_offset(str) do
+    case Regex.run(~r/^(.*?)([+-]\d{4})$/, str) do
+      [_, time, offset] -> {time, offset}
+      nil -> {str, ""}
+    end
+  end
+
+  defp build_datetime_with_offset(date, time, <<sign, h1, h2, m1, m2>>)
+       when sign in [?+, ?-] do
+    hours = list_to_int([h1, h2])
+    minutes = list_to_int([m1, m2])
+    total_seconds = hours * 3600 + minutes * 60
+    offset = if sign == ?+, do: total_seconds, else: -total_seconds
+
+    ndt = NaiveDateTime.new!(date, time)
+    utc_ndt = NaiveDateTime.add(ndt, -offset, :second)
+
+    {:ok, utc_dt} = DateTime.from_naive(utc_ndt, "Etc/UTC")
+
+    {:ok,
+     DateTime.add(utc_dt, offset, :second)
+     |> Map.put(:utc_offset, offset)
+     |> Map.put(:std_offset, 0)}
+  end
+
+  defp build_datetime_with_offset(_, _, _), do: {:error, :invalid_datetime}
+
+  defp format_tz_offset(total_seconds) do
+    sign = if total_seconds >= 0, do: "+", else: "-"
+    abs_seconds = abs(total_seconds)
+    hours = div(abs_seconds, 3600)
+    minutes = rem(abs_seconds, 3600) |> div(60)
+    sign <> pad2(hours) <> pad2(minutes)
   end
 end
