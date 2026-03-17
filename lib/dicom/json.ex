@@ -60,35 +60,35 @@ defmodule Dicom.Json do
         ds.elements
       end
 
-    charset = CharacterSet.extract(elements)
+    charsets = CharacterSet.extract_all(elements)
 
     elements
     |> Enum.reject(fn {{_group, element}, _elem} -> element == 0x0000 end)
     |> Map.new(fn {tag, elem} ->
-      {format_tag(tag), encode_element(tag, elem, bulk_fn, charset)}
+      {format_tag(tag), encode_element(tag, elem, bulk_fn, charsets)}
     end)
   end
 
-  defp encode_element(tag, %DataElement{vr: vr, value: value}, bulk_fn, charset) do
+  defp encode_element(tag, %DataElement{vr: vr, value: value}, bulk_fn, charsets) do
     base = %{"vr" => Atom.to_string(vr)}
-    encode_value(base, tag, vr, value, bulk_fn, charset)
+    encode_value(base, tag, vr, value, bulk_fn, charsets)
   end
 
   defp encode_value(base, _tag, _vr, nil, _bulk_fn, _charset), do: base
   defp encode_value(base, _tag, _vr, "", _bulk_fn, _charset), do: base
 
-  defp encode_value(base, _tag, :PN, value, _bulk_fn, charset) when is_binary(value) do
+  defp encode_value(base, _tag, :PN, value, _bulk_fn, charsets) when is_binary(value) do
     values =
       value
-      |> decode_charset_text!(:PN, charset)
+      |> decode_charset_text!(:PN, charsets)
       |> split_multi_string()
       |> Enum.map(&encode_pn/1)
 
     Map.put(base, "Value", values)
   end
 
-  defp encode_value(base, _tag, :SQ, items, bulk_fn, charset) when is_list(items) do
-    Map.put(base, "Value", Enum.map(items, &encode_item(&1, bulk_fn, charset)))
+  defp encode_value(base, _tag, :SQ, items, bulk_fn, charsets) when is_list(items) do
+    Map.put(base, "Value", Enum.map(items, &encode_item(&1, bulk_fn, charsets)))
   end
 
   defp encode_value(base, _tag, :AT, value, _bulk_fn, _charset) when is_binary(value) do
@@ -109,11 +109,11 @@ defmodule Dicom.Json do
     Map.put(base, "Value", [hex])
   end
 
-  defp encode_value(base, _tag, vr, value, _bulk_fn, charset)
+  defp encode_value(base, _tag, vr, value, _bulk_fn, charsets)
        when vr in @charset_sensitive_vrs and vr != :PN and is_binary(value) do
     values =
       value
-      |> decode_charset_text!(vr, charset)
+      |> decode_charset_text!(vr, charsets)
       |> trim_string_padding(vr)
       |> split_multi_string()
 
@@ -197,11 +197,15 @@ defmodule Dicom.Json do
     end
   end
 
-  defp encode_item(item, bulk_fn, inherited_charset) when is_map(item) do
-    charset = CharacterSet.extract(item) || inherited_charset
+  defp encode_item(item, bulk_fn, inherited_charsets) when is_map(item) do
+    charsets =
+      case CharacterSet.extract_all(item) do
+        [] -> inherited_charsets
+        item_charsets -> item_charsets
+      end
 
     Map.new(item, fn {tag, elem} ->
-      {format_tag(tag), encode_element(tag, elem, bulk_fn, charset)}
+      {format_tag(tag), encode_element(tag, elem, bulk_fn, charsets)}
     end)
   end
 
@@ -540,17 +544,31 @@ defmodule Dicom.Json do
     "#{g}#{e}"
   end
 
-  defp decode_charset_text!(value, vr, charset) do
+  defp decode_charset_text!(value, vr, []) do
     if String.valid?(value) do
       value
     else
-      case CharacterSet.decode(value, charset) do
+      case CharacterSet.decode(value, nil) do
         {:ok, decoded} ->
           decoded
 
         {:error, reason} ->
           raise ArgumentError, "invalid text value for VR #{vr}: #{inspect(reason)}"
       end
+    end
+  end
+
+  defp decode_charset_text!(_value, _vr, [_first, _second | _rest]) do
+    raise ArgumentError, "multi-valued SpecificCharacterSet is not supported for JSON export"
+  end
+
+  defp decode_charset_text!(value, vr, [charset]) do
+    case CharacterSet.decode(value, charset) do
+      {:ok, decoded} ->
+        decoded
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid text value for VR #{vr}: #{inspect(reason)}"
     end
   end
 end

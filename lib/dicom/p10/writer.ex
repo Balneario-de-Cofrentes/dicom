@@ -147,8 +147,11 @@ defmodule Dicom.P10.Writer do
     meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
 
     transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
+    data_set = %{data_set | file_meta: file_meta}
 
-    with :ok <- validate_file_meta(%{data_set | file_meta: file_meta}),
+    with {:ok, data_set} <-
+           normalize_pixel_data_for_transfer_syntax(data_set, transfer_syntax_uid),
+         :ok <- validate_file_meta(data_set),
          :ok <- validate_pixel_data_encoding(data_set, transfer_syntax_uid),
          {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid),
          {:ok, meta_iodata} <-
@@ -170,6 +173,30 @@ defmodule Dicom.P10.Writer do
         end
 
       {:ok, IO.iodata_to_binary([preamble, group_length_iodata, meta_iodata, final_data_set])}
+    end
+  end
+
+  defp normalize_pixel_data_for_transfer_syntax(%DataSet{} = data_set, transfer_syntax_uid) do
+    case Map.get(data_set.elements, {0x7FE0, 0x0010}) do
+      %DataElement{vr: :OB, value: value} = elem
+      when is_binary(value) and is_binary(transfer_syntax_uid) ->
+        if TransferSyntax.compressed?(transfer_syntax_uid) do
+          case parse_encapsulated_value_field(value) do
+            {:ok, fragments} ->
+              normalized = %{elem | value: {:encapsulated, fragments}}
+
+              {:ok,
+               %{data_set | elements: Map.put(data_set.elements, {0x7FE0, 0x0010}, normalized)}}
+
+            :error ->
+              {:ok, data_set}
+          end
+        else
+          {:ok, data_set}
+        end
+
+      _ ->
+        {:ok, data_set}
     end
   end
 
@@ -269,6 +296,31 @@ defmodule Dicom.P10.Writer do
 
   defp validate_fragment_lengths(_fragments, _index),
     do: {:error, :invalid_encapsulated_pixel_data}
+
+  defp parse_encapsulated_value_field(binary) do
+    case parse_encapsulated_fragments(binary, []) do
+      {:ok, fragments, <<>>} when fragments != [] -> {:ok, fragments}
+      _ -> :error
+    end
+  end
+
+  defp parse_encapsulated_fragments(
+         <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32, rest::binary>>,
+         acc
+       ) do
+    {:ok, Enum.reverse(acc), rest}
+  end
+
+  defp parse_encapsulated_fragments(
+         <<0xFE, 0xFF, 0x00, 0xE0, length::little-32, rest::binary>>,
+         acc
+       )
+       when byte_size(rest) >= length do
+    <<fragment::binary-size(length), remaining::binary>> = rest
+    parse_encapsulated_fragments(remaining, [fragment | acc])
+  end
+
+  defp parse_encapsulated_fragments(_, _acc), do: :error
 
   # Returns iodata — no intermediate binary allocation. Single IO.iodata_to_binary at serialize/1.
   defp encode_elements(elements, vr_encoding, endianness) do

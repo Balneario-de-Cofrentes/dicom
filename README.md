@@ -226,6 +226,11 @@ JSON decode preserves binary payloads exactly as delivered. It does not infer
 encapsulated Pixel Data structure from `InlineBinary`, `BulkDataURI`, or
 transfer syntax context.
 
+For charset-sensitive text export, `Dicom.Json.to_map/2` decodes a single
+declared `SpecificCharacterSet` to Unicode before building JSON values. If a
+data set declares multiple Specific Character Set values, JSON export fails
+closed instead of guessing.
+
 On export, binary `InlineBinary` and `BulkDataURI` payloads follow PS3.18 Annex
 F.2.7 and refer to the attribute's full Value Field. For encapsulated Pixel
 Data, that means the Basic Offset Table item, fragment items, and sequence

@@ -194,10 +194,32 @@ defmodule Dicom.JsonTest do
       assert map["00100010"]["Value"] == [%{"Alphabetic" => "MÜLLER"}]
     end
 
+    test "decodes ISO_IR 13 text instead of splitting on raw 0x5C bytes" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 13")
+        |> DataSet.put({0x0010, 0x0010}, :PN, <<0x5C>>)
+
+      map = Json.to_map(ds)
+
+      assert map["00100010"]["Value"] == [%{"Alphabetic" => "¥"}]
+    end
+
     test "raises when PN contains more than three component groups" do
       ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, "A=B=C=D")
 
       assert_raise ArgumentError, ~r/invalid PN value/, fn ->
+        Json.to_map(ds)
+      end
+    end
+
+    test "raises when exporting charset-sensitive text with multiple SpecificCharacterSet values" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100\\ISO_IR 101")
+        |> DataSet.put({0x0010, 0x0010}, :PN, <<0xA1>>)
+
+      assert_raise ArgumentError, ~r/multi-valued SpecificCharacterSet/, fn ->
         Json.to_map(ds)
       end
     end
@@ -1067,6 +1089,30 @@ defmodule Dicom.JsonTest do
         ])
 
       assert DataSet.get(ds2, {0x7FE0, 0x0010}) == expected_binary
+    end
+
+    test "JSON roundtrip of compressed Pixel Data remains writable" do
+      ds =
+        %DataSet{
+          file_meta: %{
+            {0x0002, 0x0002} =>
+              DataElement.new({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2"),
+            {0x0002, 0x0003} => DataElement.new({0x0002, 0x0003}, :UI, Dicom.UID.generate()),
+            {0x0002, 0x0010} => DataElement.new({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+          },
+          elements: %{
+            {0x7FE0, 0x0010} =>
+              DataElement.new(
+                {0x7FE0, 0x0010},
+                :OB,
+                {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+              )
+          }
+        }
+
+      map = Json.to_map(ds, include_file_meta: true)
+      assert {:ok, ds2} = Json.from_map(map)
+      assert {:ok, _binary} = Dicom.P10.Writer.serialize(ds2)
     end
 
     test "roundtrips sequence elements" do
