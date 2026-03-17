@@ -398,8 +398,8 @@ defmodule Dicom.P10.Reader do
     end
   end
 
-  defp read_encapsulated_fragments(binary, acc) when byte_size(binary) < 8 do
-    {:ok, Enum.reverse(acc), binary}
+  defp read_encapsulated_fragments(binary, _acc) when byte_size(binary) < 8 do
+    {:error, :unexpected_end}
   end
 
   defp read_encapsulated_fragments(binary, acc) do
@@ -419,7 +419,7 @@ defmodule Dicom.P10.Reader do
         end
 
       _ ->
-        {:ok, Enum.reverse(acc), binary}
+        {:error, :invalid_encapsulated_pixel_data}
     end
   end
 

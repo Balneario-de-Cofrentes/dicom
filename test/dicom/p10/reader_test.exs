@@ -698,7 +698,7 @@ defmodule Dicom.P10.ReaderTest do
       assert length(fragments) == 2
     end
 
-    test "encapsulated pixel data stops at non-item/non-delimiter tag" do
+    test "returns error for encapsulated pixel data with junk after last fragment" do
       ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
 
       # Pixel data with undefined length
@@ -709,7 +709,7 @@ defmodule Dicom.P10.ReaderTest do
       frag_data = <<0x01, 0x02>>
       frag = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(frag_data)::little-32>> <> frag_data
 
-      # Garbage bytes (not item/delimiter) — should cause fragment reading to stop
+      # Garbage bytes (not item/delimiter) — malformed encapsulated value
       junk = <<0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>>
 
       binary =
@@ -717,13 +717,10 @@ defmodule Dicom.P10.ReaderTest do
           build_group_length_element(ts_elem) <>
           ts_elem <> pixel_tag <> bot <> frag <> junk
 
-      {:ok, ds} = Dicom.P10.Reader.parse(binary)
-      elem = Dicom.DataSet.get_element(ds, {0x7FE0, 0x0010})
-      assert {:encapsulated, fragments} = elem.value
-      assert length(fragments) == 2
+      assert {:error, :invalid_encapsulated_pixel_data} = Dicom.P10.Reader.parse(binary)
     end
 
-    test "encapsulated fragments guard fires with < 8 trailing bytes (no delimiter)" do
+    test "returns error when encapsulated pixel data ends without a delimiter" do
       ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
 
       pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
@@ -731,7 +728,7 @@ defmodule Dicom.P10.ReaderTest do
       frag_data = <<0x01, 0x02>>
       frag = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(frag_data)::little-32>> <> frag_data
 
-      # 3 trailing bytes — not a delimiter, < 8 bytes triggers the guard
+      # 3 trailing bytes — malformed truncation without a sequence delimiter
       trailing = <<0xAB, 0xCD, 0xEF>>
 
       binary =
@@ -739,10 +736,7 @@ defmodule Dicom.P10.ReaderTest do
           build_group_length_element(ts_elem) <>
           ts_elem <> pixel_tag <> bot <> frag <> trailing
 
-      {:ok, ds} = Dicom.P10.Reader.parse(binary)
-      elem = Dicom.DataSet.get_element(ds, {0x7FE0, 0x0010})
-      assert {:encapsulated, fragments} = elem.value
-      assert length(fragments) == 2
+      assert {:error, :unexpected_end} = Dicom.P10.Reader.parse(binary)
     end
 
     test "encapsulated pixel data with less than 8 bytes after last fragment" do
