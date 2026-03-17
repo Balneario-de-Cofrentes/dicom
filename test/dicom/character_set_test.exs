@@ -16,7 +16,7 @@ defmodule Dicom.CharacterSetTest do
       assert {:ok, "SMITH^ALICE"} = CharacterSet.decode("SMITH^ALICE", "ISO_IR 6")
     end
 
-    test "decodes ASCII text with ISO 2022 IR 6" do
+    test "accepts ISO 2022 IR 6 when no escape sequences are present" do
       assert {:ok, "TEST"} = CharacterSet.decode("TEST", "ISO 2022 IR 6")
     end
   end
@@ -31,7 +31,7 @@ defmodule Dicom.CharacterSetTest do
       assert {:ok, "MÜLLER^HANS"} = CharacterSet.decode(binary, "ISO_IR 100")
     end
 
-    test "decodes ISO 2022 IR 100 (code extension variant)" do
+    test "accepts ISO 2022 IR 100 when no escape sequences are present" do
       assert {:ok, "ÄÖÜ"} = CharacterSet.decode(<<0xC4, 0xD6, 0xDC>>, "ISO 2022 IR 100")
     end
 
@@ -171,6 +171,16 @@ defmodule Dicom.CharacterSetTest do
   end
 
   describe "decode/2 — unsupported charsets" do
+    test "returns error for ISO 2022 escape sequences in IR 100" do
+      assert {:error, {:unsupported_iso2022_escape_sequences, "ISO 2022 IR 100"}} =
+               CharacterSet.decode(<<0x1B, 0x2D, 0x41, 0xC4>>, "ISO 2022 IR 100")
+    end
+
+    test "returns error for ISO 2022 escape sequences in IR 6" do
+      assert {:error, {:unsupported_iso2022_escape_sequences, "ISO 2022 IR 6"}} =
+               CharacterSet.decode(<<0x1B, 0x28, 0x42, ?A>>, "ISO 2022 IR 6")
+    end
+
     test "returns error for JIS X 0208 (multibyte)" do
       assert {:error, {:unsupported_charset, "ISO 2022 IR 87"}} =
                CharacterSet.decode("test", "ISO 2022 IR 87")

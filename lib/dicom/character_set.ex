@@ -19,8 +19,10 @@ defmodule Dicom.CharacterSet do
   - `ISO_IR 148` (Latin-5 / ISO 8859-9)
   - `ISO_IR 13` (JIS X 0201 — Roman + half-width Katakana)
   - `ISO_IR 192` (UTF-8)
-  - `ISO 2022 IR 6` (default repertoire, code extension)
-  - `ISO 2022 IR 100` (Latin-1, code extension)
+
+  The labels `ISO 2022 IR 6` and `ISO 2022 IR 100` are accepted only when the
+  value contains no ISO 2022 escape sequences. Actual code-extension switching
+  is not implemented.
 
   All other character sets return `{:error, {:unsupported_charset, term}}`.
   """
@@ -32,10 +34,10 @@ defmodule Dicom.CharacterSet do
     # Default repertoire (ISO IR 6 = ASCII subset of UTF-8)
     "" => :latin1,
     "ISO_IR 6" => :latin1,
-    "ISO 2022 IR 6" => :latin1,
+    "ISO 2022 IR 6" => {:iso2022_single, :latin1},
     # Latin-1 (Western European)
     "ISO_IR 100" => :latin1,
-    "ISO 2022 IR 100" => :latin1,
+    "ISO 2022 IR 100" => {:iso2022_single, :latin1},
     # Latin-2 (Central European)
     "ISO_IR 101" => {:iso8859, 2},
     # Latin-3 (South European)
@@ -92,6 +94,9 @@ defmodule Dicom.CharacterSet do
       :latin1 ->
         {:ok, :unicode.characters_to_binary(binary, :latin1)}
 
+      {:iso2022_single, encoding} ->
+        decode_iso2022_single(binary, charset_key, encoding)
+
       {:iso8859, _n} = encoding ->
         decode_iso8859(binary, encoding)
 
@@ -140,6 +145,14 @@ defmodule Dicom.CharacterSet do
 
   alias Dicom.CharacterSet.Tables
 
+  defp decode_iso2022_single(binary, charset_key, :latin1) do
+    if contains_iso2022_escape?(binary) do
+      {:error, {:unsupported_iso2022_escape_sequences, charset_key}}
+    else
+      {:ok, :unicode.characters_to_binary(binary, :latin1)}
+    end
+  end
+
   defp decode_iso8859(binary, {:iso8859, n}) do
     decode_bytewise(binary, &iso8859_to_unicode(&1, n), {:iso8859, n})
   end
@@ -164,6 +177,8 @@ defmodule Dicom.CharacterSet do
   defp iso8859_to_unicode(byte, _n) when byte <= 0x9F, do: byte
   # For ISO 8859-{2..9}, use full lookup tables
   defp iso8859_to_unicode(byte, n), do: Tables.lookup(byte, n)
+
+  defp contains_iso2022_escape?(binary), do: :binary.match(binary, <<0x1B>>) != :nomatch
 
   defp normalize_charset(nil), do: ""
   defp normalize_charset(charset) when is_binary(charset), do: String.trim(charset)
