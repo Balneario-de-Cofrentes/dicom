@@ -304,6 +304,7 @@ defmodule Dicom.P10.ComplianceTest do
 
       ds =
         minimal_data_set()
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
         |> DataSet.put({0x0028, 0x0010}, :US, <<256::little-16>>)
         |> DataSet.put({0x0028, 0x0011}, :US, <<256::little-16>>)
 

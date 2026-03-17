@@ -148,6 +148,7 @@ defmodule Dicom.P10.Writer do
     transfer_syntax_uid = TransferSyntax.extract_uid(file_meta)
 
     with :ok <- validate_file_meta(%{data_set | file_meta: file_meta}),
+         :ok <- validate_pixel_data_encoding(data_set, transfer_syntax_uid),
          {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid) do
       # Encode all file meta elements except group length first (as iodata)
       meta_without_group_length = Map.delete(file_meta, {0x0002, 0x0000})
@@ -183,6 +184,29 @@ defmodule Dicom.P10.Writer do
 
   defp ensure_meta_element(file_meta, tag, vr, default_value) do
     Map.put_new(file_meta, tag, DataElement.new(tag, vr, default_value))
+  end
+
+  defp validate_pixel_data_encoding(%DataSet{} = data_set, transfer_syntax_uid) do
+    case Map.get(data_set.elements, {0x7FE0, 0x0010}) do
+      nil ->
+        :ok
+
+      %DataElement{value: {:encapsulated, _fragments}} ->
+        if TransferSyntax.compressed?(transfer_syntax_uid) do
+          :ok
+        else
+          {:error,
+           {:encapsulated_pixel_data_requires_compressed_transfer_syntax, transfer_syntax_uid}}
+        end
+
+      %DataElement{} ->
+        if TransferSyntax.compressed?(transfer_syntax_uid) do
+          {:error,
+           {:compressed_transfer_syntax_requires_encapsulated_pixel_data, transfer_syntax_uid}}
+        else
+          :ok
+        end
+    end
   end
 
   # Returns iodata — no intermediate binary allocation. Single IO.iodata_to_binary at serialize/1.
