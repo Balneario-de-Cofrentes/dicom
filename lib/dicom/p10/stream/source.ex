@@ -12,7 +12,7 @@ defmodule Dicom.P10.Stream.Source do
   ## Source Types
 
   - **Binary**: wraps an in-memory binary, no I/O
-  - **File**: reads from a file handle with 64 KB read-ahead buffer
+  - **File**: reads from a file handle with configurable read-ahead buffering
   """
 
   @read_ahead_size 65_536
@@ -22,10 +22,11 @@ defmodule Dicom.P10.Stream.Source do
   @type t :: %__MODULE__{
           buffer: binary(),
           io: :eof | io_device() | nil,
-          offset: non_neg_integer()
+          offset: non_neg_integer(),
+          read_ahead: pos_integer()
         }
 
-  defstruct buffer: <<>>, io: nil, offset: 0
+  defstruct buffer: <<>>, io: nil, offset: 0, read_ahead: @read_ahead_size
 
   @doc """
   Creates a source from an in-memory binary.
@@ -37,10 +38,19 @@ defmodule Dicom.P10.Stream.Source do
 
   @doc """
   Creates a source from an open file handle (opened in `:raw, :binary, :read` mode).
+
+  ## Options
+
+  - `:read_ahead` -- preferred read-ahead buffer size in bytes (default: 65536)
   """
-  @spec from_io(io_device()) :: t()
-  def from_io(io) do
-    %__MODULE__{buffer: <<>>, io: io, offset: 0}
+  @spec from_io(io_device(), keyword()) :: t()
+  def from_io(io, opts \\ []) do
+    %__MODULE__{
+      buffer: <<>>,
+      io: io,
+      offset: 0,
+      read_ahead: normalize_read_ahead(Keyword.get(opts, :read_ahead, @read_ahead_size))
+    }
   end
 
   @doc """
@@ -57,8 +67,8 @@ defmodule Dicom.P10.Stream.Source do
   def ensure(%__MODULE__{io: :eof}, _n), do: {:error, :unexpected_end}
   def ensure(%__MODULE__{io: nil}, _n), do: {:error, :unexpected_end}
 
-  def ensure(%__MODULE__{io: io, buffer: buffer} = source, n) do
-    needed = max(n - byte_size(buffer), @read_ahead_size)
+  def ensure(%__MODULE__{io: io, buffer: buffer, read_ahead: read_ahead} = source, n) do
+    needed = max(n - byte_size(buffer), read_ahead)
 
     case IO.binread(io, needed) do
       data when is_binary(data) and byte_size(data) > 0 ->
@@ -115,4 +125,9 @@ defmodule Dicom.P10.Stream.Source do
   """
   @spec bytes_consumed(t()) :: non_neg_integer()
   def bytes_consumed(%__MODULE__{offset: offset}), do: offset
+
+  defp normalize_read_ahead(read_ahead) when is_integer(read_ahead) and read_ahead > 0,
+    do: read_ahead
+
+  defp normalize_read_ahead(_read_ahead), do: @read_ahead_size
 end

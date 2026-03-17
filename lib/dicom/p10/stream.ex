@@ -71,12 +71,12 @@ defmodule Dicom.P10.Stream do
       {:ok, data_set} = Dicom.P10.Stream.to_data_set(events)
   """
   @spec parse_file(Path.t(), keyword()) :: Enumerable.t()
-  def parse_file(path, _opts \\ []) do
+  def parse_file(path, opts \\ []) do
     Stream.resource(
       fn ->
         case File.open(path, [:raw, :binary, :read]) do
           {:ok, io} ->
-            source = Source.from_io(io)
+            source = Source.from_io(io, opts)
             {:ok, Parser.new(source), io}
 
           {:error, reason} ->

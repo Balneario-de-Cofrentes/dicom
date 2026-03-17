@@ -103,6 +103,9 @@ IO.inspect(data_set)
 # Stream events lazily from a file (constant memory)
 events = Dicom.stream_parse_file("/path/to/large_image.dcm")
 
+# Tune file read-ahead when needed
+events = Dicom.stream_parse_file("/path/to/large_image.dcm", read_ahead: 8_192)
+
 # Filter for specific tags without loading the entire file
 patient_tags =
   events

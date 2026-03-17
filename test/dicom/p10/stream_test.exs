@@ -862,6 +862,22 @@ defmodule Dicom.P10.StreamTest do
       events = Dicom.P10.Stream.parse_file("/nonexistent/path.dcm") |> Enum.to_list()
       assert [{:error, :enoent}] = events
     end
+
+    @tag :tmp_dir
+    test "parse_file honors read_ahead option", %{tmp_dir: tmp_dir} do
+      patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+      modality = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+      binary = build_p10_binary([], [modality, patient])
+      path = Path.join(tmp_dir, "read_ahead.dcm")
+      File.write!(path, binary)
+
+      {:ok, ds} =
+        Dicom.P10.Stream.parse_file(path, read_ahead: 8)
+        |> Dicom.P10.Stream.to_data_set()
+
+      assert DataSet.get(ds, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+      assert DataSet.get(ds, {0x0008, 0x0060}) |> String.trim() == "CT"
+    end
   end
 
   # ── Implicit VR Sequence Streaming ────────────────────────────────────
@@ -988,6 +1004,11 @@ defmodule Dicom.P10.StreamTest do
       assert source.io == self()
       assert source.buffer == <<>>
       assert source.offset == 0
+    end
+
+    test "from_io applies read_ahead option" do
+      source = Source.from_io(self(), read_ahead: 8_192)
+      assert source.read_ahead == 8_192
     end
 
     test "eof? returns false for io source with empty buffer" do
