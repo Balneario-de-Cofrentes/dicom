@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-17
+
+### Fixed
+
+- Malformed input paths across the eager parser, streaming parser, DICOM JSON
+  decoder, and pixel-data helpers now return structured errors instead of
+  raising exceptions
+- Top-level sequence de-identification now respects tag action rules instead of
+  always preserving sequence containers
+- File Meta Information validation now rejects empty or malformed required UID
+  values before serialization
+- `Dicom.PixelData` now handles parser-produced `{:encapsulated, fragments}`
+  values, computes native frame sizes correctly for bit-packed data, and
+  rejects ambiguous multi-frame encapsulated splitting
+- `Dicom.P10.Stream.parse_file/2` now honors the documented `:read_ahead` option
+
+### Changed
+
+- `Dicom.Json.from_map/2` is now strict about malformed typed values and
+  requires an explicit `bulk_data_resolver:` to materialize `BulkDataURI`
+  content
+- De-identification private-tag retention is now named and documented honestly
+  via `retain_private_tags`; `retain_safe_private` remains as a compatibility
+  alias for retaining all private tags
+- Character set support now explicitly rejects ISO 2022 escape-sequence
+  switching instead of implying code-extension support
+- README and API docs were updated to match the stricter JSON, pixel-data,
+  de-identification, and streaming behavior
+- Implementation version name updated to `DICOM_0.5.0`
+
 ## [0.4.5] - 2026-03-17
 
 ### Fixed
@@ -211,7 +241,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.2...v0.4.5
 [0.4.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.0...v0.4.2
 [0.4.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.3.0...v0.4.0
