@@ -117,4 +117,65 @@ defmodule Dicom.ValueTest do
       assert Value.encode("DOE^JOHN", :PN) == "DOE^JOHN"
     end
   end
+
+  describe "decode/2 64-bit types" do
+    test "UV decodes unsigned 64-bit integer" do
+      assert Value.decode(<<42::little-unsigned-64>>, :UV) == 42
+    end
+
+    test "UV multi-value" do
+      assert Value.decode(<<1::little-unsigned-64, 2::little-unsigned-64>>, :UV) == [1, 2]
+    end
+
+    test "SV decodes signed 64-bit integer" do
+      assert Value.decode(<<-100::little-signed-64>>, :SV) == -100
+    end
+
+    test "SV multi-value" do
+      assert Value.decode(<<-1::little-signed-64, 1::little-signed-64>>, :SV) == [-1, 1]
+    end
+
+    test "OV returns binary as-is" do
+      data = <<1, 2, 3, 4, 5, 6, 7, 8>>
+      assert Value.decode(data, :OV) == data
+    end
+  end
+
+  describe "decode/2 edge cases" do
+    test "DS with whitespace-only returns nil-like" do
+      # Whitespace-only DS should parse as empty string which Float.parse returns :error
+      result = Value.decode("   ", :DS)
+      # Empty string after trim -> parse fails -> returns original
+      assert result == ""
+    end
+
+    test "IS with whitespace-only returns nil-like" do
+      result = Value.decode("   ", :IS)
+      assert result == ""
+    end
+
+    test "CS single value returns string not list" do
+      assert Value.decode("CT", :CS) == "CT"
+    end
+
+    test "binary VR (OB) returns raw binary" do
+      data = <<0xFF, 0xD8, 0xFF, 0xE0>>
+      assert Value.decode(data, :OB) == data
+    end
+
+    test "UN returns raw binary" do
+      data = <<1, 2, 3, 4>>
+      assert Value.decode(data, :UN) == data
+    end
+  end
+
+  describe "encode/2 64-bit types" do
+    test "UV encodes unsigned 64-bit" do
+      assert Value.encode(42, :UV) == <<42::little-unsigned-64>>
+    end
+
+    test "SV encodes signed 64-bit" do
+      assert Value.encode(-100, :SV) == <<-100::little-signed-64>>
+    end
+  end
 end

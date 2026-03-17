@@ -128,6 +128,41 @@ defmodule Dicom.P10.WriterTest do
       assert {:error, {:missing_required_meta, {0x0002, 0x0003}}} =
                Dicom.P10.Writer.validate_file_meta(ds)
     end
+
+    test "returns error when UN VR is used in file meta (PS3.10 7.1)" do
+      ds = minimal_data_set()
+      # Add a UN VR element to file meta
+      un_elem = DataElement.new({0x0002, 0x0016}, :UN, "BADSCANNER")
+      ds = %{ds | file_meta: Map.put(ds.file_meta, {0x0002, 0x0016}, un_elem)}
+
+      assert {:error, {:un_vr_in_file_meta, {0x0002, 0x0016}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when Private Information (0002,0102) present without Creator UID (0002,0100)" do
+      ds = minimal_data_set()
+      pi_elem = DataElement.new({0x0002, 0x0102}, :OB, <<1, 2, 3, 4>>)
+      ds = %{ds | file_meta: Map.put(ds.file_meta, {0x0002, 0x0102}, pi_elem)}
+
+      assert {:error, {:missing_private_information_creator, {0x0002, 0x0102}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "accepts Private Information when Creator UID is also present" do
+      ds = minimal_data_set()
+      creator_elem = DataElement.new({0x0002, 0x0100}, :UI, "1.2.3.4.5.6.7.8.9")
+      pi_elem = DataElement.new({0x0002, 0x0102}, :OB, <<1, 2, 3, 4>>)
+
+      ds = %{
+        ds
+        | file_meta:
+            ds.file_meta
+            |> Map.put({0x0002, 0x0100}, creator_elem)
+            |> Map.put({0x0002, 0x0102}, pi_elem)
+      }
+
+      assert :ok = Dicom.P10.Writer.validate_file_meta(ds)
+    end
   end
 
   # Helpers

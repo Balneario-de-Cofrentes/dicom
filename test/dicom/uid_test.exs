@@ -53,5 +53,38 @@ defmodule Dicom.UIDTest do
     test "accepts single-digit zero component" do
       assert Dicom.UID.valid?("1.0.3")
     end
+
+    test "rejects UID with single component" do
+      refute Dicom.UID.valid?("12345")
+    end
+
+    test "rejects UID with trailing dot" do
+      refute Dicom.UID.valid?("1.2.3.")
+    end
+
+    test "rejects UID with consecutive dots" do
+      refute Dicom.UID.valid?("1..2.3")
+    end
+
+    test "rejects non-binary input" do
+      refute Dicom.UID.valid?(123)
+      refute Dicom.UID.valid?(nil)
+    end
+  end
+
+  describe "generate/0 validity" do
+    test "generated UIDs always pass valid?/1" do
+      for _ <- 1..100 do
+        uid = Dicom.UID.generate()
+        assert Dicom.UID.valid?(uid), "Generated UID #{uid} is not valid"
+      end
+    end
+
+    test "generated UIDs are <= 64 characters" do
+      for _ <- 1..100 do
+        uid = Dicom.UID.generate()
+        assert byte_size(uid) <= 64, "Generated UID #{uid} exceeds 64 chars (#{byte_size(uid)})"
+      end
+    end
   end
 end

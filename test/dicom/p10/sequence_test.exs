@@ -54,6 +54,138 @@ defmodule Dicom.P10.SequenceTest do
     end
   end
 
+  describe "nested sequences" do
+    test "parses nested SQ within SQ item" do
+      # Inner-most element
+      inner_value = pad_even("1.2.3.4")
+
+      inner_elem =
+        <<0x08, 0x00, 0x50, 0x11, "UI", byte_size(inner_value)::little-16>> <> inner_value
+
+      # Inner sequence item (contains inner_elem)
+      inner_item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner_elem)::little-32>> <> inner_elem
+
+      # Inner SQ element: ReferencedImageSequence (0008,1140)
+      inner_sq =
+        <<0x08, 0x00, 0x40, 0x11, "SQ", 0::16, byte_size(inner_item)::little-32>> <> inner_item
+
+      # Outer item contains the inner SQ
+      outer_item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(inner_sq)::little-32>> <> inner_sq
+
+      # Outer SQ: ReferencedSeriesSequence (0008,1115)
+      outer_sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, byte_size(outer_item)::little-32>> <> outer_item
+
+      binary = build_p10_with_sequence(outer_sq)
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+
+      outer = DataSet.get(ds, {0x0008, 0x1115})
+      assert length(outer) == 1
+      [outer_item_data] = outer
+
+      inner = Map.get(outer_item_data, {0x0008, 0x1140})
+      assert %Dicom.DataElement{vr: :SQ, value: inner_items} = inner
+      assert length(inner_items) == 1
+    end
+
+    test "roundtrips nested sequence through write and read" do
+      inner_item = %{
+        {0x0008, 0x1150} => Dicom.DataElement.new({0x0008, 0x1150}, :UI, "1.2.3.4")
+      }
+
+      inner_sq = Dicom.DataElement.new({0x0008, 0x1140}, :SQ, [inner_item])
+
+      outer_item = %{{0x0008, 0x1140} => inner_sq}
+      outer_sq = Dicom.DataElement.new({0x0008, 0x1115}, :SQ, [outer_item])
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.explicit_vr_little_endian())
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, outer_sq)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      outer = DataSet.get(parsed, {0x0008, 0x1115})
+      assert length(outer) == 1
+      [outer_item_data] = outer
+      inner = Map.get(outer_item_data, {0x0008, 0x1140})
+      assert %Dicom.DataElement{vr: :SQ, value: [_]} = inner
+    end
+  end
+
+  describe "empty items" do
+    test "parses item with zero defined length" do
+      # Item with length 0 (empty item)
+      empty_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+
+      # SQ with defined length containing the empty item
+      sq = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, byte_size(empty_item)::little-32>> <> empty_item
+
+      binary = build_p10_with_sequence(sq)
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+
+      seq = DataSet.get(ds, {0x0008, 0x1115})
+      assert length(seq) == 1
+      [item] = seq
+      assert item == %{}
+    end
+
+    test "parses undefined-length empty item (delimiter only)" do
+      # Item with undefined length + immediate item delimiter
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+      empty_item = <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <> item_delim
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <> empty_item <> seq_delim
+
+      binary = build_p10_with_sequence(sq)
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+
+      seq = DataSet.get(ds, {0x0008, 0x1115})
+      assert length(seq) == 1
+      [item] = seq
+      assert item == %{}
+    end
+  end
+
+  describe "trailing padding in sequence items (PS3.10 7.2)" do
+    test "ignores trailing padding within a sequence item" do
+      # Inner element
+      inner_value = pad_even("1.2.840.10008.5.1.4.1.1.2")
+
+      inner_elem =
+        <<0x08, 0x00, 0x50, 0x11, "UI", byte_size(inner_value)::little-16>> <> inner_value
+
+      # Trailing padding inside the item: (FFFC,FFFC) OB with some zero bytes
+      padding_data = <<0, 0>>
+
+      padding =
+        <<0xFC, 0xFF, 0xFC, 0xFF, "OB", 0::16, byte_size(padding_data)::little-32>> <>
+          padding_data
+
+      item_content = inner_elem <> padding
+      item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(item_content)::little-32>> <> item_content
+
+      sq = <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, byte_size(item)::little-32>> <> item
+
+      binary = build_p10_with_sequence(sq)
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+
+      seq = DataSet.get(ds, {0x0008, 0x1115})
+      assert length(seq) == 1
+      [item_data] = seq
+      # Item should have the referenced SOP class UID but NOT the trailing padding
+      assert Map.has_key?(item_data, {0x0008, 0x1150})
+      refute Map.has_key?(item_data, {0xFFFC, 0xFFFC})
+    end
+  end
+
   describe "writing sequences" do
     test "roundtrips a sequence through write and read" do
       # Build a data set with a sequence programmatically

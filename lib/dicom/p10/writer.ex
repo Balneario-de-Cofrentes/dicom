@@ -34,6 +34,14 @@ defmodule Dicom.P10.Writer do
   """
   @spec validate_file_meta(DataSet.t()) :: :ok | {:error, {:missing_required_meta, Dicom.Tag.t()}}
   def validate_file_meta(%DataSet{file_meta: file_meta}) do
+    with :ok <- validate_required_tags(file_meta),
+         :ok <- validate_no_un_vr(file_meta),
+         :ok <- validate_private_information(file_meta) do
+      :ok
+    end
+  end
+
+  defp validate_required_tags(file_meta) do
     Enum.reduce_while(@required_meta_tags, :ok, fn tag, :ok ->
       if Map.has_key?(file_meta, tag) do
         {:cont, :ok}
@@ -41,6 +49,23 @@ defmodule Dicom.P10.Writer do
         {:halt, {:error, {:missing_required_meta, tag}}}
       end
     end)
+  end
+
+  # PS3.10 Section 7.1: UN VR is prohibited in File Meta Information
+  defp validate_no_un_vr(file_meta) do
+    case Enum.find(file_meta, fn {_tag, %DataElement{vr: vr}} -> vr == :UN end) do
+      {tag, _} -> {:error, {:un_vr_in_file_meta, tag}}
+      nil -> :ok
+    end
+  end
+
+  # PS3.10 Section 7.1: (0002,0102) is Type 1C — required if (0002,0100) present
+  defp validate_private_information(file_meta) do
+    if Map.has_key?(file_meta, {0x0002, 0x0102}) and not Map.has_key?(file_meta, {0x0002, 0x0100}) do
+      {:error, {:missing_private_information_creator, {0x0002, 0x0102}}}
+    else
+      :ok
+    end
   end
 
   @doc """

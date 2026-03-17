@@ -72,6 +72,50 @@ defmodule Dicom.P10.ReaderTest do
       assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
     end
 
+    test "reads unknown Group 0002 tags without error (PS3.10 7.1)" do
+      # Build file meta with transfer syntax + an unknown (0002,FFFF) tag
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
+      unknown_value = pad_to_even("FUTURE_DATA")
+
+      unknown_elem =
+        <<0x02, 0x00, 0xFF, 0xFF, "SH", byte_size(unknown_value)::little-16>> <> unknown_value
+
+      all_meta = ts_elem <> unknown_elem
+      group_length = build_group_length_element(all_meta)
+
+      patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+      binary = <<0::1024, "DICM">> <> group_length <> all_meta <> patient
+
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+
+      # Unknown tag should be stored in file_meta (not cause an error)
+      assert Map.has_key?(ds.file_meta, {0x0002, 0xFFFF})
+      # Normal data set elements should still be readable
+      assert DataSet.get(ds, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+    end
+
+    test "handles Explicit VR Big Endian (retired) transfer syntax" do
+      # File meta always Explicit VR LE, but transfer syntax says Big Endian
+      ts_uid = pad_to_even("1.2.840.10008.1.2.2")
+      ts_elem = elem_explicit({0x0002, 0x0010}, :UI, ts_uid)
+
+      # Data set element in Explicit VR Big Endian
+      # Tag: group big-endian, element big-endian, VR, length, value
+      patient_name_value = "DOE^JOHN"
+
+      big_endian_elem =
+        <<0x00, 0x10, 0x00, 0x10, "PN", byte_size(patient_name_value)::big-16>> <>
+          patient_name_value
+
+      binary =
+        <<0::1024, "DICM">> <>
+          build_group_length_element(ts_elem) <>
+          ts_elem <> big_endian_elem
+
+      {:ok, ds} = Dicom.P10.Reader.parse(binary)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == "DOE^JOHN"
+    end
+
     test "handles elements with zero length" do
       ts_elem = elem_explicit({0x0002, 0x0010}, :UI, "1.2.840.10008.1.2.1")
       empty_elem = elem_explicit({0x0010, 0x0010}, :PN, "")

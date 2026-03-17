@@ -28,4 +28,35 @@ defmodule Dicom.P10.FileMetaTest do
       assert sanitized == clean
     end
   end
+
+  describe "validate_preamble/1" do
+    test "returns :ok for all-zero preamble" do
+      binary = <<0::1024, "DICM", "data">>
+      assert :ok = Dicom.P10.FileMeta.validate_preamble(binary)
+    end
+
+    test "returns :ok for TIFF little-endian preamble" do
+      # TIFF LE magic: 49 49 2A 00
+      tiff_preamble = <<0x49, 0x49, 0x2A, 0x00>> <> :binary.copy(<<0>>, 124)
+      binary = tiff_preamble <> "DICM" <> "data"
+      assert :ok = Dicom.P10.FileMeta.validate_preamble(binary)
+    end
+
+    test "returns :ok for TIFF big-endian preamble" do
+      # TIFF BE magic: 4D 4D 00 2A
+      tiff_preamble = <<0x4D, 0x4D, 0x00, 0x2A>> <> :binary.copy(<<0>>, 124)
+      binary = tiff_preamble <> "DICM" <> "data"
+      assert :ok = Dicom.P10.FileMeta.validate_preamble(binary)
+    end
+
+    test "returns warning for non-standard preamble content" do
+      bad_preamble = String.duplicate("X", 128)
+      binary = bad_preamble <> "DICM" <> "data"
+      assert {:warning, :non_standard_preamble} = Dicom.P10.FileMeta.validate_preamble(binary)
+    end
+
+    test "returns error for non-DICOM binary" do
+      assert {:error, :invalid_preamble} = Dicom.P10.FileMeta.validate_preamble(<<"not dicom">>)
+    end
+  end
 end

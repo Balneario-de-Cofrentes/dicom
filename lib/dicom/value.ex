@@ -53,6 +53,19 @@ defmodule Dicom.Value do
     for <<v::little-float-64 <- binary>>, do: v
   end
 
+  # 64-bit integer types
+  def decode(<<value::little-unsigned-64>>, :UV), do: value
+
+  def decode(binary, :UV) when rem(byte_size(binary), 8) == 0 do
+    for <<v::little-unsigned-64 <- binary>>, do: v
+  end
+
+  def decode(<<value::little-signed-64>>, :SV), do: value
+
+  def decode(binary, :SV) when rem(byte_size(binary), 8) == 0 do
+    for <<v::little-signed-64 <- binary>>, do: v
+  end
+
   # Attribute Tag
   def decode(<<group::little-16, element::little-16>>, :AT), do: {group, element}
 
@@ -99,6 +112,8 @@ defmodule Dicom.Value do
   def encode(value, :SL) when is_integer(value), do: <<value::little-signed-32>>
   def encode(value, :FL) when is_number(value), do: <<value::little-float-32>>
   def encode(value, :FD) when is_number(value), do: <<value::little-float-64>>
+  def encode(value, :UV) when is_integer(value), do: <<value::little-unsigned-64>>
+  def encode(value, :SV) when is_integer(value), do: <<value::little-signed-64>>
 
   def encode({group, element}, :AT) do
     <<group::little-16, element::little-16>>

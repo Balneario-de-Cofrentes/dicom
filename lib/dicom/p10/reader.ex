@@ -117,22 +117,16 @@ defmodule Dicom.P10.Reader do
          :explicit,
          :little
        ) do
-    tag = {group, element}
+    dispatch_explicit_vr(rest, {group, element}, vr_bytes, :little)
+  end
 
-    case VR.from_binary(vr_bytes) do
-      {:ok, :SQ} ->
-        read_sequence_value(rest, tag, :explicit, :little)
-
-      {:ok, vr} ->
-        if VR.long_length?(vr) do
-          read_long_value(rest, tag, vr, :explicit, :little)
-        else
-          read_short_value(rest, tag, vr, :little)
-        end
-
-      {:error, :unknown_vr} ->
-        read_short_value(rest, tag, :UN, :little)
-    end
+  # Explicit VR Big Endian (Retired)
+  defp read_element(
+         <<group::big-16, element::big-16, vr_bytes::binary-size(2), rest::binary>>,
+         :explicit,
+         :big
+       ) do
+    dispatch_explicit_vr(rest, {group, element}, vr_bytes, :big)
   end
 
   # Implicit VR Little Endian
@@ -154,8 +148,29 @@ defmodule Dicom.P10.Reader do
 
   defp read_element(_, _, _), do: {:error, :unexpected_end}
 
+  defp dispatch_explicit_vr(rest, tag, vr_bytes, endian) do
+    case VR.from_binary(vr_bytes) do
+      {:ok, :SQ} ->
+        read_sequence_value(rest, tag, :explicit, endian)
+
+      {:ok, vr} ->
+        if VR.long_length?(vr) do
+          read_long_value(rest, tag, vr, :explicit, endian)
+        else
+          read_short_value(rest, tag, vr, endian)
+        end
+
+      {:error, :unknown_vr} ->
+        read_short_value(rest, tag, :UN, endian)
+    end
+  end
+
   # Short value: 2-byte length (Explicit VR, non-long VRs)
   defp read_short_value(<<length::little-16, rest::binary>>, tag, vr, :little) do
+    read_value_by_length(rest, tag, vr, length)
+  end
+
+  defp read_short_value(<<length::big-16, rest::binary>>, tag, vr, :big) do
     read_value_by_length(rest, tag, vr, length)
   end
 
@@ -181,6 +196,16 @@ defmodule Dicom.P10.Reader do
          vr,
          _vr_enc,
          :little
+       ) do
+    read_value_by_length(rest, tag, vr, length)
+  end
+
+  defp read_long_value(
+         <<_reserved::16, length::big-32, rest::binary>>,
+         tag,
+         vr,
+         _vr_enc,
+         :big
        ) do
     read_value_by_length(rest, tag, vr, length)
   end
@@ -294,7 +319,7 @@ defmodule Dicom.P10.Reader do
     if byte_size(rest) >= length do
       <<item_data::binary-size(length), remaining::binary>> = rest
 
-      case read_item_elements(item_data, vr_enc, endian, %{}) do
+      case read_all_elements(item_data, vr_enc, endian, %{}) do
         {:ok, elements} -> {:ok, elements, remaining}
         {:error, _} = error -> error
       end
@@ -304,23 +329,6 @@ defmodule Dicom.P10.Reader do
   end
 
   defp read_item(_, _, _), do: {:error, :unexpected_end}
-
-  # Read elements from a bounded item binary (defined length)
-  defp read_item_elements(<<>>, _vr_enc, _endian, acc), do: {:ok, acc}
-
-  defp read_item_elements(binary, _vr_enc, _endian, acc) when byte_size(binary) < 4 do
-    {:ok, acc}
-  end
-
-  defp read_item_elements(binary, vr_enc, endian, acc) do
-    case read_element(binary, vr_enc, endian) do
-      {:ok, element, rest} ->
-        read_item_elements(rest, vr_enc, endian, Map.put(acc, element.tag, element))
-
-      {:error, _} = error ->
-        error
-    end
-  end
 
   # Read elements until item delimiter
   defp read_item_elements_until_delimiter(binary, _vr_enc, _endian, acc)
@@ -337,6 +345,13 @@ defmodule Dicom.P10.Reader do
       {:ok, @seq_delim_tag} ->
         # Shouldn't happen inside an item, but be defensive
         {:ok, acc, binary}
+
+      {:ok, @trailing_padding_tag} ->
+        # Skip trailing padding, then look for delimiter
+        case read_element(binary, vr_enc, endian) do
+          {:ok, _padding, rest} -> read_item_elements_until_delimiter(rest, vr_enc, endian, acc)
+          {:error, _} -> {:ok, acc, binary}
+        end
 
       _ ->
         case read_element(binary, vr_enc, endian) do

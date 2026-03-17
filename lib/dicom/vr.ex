@@ -25,6 +25,7 @@ defmodule Dicom.VR do
           | :OD
           | :OF
           | :OL
+          | :OV
           | :OW
           | :PN
           | :SH
@@ -32,6 +33,7 @@ defmodule Dicom.VR do
           | :SQ
           | :SS
           | :ST
+          | :SV
           | :TM
           | :UC
           | :UI
@@ -40,6 +42,7 @@ defmodule Dicom.VR do
           | :UR
           | :US
           | :UT
+          | :UV
 
   @string_vrs [
     :AE,
@@ -60,15 +63,18 @@ defmodule Dicom.VR do
     :UR,
     :UT
   ]
-  @binary_vrs [:OB, :OD, :OF, :OL, :OW, :UN]
-  @numeric_vrs [:FL, :FD, :SL, :SS, :UL, :US]
+  @binary_vrs [:OB, :OD, :OF, :OL, :OV, :OW, :UN]
+  @numeric_vrs [:FL, :FD, :SL, :SS, :SV, :UL, :US, :UV]
 
   @doc """
   Returns true if the VR uses explicit length encoding with a 4-byte length field
   (the "long" VRs that use 2 reserved bytes + 4-byte length in Explicit VR).
   """
   @spec long_length?(t()) :: boolean()
-  def long_length?(vr) when vr in [:OB, :OD, :OF, :OL, :OW, :SQ, :UC, :UN, :UR, :UT], do: true
+  def long_length?(vr)
+      when vr in [:OB, :OD, :OF, :OL, :OV, :OW, :SQ, :SV, :UC, :UN, :UR, :UT, :UV],
+      do: true
+
   def long_length?(_vr), do: false
 
   @doc """
@@ -120,6 +126,7 @@ defmodule Dicom.VR do
   def from_binary(<<"OD">>), do: {:ok, :OD}
   def from_binary(<<"OF">>), do: {:ok, :OF}
   def from_binary(<<"OL">>), do: {:ok, :OL}
+  def from_binary(<<"OV">>), do: {:ok, :OV}
   def from_binary(<<"OW">>), do: {:ok, :OW}
   def from_binary(<<"PN">>), do: {:ok, :PN}
   def from_binary(<<"SH">>), do: {:ok, :SH}
@@ -127,6 +134,7 @@ defmodule Dicom.VR do
   def from_binary(<<"SQ">>), do: {:ok, :SQ}
   def from_binary(<<"SS">>), do: {:ok, :SS}
   def from_binary(<<"ST">>), do: {:ok, :ST}
+  def from_binary(<<"SV">>), do: {:ok, :SV}
   def from_binary(<<"TM">>), do: {:ok, :TM}
   def from_binary(<<"UC">>), do: {:ok, :UC}
   def from_binary(<<"UI">>), do: {:ok, :UI}
@@ -135,6 +143,7 @@ defmodule Dicom.VR do
   def from_binary(<<"UR">>), do: {:ok, :UR}
   def from_binary(<<"US">>), do: {:ok, :US}
   def from_binary(<<"UT">>), do: {:ok, :UT}
+  def from_binary(<<"UV">>), do: {:ok, :UV}
   def from_binary(_), do: {:error, :unknown_vr}
 
   @doc """
