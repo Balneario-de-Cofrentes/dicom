@@ -30,6 +30,11 @@ mitigation within 7 days for critical issues.
   compliance guarantee. Users remain responsible for HIPAA/GDPR and local
   policy compliance when handling patient data.
 
+- **Conformance scope**: This project does not claim regulatory certification
+  or complete DICOM conformance across every standard part. It is primarily a
+  Part 10 and data-set tooling library with selected helpers from adjacent
+  parts of the standard.
+
 - **UID injection**: DICOM UIDs used in file paths or URLs should be validated
   with `Dicom.UID.valid?/1` to prevent path traversal.
 

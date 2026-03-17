@@ -5,7 +5,7 @@
 [![CI](https://github.com/Balneario-de-Cofrentes/dicom/actions/workflows/ci.yml/badge.svg)](https://github.com/Balneario-de-Cofrentes/dicom/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Pure Elixir DICOM P10 parser and writer. Zero runtime dependencies.
+Pure Elixir DICOM toolkit focused on DICOM Part 10 files. Zero runtime dependencies.
 
 Built on Elixir's binary pattern matching for fast, correct parsing of
 [DICOM](https://www.dicomstandard.org/) medical imaging files.
@@ -27,6 +27,20 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 - **Encapsulated pixel data** -- fragments with Basic Offset Table
 - **Validation** -- File Meta Information validation per PS3.10 Section 7.1
 - **Zero dependencies** -- pure Elixir, no NIFs, no external tools
+
+## Scope
+
+This library is strongest in DICOM file and data-set workflows:
+
+- PS3.10 read/write for Part 10 files
+- PS3.5/PS3.6 value, VR, transfer syntax, dictionary, sequence, and pixel data helpers
+- PS3.18 Annex F.2 DICOM JSON conversion for DataSets
+
+It is not a full DICOM stack. In particular:
+
+- It does not implement DIMSE networking or provide a DICOMweb server
+- It preserves encapsulated pixel payloads and frame boundaries, but it does not decode JPEG/JPEG 2000/JPEG-LS/MPEG/HEVC codec bitstreams
+- De-identification support is a best-effort helper over the library's supported tag/action set, not a regulatory or standards-conformance guarantee
 
 ## Installation
 
@@ -142,8 +156,8 @@ lib/dicom/
 | PS3.5 | Data Structures and Encoding | VR types, transfer syntax handling, data encoding, sequences, pixel data frame extraction |
 | PS3.6 | Data Dictionary | Comprehensive tag registry (5,035 entries), keyword lookup, retired flags |
 | PS3.10 | Media Storage and File Format | P10 read/write, File Meta Information, preamble |
-| PS3.15 | Security and System Management | Basic Application Level Confidentiality Profile (de-identification) |
-| PS3.18 | Web Services | DICOM JSON model encoding/decoding (Annex F.2) |
+| PS3.15 | Security and System Management | Best-effort Basic Application Level Confidentiality Profile helpers for the supported tag/action set |
+| PS3.18 | Web Services | DICOM JSON model encoding/decoding for DataSets (Annex F.2) |
 
 ### Transfer Syntaxes
 
@@ -153,7 +167,7 @@ lib/dicom/
 | Explicit VR Little Endian (1.2.840.10008.1.2.1) | Yes | Yes |
 | Deflated Explicit VR Little Endian (1.2.840.10008.1.2.1.99) | Yes | Yes |
 | Explicit VR Big Endian (1.2.840.10008.1.2.2, retired) | Yes | Yes |
-| JPEG, JPEG-LS, JPEG 2000, JPEG XL, RLE, MPEG, HEVC, HTJ2K, SMPTE (58 TSes) | Metadata only | Metadata only |
+| Other registered compressed and video transfer syntaxes | Metadata only | Metadata only |
 
 Unknown transfer syntaxes are rejected by default. Use `TransferSyntax.encoding(uid, lenient: true)`
 to fall back to Explicit VR Little Endian for unrecognized UIDs.
@@ -180,52 +194,24 @@ Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 
 ```bash
 mix test              # Run all tests (1000+ tests)
-mix test --cover      # Run with coverage report (97%+)
+mix test --cover      # Run with coverage report
 mix format --check-formatted
 ```
 
 Property-based tests using [StreamData](https://hex.pm/packages/stream_data)
 verify encode/decode roundtrips across all VR types and streaming parser equivalence.
 
-## Comparison with Other BEAM DICOM Libraries
+## Project Positioning
 
-Five DICOM libraries exist for the BEAM. Only two others are published to Hex.pm.
+`dicom` is aimed at file-centric DICOM workflows in Elixir: parse, inspect,
+transform, write, stream, and validate Part 10 objects without native code or
+external tooling.
 
-| Feature | **dicom** | dicom\_ex 0.3.0 | ex\_dicom 0.2.0 | DCMfx 0.43.0 | WolfPACS |
-|---------|-----------|-----------------|-----------------|--------------|----------|
-| **Language** | Elixir | Elixir | Elixir | Gleam + Rust | Erlang |
-| **License** | MIT | Apache-2.0 | MIT | AGPL-3.0 | AGPL-3.0 |
-| **On Hex.pm** | Yes | Yes | Yes | No (git only) | No (git only) |
-| **Runtime deps** | 0 | 0 | 0 | 6 | 2 |
-| **P10 parse** | Yes | Yes | Yes | Yes | Basic |
-| **P10 write** | Yes | Yes | Yes | Yes | No |
-| **Transfer syntaxes** | 49 (34 active + 15 retired) | 3 | 3 | 47 | 3 |
-| **Sequences (SQ)** | Yes | Yes | Yes | Yes | Yes |
-| **Tag dictionary** | 5,035 tags | ~5,200 tags | None | ~13,600+ tags | None |
-| **UID generation** | Yes | Yes | No | No | No |
-| **UID validation** | Yes | No | No | No | No |
-| **File Meta validation** | Yes | Partial | Partial | Yes | Yes |
-| **Character sets** | ISO 8859-{1..9}, JIS X 0201, UTF-8 | No | No | Full (ISO 2022, CJK, GB18030) | No |
-| **Value decoding** | Yes (all 34 VRs) | Yes | Basic | Yes | Yes (25 VRs) |
-| **Streaming parser** | Yes | No | No | Yes | No |
-| **DIMSE networking** | No | C-ECHO/C-FIND/C-STORE | No | No | C-ECHO/C-STORE |
-| **DICOM JSON** | Yes (PS3.18 F.2) | No | No | Yes | No |
-| **Anonymization** | Yes (best-effort PS3.15 profile helpers) | No | No | Yes | No |
-| **Pixel data frames** | Yes (native + encapsulated) | No | No | Yes | No |
-| **SOP Class registry** | 232 classes, modality mapping | None | None | Yes | None |
-| **Test suite** | 1000+ tests, 97%+ cov | 4 test files | 1 test file | 6 test suites | 80+ tests |
-| **CI** | Passing | None | None | Passing | Passing |
-| **Docs** | HexDocs + @moduledoc | HexDocs | HexDocs | Dedicated site | Project site |
-| **Production-ready** | Yes | Explicitly no | No | Yes (if AGPL ok) | Alpha |
-| **Gleam toolchain** | Not required | Not required | Not required | Required | Not required |
-
-**dicom** is the most feature-complete DICOM library on Hex.pm: zero
-dependencies, streaming + read + write, DICOM JSON, anonymization, pixel
-data extraction, 232 SOP classes, 49 transfer syntaxes, and MIT-licensed. DCMfx has a larger
-tag dictionary (including well-known private tags) and full CJK/ISO 2022
-character set support but requires the Gleam toolchain, carries AGPL-3.0
-licensing, and is not published to Hex.pm. For DIMSE networking, `dicom_ex`
-provides C-ECHO/C-FIND/C-STORE SCP support (educational, not production).
+That means the library is a strong fit for ingestion pipelines, metadata
+processing, archive tooling, DICOM JSON conversion, and controlled
+de-identification passes over known data. If you need DIMSE networking, a full
+codec stack for compressed pixel payloads, or formal privacy/compliance
+validation, those concerns should sit alongside this library rather than inside it.
 
 ## AI-Assisted Development
 

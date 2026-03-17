@@ -12,7 +12,8 @@ defmodule Dicom.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       name: "Dicom",
-      description: "Pure Elixir DICOM P10 parser and writer",
+      description:
+        "Pure Elixir DICOM toolkit for PS3.10 files, DICOM JSON, and de-identification helpers",
       package: package(),
       docs: docs(),
       source_url: @source_url,
@@ -45,24 +46,29 @@ defmodule Dicom.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => @source_url},
+      links: %{
+        "GitHub" => @source_url,
+        "Docs" => "https://hexdocs.pm/dicom",
+        "Changelog" => "#{@source_url}/blob/master/CHANGELOG.md"
+      },
       files:
-        ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md AGENTS.md CONTRIBUTING.md CODE_OF_CONDUCT.md)
+        ~w(lib priv .formatter.exs mix.exs README.md LICENSE CHANGELOG.md SECURITY.md AGENTS.md CONTRIBUTING.md CODE_OF_CONDUCT.md)
     ]
   end
 
   defp docs do
     [
-      main: "Dicom",
+      main: "readme",
       extras: [
         "README.md",
         "CHANGELOG.md",
+        "SECURITY.md",
         "AGENTS.md",
         "CONTRIBUTING.md",
         "CODE_OF_CONDUCT.md",
         "LICENSE"
       ],
-      source_ref: System.get_env("SOURCE_REF") || "master"
+      source_ref: System.get_env("SOURCE_REF") || "v#{@version}"
     ]
   end
 end

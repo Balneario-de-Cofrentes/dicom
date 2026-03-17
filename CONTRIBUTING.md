@@ -35,7 +35,7 @@ mix docs                         # Generate documentation
 2. Make your changes
 3. Ensure all tests pass: `mix test`
 4. Ensure code is formatted: `mix format --check-formatted`
-5. Ensure coverage does not decrease: `mix test --cover`
+5. Ensure coverage does not regress materially in the areas you changed
 6. Open a pull request against `master`
 
 ### Pull Request Guidelines
@@ -77,13 +77,10 @@ We welcome AI-assisted contributions under the following conditions:
 2. **Review your changes.** Read and understand all code before submitting.
    You must be able to explain your changes in your own words during review.
 
-3. **Disclose substantial AI assistance.** Add an `Assisted-by: <tool>` commit
-   trailer when AI tools produced significant portions of the contribution.
-
-4. **Write in your own words.** PR descriptions, issue comments, and review
+3. **Write in your own words.** PR descriptions, issue comments, and review
    responses should be your own writing, not raw AI output.
 
-5. **Meet the same quality bar.** AI-assisted code must compile, pass all tests,
+4. **Meet the same quality bar.** AI-assisted code must compile, pass all tests,
    maintain coverage, and follow project conventions.
 
 See [AGENTS.md](AGENTS.md) for instructions that AI coding assistants can use

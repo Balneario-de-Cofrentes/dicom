@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - De-identification profile flags now affect supported tag groups instead of
   leaving most options inert
 - Release docs corrected to match current registry counts and current behavior
+- README and HexDocs now describe scope more precisely around PS3.10,
+  compressed transfer syntaxes, DICOM JSON, and de-identification limits
+- Hex package and HexDocs extras now include `SECURITY.md`, and source links
+  default to the release tag
 - Implementation version name updated to `DICOM_0.4.5`
 
 ## [0.4.2] - 2026-03-17
