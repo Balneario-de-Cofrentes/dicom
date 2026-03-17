@@ -404,18 +404,12 @@ defmodule Dicom.DeIdentification do
   defp process_elements(%DataSet{} = ds, profile, uid_map) do
     {new_elements, uid_map} =
       Enum.reduce(ds.elements, {%{}, uid_map}, fn {tag, elem}, {acc, umap} ->
-        # SQ elements are always kept and recursed into
-        if elem.vr == :SQ and is_list(elem.value) do
-          {new_items, umap} = deidentify_sequence(elem.value, profile, umap)
-          {Map.put(acc, tag, %{elem | value: new_items}), umap}
-        else
-          action = action_for(tag, profile)
-          {new_elem, umap} = apply_action(action, elem, profile, umap)
+        action = action_for(tag, profile)
+        {new_elem, umap} = apply_action(action, elem, profile, umap)
 
-          case new_elem do
-            nil -> {acc, umap}
-            elem -> {Map.put(acc, tag, elem), umap}
-          end
+        case new_elem do
+          nil -> {acc, umap}
+          elem -> {Map.put(acc, tag, elem), umap}
         end
       end)
 

@@ -330,11 +330,11 @@ defmodule Dicom.DeIdentificationTest do
       }
 
       ds = sample_data_set()
-      sq_elem = DataElement.new({0x0008, 0x1115}, :SQ, [inner_item])
-      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, sq_elem)}
+      sq_elem = DataElement.new({0x0028, 0x9145}, :SQ, [inner_item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9145}, sq_elem)}
 
       {:ok, result, uid_map} = DeIdentification.apply(ds)
-      sq = DataSet.get_element(result, {0x0008, 0x1115})
+      sq = DataSet.get_element(result, {0x0028, 0x9145})
       [item] = sq.value
 
       # Patient name in sequence should be replaced
@@ -343,6 +343,32 @@ defmodule Dicom.DeIdentificationTest do
       # UID in sequence should be replaced consistently
       assert item[{0x0008, 0x1150}].value != "1.2.3.4.5"
       assert uid_map["1.2.3.4.5"] == item[{0x0008, 0x1150}].value
+    end
+
+    test "removes top-level referenced sequences whose action is :X" do
+      inner_item = %{
+        Tag.patient_name() => DataElement.new(Tag.patient_name(), :PN, "INNER^NAME")
+      }
+
+      ds = sample_data_set()
+      sq_elem = DataElement.new({0x0008, 0x1110}, :SQ, [inner_item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1110}, sq_elem)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+      refute DataSet.has_tag?(result, {0x0008, 0x1110})
+    end
+
+    test "removes top-level content sequence by default" do
+      item = %{
+        {0x0040, 0xA123} => DataElement.new({0x0040, 0xA123}, :PN, "AUTHOR^NAME")
+      }
+
+      ds = sample_data_set()
+      sq_elem = DataElement.new({0x0040, 0xA730}, :SQ, [item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0040, 0xA730}, sq_elem)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+      refute DataSet.has_tag?(result, {0x0040, 0xA730})
     end
   end
 
@@ -750,13 +776,13 @@ defmodule Dicom.DeIdentificationTest do
         Tag.patient_name() => DataElement.new(Tag.patient_name(), :PN, "NESTED^PERSON")
       }
 
-      outer_sq = DataElement.new({0x0008, 0x1115}, :SQ, [outer_item])
+      outer_sq = DataElement.new({0x0028, 0x9145}, :SQ, [outer_item])
 
       ds = sample_data_set()
-      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, outer_sq)}
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9145}, outer_sq)}
 
       {:ok, result, _uid_map} = DeIdentification.apply(ds)
-      sq = DataSet.get_element(result, {0x0008, 0x1115})
+      sq = DataSet.get_element(result, {0x0028, 0x9145})
       [item] = sq.value
       # Patient name in outer item should be de-identified
       assert item[Tag.patient_name()].value != "NESTED^PERSON"
@@ -828,7 +854,7 @@ defmodule Dicom.DeIdentificationTest do
       }
 
       outer_sq = %DataElement{
-        tag: {0x0008, 0x1115},
+        tag: {0x0028, 0x9145},
         vr: :SQ,
         value: [outer_item],
         length: 0
@@ -837,13 +863,13 @@ defmodule Dicom.DeIdentificationTest do
       ds = %DataSet{
         file_meta: %{},
         elements: %{
-          {0x0008, 0x1115} => outer_sq
+          {0x0028, 0x9145} => outer_sq
         }
       }
 
       {:ok, result, _uid_map} = DeIdentification.apply(ds)
 
-      result_sq = DataSet.get_element(result, {0x0008, 0x1115})
+      result_sq = DataSet.get_element(result, {0x0028, 0x9145})
       assert result_sq.vr == :SQ
       [result_item] = result_sq.value
 
