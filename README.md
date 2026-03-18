@@ -178,7 +178,7 @@ to fall back to Explicit VR Little Endian for unrecognized UIDs.
 
 ## Performance
 
-Benchmarked on Apple Silicon (Elixir 1.18, OTP 27):
+Indicative measurements on one Apple Silicon machine (Elixir 1.18, OTP 27):
 
 | Operation | Throughput |
 |-----------|-----------|
@@ -190,7 +190,6 @@ Benchmarked on Apple Silicon (Elixir 1.18, OTP 27):
 | Write 50-element data set | ~13 us |
 | Write 200-element data set | ~55 us |
 | Roundtrip 100 elements | ~37 us |
-| Parse 1 MB pixel data | ~1 us |
 
 Run benchmarks with `mix test test/dicom/benchmark_test.exs`.
 Set `DICOM_ENFORCE_BENCHMARKS=1` only on a stable machine if you want to enforce the documented timing budgets.
