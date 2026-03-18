@@ -251,6 +251,30 @@ defmodule Dicom.DeIdentificationTest do
       refute String.contains?(method, "retain_safe_private")
     end
 
+    test "DeidentificationMethod stays within LO component limits when many options are enabled" do
+      ds = sample_data_set()
+
+      profile = %DeIdentification.Profile{
+        retain_uids: true,
+        retain_device_identity: true,
+        retain_patient_characteristics: true,
+        retain_institution_identity: true,
+        retain_long_full_dates: true,
+        clean_descriptions: true,
+        clean_structured_content: true,
+        clean_graphics: true,
+        retain_private_tags: true
+      }
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      method = DataSet.get(result, {0x0012, 0x0063})
+
+      assert method
+             |> String.split("\\")
+             |> Enum.all?(fn component -> byte_size(component) <= 64 end)
+    end
+
     test "removes private tags" do
       ds =
         sample_data_set()

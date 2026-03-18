@@ -523,7 +523,7 @@ defmodule Dicom.DeIdentification do
         "Best-effort de-identification"
 
       labels ->
-        "Best-effort de-identification; options: " <> Enum.join(labels, ", ")
+        Enum.join(["Best-effort de-identification" | labels], "\\")
     end
   end
 
