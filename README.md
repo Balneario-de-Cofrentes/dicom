@@ -16,7 +16,7 @@ Built on Elixir's binary pattern matching for fast, correct parsing of
 - **P10 file writing** -- serialize data sets back to DICOM Part 10 binaries with validated File Meta Information
 - **Streaming parser** -- lazy, event-based parsing for large files and pipelines
 - **Data dictionary** -- comprehensive PS3.6 tag registry (5,035 entries) with VR, VM, keyword lookup, and retired flags
-- **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb, with strict decode errors and explicit `BulkDataURI` resolution
+- **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb, with strict decode errors, explicit `BulkDataURI` resolution, compressed Pixel Data normalization when transfer syntax context is known, and correct VM=1 handling for `UT`/`ST`/`LT`/`UR`/`UC`
 - **Pixel data frames** -- extract individual frames from native and encapsulated pixel data (PS3.5 Section A.4)
 - **De-identification** -- best-effort PS3.15 Basic Profile helpers with supported-tag cleaning, consistent UID replacement, and an explicit `retain_private_tags` switch for retaining all private tags
 - **Character set support** -- decode text values for supported single-byte Specific Character Set repertoires plus UTF-8; ISO 2022 escape-sequence switching is not implemented, and multi-valued Specific Character Set extraction is explicit
@@ -34,7 +34,7 @@ This library is strongest in DICOM file and data-set workflows:
 
 - PS3.10 read/write for Part 10 files
 - PS3.5/PS3.6 value, VR, transfer syntax, dictionary, sequence, and pixel data helpers
-- PS3.18 Annex F.2 DICOM JSON conversion for DataSets, including resolver-based `BulkDataURI` decode
+- PS3.18 Annex F.2 DICOM JSON conversion for DataSets, including resolver-based `BulkDataURI` decode and transfer-syntax-aware normalization of compressed Pixel Data
 
 It is not a full DICOM stack. In particular:
 
