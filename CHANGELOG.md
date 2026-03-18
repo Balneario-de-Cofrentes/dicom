@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-03-18
+
+### Fixed
+
+- Deflated Explicit VR Little Endian now uses raw RFC1951 deflate/inflate
+  semantics instead of zlib-wrapped payload handling
+- Streaming and eager parsing now fail closed on truncated encapsulated pixel
+  fragments and other malformed binary edge cases that previously leaked
+  partial or ambiguous values
+- `Dicom.Value` and `Dicom.Json` now reject partial or malformed `DS`, `IS`,
+  numeric VR, `PN`, and `AT` values instead of silently truncating, coercing,
+  or exporting invalid JSON
+- DICOM JSON now respects VM=1 text VRs, validates `AT` tuples on export,
+  decodes multi-valued `AT` values correctly, and keeps compressed Pixel Data
+  roundtrips writable when transfer syntax context is known
+- Writer validation now rejects malformed encapsulated Pixel Data structure,
+  invalid Basic Offset Tables, and other Pixel Data / transfer syntax
+  mismatches before serialization
+- `Dicom.PixelData` and `Dicom.DataSet.decoded_value/2` now fail safely on
+  malformed numeric metadata instead of raising or leaking undecoded raw bytes
+
+### Changed
+
+- `Dicom.Json.from_map/2` now normalizes compressed Pixel Data to
+  `{:encapsulated, fragments}` only when transfer syntax context is provided,
+  and otherwise preserves raw binary payloads
+- De-identification markers and option handling are now more honest and
+  predictable, including support for direct boolean option flags and LO-safe
+  `DeidentificationMethod` values
+- Documentation now matches the hardened JSON boundary behavior, transfer
+  syntax context requirements, de-identification option styles, and current
+  release versioning
+- Implementation version name updated to `DICOM_0.5.1`
+
 ## [0.5.0] - 2026-03-17
 
 ### Fixed
@@ -241,7 +275,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.2...v0.4.5
 [0.4.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.4.0...v0.4.2

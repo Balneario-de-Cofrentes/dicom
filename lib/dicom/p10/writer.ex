@@ -21,7 +21,7 @@ defmodule Dicom.P10.Writer do
   @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
   @implementation_class_uid "1.2.826.0.1.3680043.10.1137"
-  @implementation_version_name "DICOM_0.5.0"
+  @implementation_version_name "DICOM_0.5.1"
 
   @required_meta_tags [
     {0x0002, 0x0002},

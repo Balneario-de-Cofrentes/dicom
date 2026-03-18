@@ -51,7 +51,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.5.0"}
+    {:dicom, "~> 0.5.1"}
   ]
 end
 ```
@@ -222,9 +222,10 @@ For DICOM JSON specifically, `BulkDataURI` entries are not treated as raw bytes.
 Use `Dicom.Json.from_map/2` with `bulk_data_resolver:` when you want to resolve
 external bulk data during decode.
 
-JSON decode preserves binary payloads exactly as delivered. It does not infer
-encapsulated Pixel Data structure from `InlineBinary`, `BulkDataURI`, or
-transfer syntax context.
+JSON decode preserves binary payloads by default. When transfer syntax context
+is known and indicates compressed Pixel Data, `Dicom.Json.from_map/2`
+normalizes `(7FE0,0010)` to encapsulated fragments and fails closed if the
+incoming Value Field is not a valid encapsulated Pixel Data payload.
 
 For charset-sensitive text export, `Dicom.Json.to_map/2` decodes a single
 declared `SpecificCharacterSet` to Unicode before building JSON values. If a
