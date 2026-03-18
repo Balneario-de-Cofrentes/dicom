@@ -198,7 +198,7 @@ Set `DICOM_ENFORCE_BENCHMARKS=1` only on a stable machine if you want to enforce
 ## Testing
 
 ```bash
-mix test              # Run all tests (1000+ tests)
+mix test              # Run all tests (1100+ tests)
 mix test --cover      # Run with coverage report
 mix format --check-formatted
 ```
