@@ -39,6 +39,11 @@ defmodule Dicom.ValueTest do
     test "AT decodes attribute tag" do
       assert Value.decode(<<0x0010::little-16, 0x0010::little-16>>, :AT) == {0x0010, 0x0010}
     end
+
+    test "AT decodes VM>1 as tag tuples" do
+      binary = <<0x0010::little-16, 0x0020::little-16, 0x0008::little-16, 0x0018::little-16>>
+      assert Value.decode(binary, :AT) == [{0x0010, 0x0020}, {0x0008, 0x0018}]
+    end
   end
 
   describe "decode/2 string types" do
@@ -318,6 +323,11 @@ defmodule Dicom.ValueTest do
 
     test "AT decodes big-endian tag tuples" do
       assert Value.decode(<<0x0010::big-16, 0x0010::big-16>>, :AT, :big) == {0x0010, 0x0010}
+    end
+
+    test "AT decodes big-endian VM>1 as tag tuples" do
+      binary = <<0x0010::big-16, 0x0020::big-16, 0x0008::big-16, 0x0018::big-16>>
+      assert Value.decode(binary, :AT, :big) == [{0x0010, 0x0020}, {0x0008, 0x0018}]
     end
   end
 

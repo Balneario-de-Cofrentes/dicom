@@ -119,6 +119,14 @@ defmodule Dicom.Value do
   def decode(<<group::little-16, element::little-16>>, :AT, :little), do: {group, element}
   def decode(<<group::big-16, element::big-16>>, :AT, :big), do: {group, element}
 
+  def decode(binary, :AT, :little) when rem(byte_size(binary), 4) == 0 do
+    for <<group::little-16, element::little-16 <- binary>>, do: {group, element}
+  end
+
+  def decode(binary, :AT, :big) when rem(byte_size(binary), 4) == 0 do
+    for <<group::big-16, element::big-16 <- binary>>, do: {group, element}
+  end
+
   # UI — trim null padding
   def decode(binary, :UI, _endianness), do: trim_trailing_byte(binary, 0x00)
 
