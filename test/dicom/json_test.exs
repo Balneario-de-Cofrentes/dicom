@@ -178,6 +178,13 @@ defmodule Dicom.JsonTest do
       assert map["00100010"]["Value"] == [%{"Alphabetic" => "SMITH^JANE"}]
     end
 
+    test "omits empty PN component groups during export" do
+      ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, "A==")
+      map = Json.to_map(ds)
+
+      assert map["00100010"]["Value"] == [%{"Alphabetic" => "A"}]
+    end
+
     test "encodes multi-valued PN as multiple JSON values" do
       ds = DataSet.new() |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN\\SMITH^JANE")
       map = Json.to_map(ds)

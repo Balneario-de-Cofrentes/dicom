@@ -178,13 +178,13 @@ defmodule Dicom.Json do
   defp encode_pn(value) do
     case String.split(value, "=") do
       [alphabetic] ->
-        %{"Alphabetic" => alphabetic}
+        pn_component_map(alphabetic, nil, nil)
 
       [alphabetic, ideographic] ->
-        %{"Alphabetic" => alphabetic, "Ideographic" => ideographic}
+        pn_component_map(alphabetic, ideographic, nil)
 
       [alphabetic, ideographic, phonetic] ->
-        %{"Alphabetic" => alphabetic, "Ideographic" => ideographic, "Phonetic" => phonetic}
+        pn_component_map(alphabetic, ideographic, phonetic)
 
       _ ->
         raise ArgumentError, "invalid PN value: expected at most 3 component groups"
@@ -476,6 +476,17 @@ defmodule Dicom.Json do
   defp split_multi_string(value) do
     String.split(value, "\\")
   end
+
+  defp pn_component_map(alphabetic, ideographic, phonetic) do
+    %{}
+    |> maybe_put_pn_component("Alphabetic", alphabetic)
+    |> maybe_put_pn_component("Ideographic", ideographic)
+    |> maybe_put_pn_component("Phonetic", phonetic)
+  end
+
+  defp maybe_put_pn_component(map, _key, nil), do: map
+  defp maybe_put_pn_component(map, _key, ""), do: map
+  defp maybe_put_pn_component(map, key, value), do: Map.put(map, key, value)
 
   defp encode_string_values(vr, value) when vr in @single_value_string_vrs, do: [value]
   defp encode_string_values(_vr, value), do: split_multi_string(value)
