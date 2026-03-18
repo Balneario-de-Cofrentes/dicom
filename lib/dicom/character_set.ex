@@ -24,6 +24,10 @@ defmodule Dicom.CharacterSet do
   value contains no ISO 2022 escape sequences. Actual code-extension switching
   is not implemented.
 
+  Multi-valued Specific Character Set declarations can be extracted from a
+  data set, but this module does not implement full repertoire switching across
+  multiple declared character sets.
+
   All other character sets return `{:error, {:unsupported_charset, term}}`.
   """
 
