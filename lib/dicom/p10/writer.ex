@@ -4,6 +4,8 @@ defmodule Dicom.P10.Writer do
 
   Serializes a `Dicom.DataSet` to DICOM Part 10 binary format.
   File Meta Information is always written in Explicit VR Little Endian.
+  Pixel Data must already match the selected transfer syntax; the writer
+  validates that relationship but does not reinterpret raw Pixel Data bytes.
 
   Auto-populates required Type 1 File Meta elements per PS3.10 Section 7.1:
   - (0002,0000) File Meta Information Group Length
