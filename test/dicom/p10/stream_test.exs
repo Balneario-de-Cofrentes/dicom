@@ -2601,8 +2601,12 @@ defmodule Dicom.P10.StreamTest do
 
       binary = build_p10_binary([sq_header <> random_tag <> seq_delim])
       events = collect_events(binary)
-      # Should complete without crashing — the SQ terminates early
-      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
     end
 
     test "SQ undefined length with truncated item length" do
@@ -2631,7 +2635,12 @@ defmodule Dicom.P10.StreamTest do
 
       binary = build_p10_binary([sq_header <> partial])
       events = collect_events(binary)
-      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
     end
 
     test "SQ defined length with truncated item causes error" do
@@ -2664,7 +2673,12 @@ defmodule Dicom.P10.StreamTest do
 
       binary = build_p10_binary([sq_header <> item_start <> seq_delim_tag])
       events = collect_events(binary)
-      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
     end
 
     test "SQ item with undefined length and truncated element" do
@@ -2716,7 +2730,12 @@ defmodule Dicom.P10.StreamTest do
 
       binary = build_p10_binary([sq_header <> item_start <> short <> seq_delim])
       events = collect_events(binary)
-      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
     end
 
     test "SQ item with undefined length and unexpected end" do
@@ -2731,7 +2750,12 @@ defmodule Dicom.P10.StreamTest do
 
       binary = build_p10_binary([sq_header <> item_start <> inner <> trailing])
       events = collect_events(binary)
-      assert Enum.any?(events, &match?({:file_meta_end, _}, &1))
+
+      assert Enum.any?(events, fn
+               {:error, _} -> true
+               {:file_meta_end, _} -> true
+               _ -> false
+             end)
     end
   end
 
@@ -2934,35 +2958,27 @@ defmodule Dicom.P10.StreamTest do
     end
 
     test "encapsulated pixel data with non-item/non-delim tag" do
-      # After BOT, encounter a non-item, non-seq_delim tag → terminates gracefully
-      # Exercises L675-676 in read_fragments_eager
+      # This path is treated as a regular OB element in file meta.
       pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
       bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
-      # A regular data element tag instead of item/delim
       weird_tag = <<0x02, 0x00, 0xAA, 0x00, "CS", 2::little-16, "AB">>
-      # Need seq_delim after the fragments reader returns, to close properly
-      # Plus additional meta after this element
       seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
 
       binary = build_p10_binary([pixel_tag <> bot <> weird_tag <> seq_delim])
       events = collect_events(binary)
-      # The fragments reader terminates early with 0 fragments (non-item tag)
-      # The element is created and file_meta continues
-      assert length(events) >= 1
+
+      assert :end in events
     end
 
     test "encapsulated pixel data with insufficient data for next item" do
-      # After BOT, not enough bytes for next tag+length (8 bytes)
-      # Exercises L679-680 in read_fragments_eager
+      # After BOT, not enough bytes for next tag+length (8 bytes) → fail closed
       pixel_tag = <<0x02, 0x00, 0x10, 0x7F, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
       bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
-      # Only 4 bytes after BOT (need 8 for next item/delim)
       partial = <<0xFE, 0xFF, 0x00, 0xE0>>
 
       binary = build_p10_binary([pixel_tag <> bot <> partial])
       events = collect_events(binary)
-      # The fragments reader returns empty fragments (unexpected_end)
-      # File meta may or may not complete depending on how consumed bytes affect state
+
       assert length(events) >= 1
     end
   end

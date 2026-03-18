@@ -481,11 +481,11 @@ defmodule Dicom.P10.Stream.Parser do
             end
 
           _ ->
-            {:ok, Enum.reverse(acc), state}
+            {:error, :invalid_encapsulated_pixel_data}
         end
 
       {:error, :unexpected_end} ->
-        {:ok, Enum.reverse(acc), state}
+        {:error, :unexpected_end}
     end
   end
 
