@@ -31,6 +31,10 @@ defmodule Dicom.DeIdentification do
       profile = %Dicom.DeIdentification.Profile{retain_uids: true}
       {:ok, result, uid_map} = Dicom.DeIdentification.apply(data_set, profile: profile)
 
+      # Direct flags are also accepted
+      {:ok, result, uid_map} =
+        Dicom.DeIdentification.apply(data_set, retain_uids: true, retain_private_tags: true)
+
   Reference: DICOM PS3.15 Annex E.
   """
 
@@ -51,6 +55,8 @@ defmodule Dicom.DeIdentification do
   ## Options
 
   - `profile` — a `DeIdentification.Profile` struct (default: `basic_profile()`)
+  - direct boolean profile flags such as `retain_uids: true` or
+    `retain_private_tags: true`; these override the supplied `profile`, if any
   """
   @spec apply(DataSet.t(), keyword()) :: {:ok, DataSet.t(), map()}
   def apply(%DataSet{} = ds, opts \\ []) do
