@@ -105,9 +105,14 @@ defmodule Dicom.Json do
     Map.put(base, "Value", values)
   end
 
-  defp encode_value(base, _tag, :AT, {group, element}, _bulk_fn, _charset) do
+  defp encode_value(base, _tag, :AT, {group, element}, _bulk_fn, _charset)
+       when group in 0..0xFFFF and element in 0..0xFFFF do
     hex = format_tag({group, element})
     Map.put(base, "Value", [hex])
+  end
+
+  defp encode_value(_base, _tag, :AT, _value, _bulk_fn, _charset) do
+    raise ArgumentError, "invalid AT value: expected 16-bit tag tuple"
   end
 
   defp encode_value(base, _tag, vr, value, _bulk_fn, charsets)

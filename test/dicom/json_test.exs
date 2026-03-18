@@ -304,6 +304,14 @@ defmodule Dicom.JsonTest do
       assert map["00205000"]["Value"] == ["00100020"]
     end
 
+    test "raises for out-of-range AT tuples" do
+      ds = DataSet.new() |> DataSet.put({0x0020, 0x5000}, :AT, {0x1_0000, 0x0020})
+
+      assert_raise ArgumentError, ~r/invalid AT value/, fn ->
+        Json.to_map(ds)
+      end
+    end
+
     test "encodes multi-valued AT as multiple hex strings" do
       ds =
         DataSet.new()
