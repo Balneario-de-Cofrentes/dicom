@@ -54,7 +54,7 @@ defmodule Dicom.DeIdentification do
   """
   @spec apply(DataSet.t(), keyword()) :: {:ok, DataSet.t(), map()}
   def apply(%DataSet{} = ds, opts \\ []) do
-    profile = Keyword.get(opts, :profile, basic_profile())
+    profile = merge_profile_options(opts)
     uid_map = %{}
 
     {ds, uid_map} = process_elements(ds, profile, uid_map)
@@ -62,6 +62,19 @@ defmodule Dicom.DeIdentification do
     ds = add_deidentification_markers(ds, profile)
 
     {:ok, ds, uid_map}
+  end
+
+  defp merge_profile_options(opts) do
+    base_profile = Keyword.get(opts, :profile, basic_profile())
+    profile_fields = Map.keys(base_profile) -- [:__struct__]
+
+    overrides =
+      opts
+      |> Keyword.drop([:profile])
+      |> Keyword.take(profile_fields)
+      |> Enum.into(%{})
+
+    struct(base_profile, overrides)
   end
 
   @doc """

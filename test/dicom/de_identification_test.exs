@@ -240,6 +240,27 @@ defmodule Dicom.DeIdentificationTest do
       assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_uids")
     end
 
+    test "accepts direct profile flags in apply/2 options" do
+      ds = sample_data_set()
+
+      {:ok, result, _uid_map} =
+        DeIdentification.apply(ds, retain_uids: true, retain_private_tags: true)
+
+      assert DataSet.get(result, {0x0012, 0x0062}) == "NO"
+      assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_uids")
+      assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_private_tags")
+    end
+
+    test "direct apply/2 flags override the supplied profile struct" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_uids: false}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile, retain_uids: true)
+
+      assert DataSet.get(result, {0x0012, 0x0062}) == "NO"
+      assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_uids")
+    end
+
     test "marker uses retain_private_tags wording for the compatibility alias" do
       ds = sample_data_set()
       profile = %DeIdentification.Profile{retain_safe_private: true}
