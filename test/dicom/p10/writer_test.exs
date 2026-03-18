@@ -243,6 +243,24 @@ defmodule Dicom.P10.WriterTest do
               {:compressed_transfer_syntax_requires_encapsulated_pixel_data,
                "1.2.840.10008.1.2.4.50"}} = Dicom.P10.Writer.serialize(ds)
     end
+
+    test "returns an error for raw encapsulated value-field bytes under a compressed transfer syntax" do
+      raw =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>,
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x7FE0, 0x0010}, :OB, raw)
+
+      assert {:error,
+              {:compressed_transfer_syntax_requires_encapsulated_pixel_data,
+               "1.2.840.10008.1.2.4.50"}} = Dicom.P10.Writer.serialize(ds)
+    end
   end
 
   describe "validate_file_meta/1" do

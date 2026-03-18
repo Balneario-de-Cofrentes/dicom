@@ -747,7 +747,7 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
 
-    test "keeps Pixel Data InlineBinary as raw binary even with compressed transfer syntax context" do
+    test "normalizes Pixel Data InlineBinary to encapsulated fragments with compressed transfer syntax context" do
       encapsulated =
         IO.iodata_to_binary([
           <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
@@ -759,7 +759,8 @@ defmodule Dicom.JsonTest do
 
       assert {:ok, ds} = Json.from_map(json, transfer_syntax_uid: Dicom.UID.jpeg_baseline())
 
-      assert DataSet.get(ds, {0x7FE0, 0x0010}) == encapsulated
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
+               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
     end
 
     test "keeps Pixel Data as raw binary without compressed transfer syntax context" do
@@ -796,7 +797,7 @@ defmodule Dicom.JsonTest do
       assert DataSet.get(ds, {0x7FE0, 0x0010}) == <<1, 2, 3, 4>>
     end
 
-    test "keeps resolved Pixel Data BulkDataURI as raw binary even with compressed transfer syntax context" do
+    test "normalizes resolved Pixel Data BulkDataURI to encapsulated fragments with compressed transfer syntax context" do
       encapsulated =
         IO.iodata_to_binary([
           <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
@@ -814,7 +815,15 @@ defmodule Dicom.JsonTest do
                  end
                )
 
-      assert DataSet.get(ds, {0x7FE0, 0x0010}) == encapsulated
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
+               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+    end
+
+    test "returns an error for compressed Pixel Data binaries that are not valid encapsulated value fields" do
+      json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => Base.encode64(<<1, 2, 3, 4>>)}}
+
+      assert {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :invalid_encapsulated_pixel_data}} =
+               Json.from_map(json, transfer_syntax_uid: Dicom.UID.jpeg_baseline())
     end
   end
 
@@ -1113,15 +1122,7 @@ defmodule Dicom.JsonTest do
       map = Json.to_map(ds, include_file_meta: true)
 
       assert {:ok, ds2} = Json.from_map(map)
-
-      expected_binary =
-        IO.iodata_to_binary([
-          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
-          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
-          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
-        ])
-
-      assert DataSet.get(ds2, {0x7FE0, 0x0010}) == expected_binary
+      assert DataSet.get(ds2, {0x7FE0, 0x0010}) == value
     end
 
     test "JSON roundtrip of compressed Pixel Data remains writable" do

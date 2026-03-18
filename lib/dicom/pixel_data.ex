@@ -102,6 +102,18 @@ defmodule Dicom.PixelData do
     end
   end
 
+  @doc false
+  @spec parse_encapsulated_value_field(binary()) :: {:ok, [binary()]} | :error
+  def parse_encapsulated_value_field(binary) when is_binary(binary) do
+    case parse_encapsulated_fragments(binary, []) do
+      {:ok, [bot | fragments], <<>>} when is_binary(bot) and fragments != [] ->
+        {:ok, [bot | fragments]}
+
+      _ ->
+        :error
+    end
+  end
+
   # ── Native frame extraction ───────────────────────────────────
 
   defp extract_native_frame(data, ds, index) do
@@ -206,6 +218,24 @@ defmodule Dicom.PixelData do
   end
 
   defp parse_bot(_bot), do: {:error, :invalid_basic_offset_table}
+
+  defp parse_encapsulated_fragments(
+         <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32, rest::binary>>,
+         acc
+       ) do
+    {:ok, Enum.reverse(acc), rest}
+  end
+
+  defp parse_encapsulated_fragments(
+         <<0xFE, 0xFF, 0x00, 0xE0, length::little-32, rest::binary>>,
+         acc
+       )
+       when byte_size(rest) >= length do
+    <<fragment::binary-size(length), remaining::binary>> = rest
+    parse_encapsulated_fragments(remaining, [fragment | acc])
+  end
+
+  defp parse_encapsulated_fragments(_, _acc), do: :error
 
   defp group_fragments_by_bot(offsets, fragments) do
     with :ok <- validate_bot_offsets(offsets, fragments) do

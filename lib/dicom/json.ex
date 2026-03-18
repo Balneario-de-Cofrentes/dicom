@@ -28,7 +28,7 @@ defmodule Dicom.Json do
   Reference: DICOM PS3.18 Annex F.2.
   """
 
-  alias Dicom.{CharacterSet, DataSet, DataElement, Value, VR}
+  alias Dicom.{CharacterSet, DataSet, DataElement, PixelData, TransferSyntax, Value, VR}
 
   @string_vrs VR.string_vrs()
   @numeric_vrs VR.numeric_vrs()
@@ -251,6 +251,10 @@ defmodule Dicom.Json do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      {:ok, ds} -> normalize_decoded_pixel_data(ds, opts)
+      {:error, _} = error -> error
+    end
   end
 
   defp parse_tag_hex(hex) when is_binary(hex) and byte_size(hex) == 8 do
@@ -533,6 +537,31 @@ defmodule Dicom.Json do
   end
 
   defp normalize_binary_value(_tag, binary, _opts), do: {:ok, binary}
+
+  defp normalize_decoded_pixel_data(%DataSet{} = ds, opts) do
+    transfer_syntax_uid =
+      Keyword.get(opts, :transfer_syntax_uid) || TransferSyntax.extract_uid(ds.file_meta)
+
+    case {transfer_syntax_uid, Map.get(ds.elements, {0x7FE0, 0x0010})} do
+      {uid, %DataElement{vr: :OB, value: binary} = elem}
+      when is_binary(uid) and is_binary(binary) ->
+        if TransferSyntax.compressed?(uid) do
+          case PixelData.parse_encapsulated_value_field(binary) do
+            {:ok, fragments} ->
+              normalized = %{elem | value: {:encapsulated, fragments}}
+              {:ok, %{ds | elements: Map.put(ds.elements, {0x7FE0, 0x0010}, normalized)}}
+
+            :error ->
+              {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :invalid_encapsulated_pixel_data}}
+          end
+        else
+          {:ok, ds}
+        end
+
+      _ ->
+        {:ok, ds}
+    end
+  end
 
   defp decode_item(item_map, opts) when is_map(item_map) do
     Enum.reduce_while(item_map, {:ok, %{}}, fn {tag_hex, elem_map}, {:ok, acc} ->
