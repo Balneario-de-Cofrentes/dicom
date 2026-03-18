@@ -144,6 +144,16 @@ defmodule Dicom.DataSetTest do
       ds = DataSet.from_list([{{0x0010, 0x0020}, :IS, "+12garbage"}])
       assert DataSet.decoded_value(ds, {0x0010, 0x0020}) == nil
     end
+
+    test "decodes multi-valued AT values into tag tuples" do
+      binary = <<0x0010::little-16, 0x0020::little-16, 0x0008::little-16, 0x0018::little-16>>
+      ds = DataSet.from_list([{{0x0020, 0x5000}, :AT, binary}])
+
+      assert DataSet.decoded_value(ds, {0x0020, 0x5000}) == [
+               {0x0010, 0x0020},
+               {0x0008, 0x0018}
+             ]
+    end
   end
 
   describe "Access behaviour (ds[tag])" do
