@@ -725,6 +725,20 @@ defmodule Dicom.JsonTest do
       assert {:error, {:invalid_value, {0x0028, 0x0010}, :US, :expected_numeric_values}} =
                Json.from_map(json)
     end
+
+    test "rejects malformed DS string values" do
+      json = %{"00281050" => %{"vr" => "DS", "Value" => ["1.2.3"]}}
+
+      assert {:error, {:invalid_value, {0x0028, 0x1050}, :DS, :expected_number_or_string_values}} =
+               Json.from_map(json)
+    end
+
+    test "rejects malformed IS string values" do
+      json = %{"00100020" => %{"vr" => "IS", "Value" => ["+12garbage"]}}
+
+      assert {:error, {:invalid_value, {0x0010, 0x0020}, :IS, :expected_number_or_string_values}} =
+               Json.from_map(json)
+    end
   end
 
   describe "Json.from_map/1 - AT" do

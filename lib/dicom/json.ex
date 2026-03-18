@@ -504,7 +504,11 @@ defmodule Dicom.Json do
   defp decode_decimal_string_values(tag, values) do
     Enum.reduce_while(values, {:ok, []}, fn
       value, {:ok, acc} when is_binary(value) ->
-        {:cont, {:ok, [value | acc]}}
+        if valid_json_string_numeric_value?(value, :DS) do
+          {:cont, {:ok, [value | acc]}}
+        else
+          {:halt, {:error, {:invalid_value, tag, :DS, :expected_number_or_string_values}}}
+        end
 
       value, {:ok, acc} when is_number(value) ->
         {:cont, {:ok, [to_string(value) | acc]}}
@@ -521,7 +525,11 @@ defmodule Dicom.Json do
   defp decode_integer_string_values(tag, values) do
     Enum.reduce_while(values, {:ok, []}, fn
       value, {:ok, acc} when is_binary(value) ->
-        {:cont, {:ok, [value | acc]}}
+        if valid_json_string_numeric_value?(value, :IS) do
+          {:cont, {:ok, [value | acc]}}
+        else
+          {:halt, {:error, {:invalid_value, tag, :IS, :expected_number_or_string_values}}}
+        end
 
       value, {:ok, acc} when is_integer(value) ->
         {:cont, {:ok, [Integer.to_string(value) | acc]}}
@@ -549,6 +557,15 @@ defmodule Dicom.Json do
       {:ok, encoded} -> {:ok, encoded |> Enum.reverse() |> IO.iodata_to_binary()}
       {:error, _} = error -> error
     end
+  end
+
+  defp valid_json_string_numeric_value?(value, vr) when is_binary(value) do
+    not String.contains?(value, "\\") and
+      case Value.decode(value, vr) do
+        decoded when is_binary(decoded) or is_list(decoded) -> false
+        nil -> false
+        _ -> true
+      end
   end
 
   defp normalize_binary_value(_tag, binary, _opts), do: {:ok, binary}
