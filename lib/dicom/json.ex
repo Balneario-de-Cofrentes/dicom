@@ -233,6 +233,13 @@ defmodule Dicom.Json do
   - `bulk_data_resolver` — `fn tag, vr, uri -> {:ok, binary} | {:error, reason} end`
     used to resolve `BulkDataURI` entries during decode. Without a resolver,
     `BulkDataURI` returns an error instead of being stored as element bytes.
+  - `transfer_syntax_uid` — transfer syntax context used to interpret compressed
+    Pixel Data JSON payloads. When omitted, `from_map/2` also checks file meta
+    `(0002,0010)` after decoding.
+
+  For compressed transfer syntaxes, Pixel Data JSON binary payloads must contain
+  a valid encapsulated DICOM Value Field. They are normalized to
+  `{:encapsulated, fragments}` during decode instead of being left as raw bytes.
   Returns `{:ok, data_set}` or `{:error, reason}`.
   """
   @spec from_map(map(), keyword()) :: {:ok, DataSet.t()} | {:error, term()}
