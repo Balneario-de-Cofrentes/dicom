@@ -659,6 +659,21 @@ defmodule Dicom.JsonTest do
               {:invalid_value, {0x0010, 0x0010}, :PN, :expected_string_person_name_components}} =
                Json.from_map(json)
     end
+
+    test "returns error when PN objects contain unsupported keys" do
+      json = %{
+        "00100010" => %{
+          "vr" => "PN",
+          "Value" => [
+            %{"Alphabetic" => "DOE^JOHN", "Extra" => "X"}
+          ]
+        }
+      }
+
+      assert {:error,
+              {:invalid_value, {0x0010, 0x0010}, :PN, :expected_string_person_name_components}} =
+               Json.from_map(json)
+    end
   end
 
   describe "Json.from_map/1 - numeric VRs" do

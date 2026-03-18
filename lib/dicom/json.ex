@@ -453,7 +453,8 @@ defmodule Dicom.Json do
     ideo = Map.get(pn_map, "Ideographic")
     phonetic = Map.get(pn_map, "Phonetic")
 
-    with :ok <- validate_pn_component(alpha),
+    with :ok <- validate_pn_component_keys(pn_map),
+         :ok <- validate_pn_component(alpha),
          :ok <- validate_pn_component(ideo),
          :ok <- validate_pn_component(phonetic) do
       cond do
@@ -484,6 +485,14 @@ defmodule Dicom.Json do
   defp validate_pn_component(nil), do: :ok
   defp validate_pn_component(value) when is_binary(value), do: :ok
   defp validate_pn_component(_value), do: :error
+
+  defp validate_pn_component_keys(pn_map) when is_map(pn_map) do
+    if Enum.all?(Map.keys(pn_map), &(&1 in ["Alphabetic", "Ideographic", "Phonetic"])) do
+      :ok
+    else
+      :error
+    end
+  end
 
   defp decode_string_values(tag, vr, values) when vr in @single_value_string_vrs do
     case values do
