@@ -8,6 +8,9 @@ defmodule Dicom.Value do
   Reference: DICOM PS3.5 Section 6.2.
   """
 
+  @string_vrs Dicom.VR.string_vrs()
+  @numeric_vrs Dicom.VR.numeric_vrs()
+
   @doc """
   Decodes a raw binary value to a native Elixir type based on VR.
 
@@ -278,26 +281,73 @@ defmodule Dicom.Value do
   Encodes a native Elixir value using the given endianness.
   """
   @spec encode(term(), Dicom.VR.t(), :little | :big) :: binary()
-  def encode(value, :US, :little) when is_integer(value), do: <<value::little-unsigned-16>>
-  def encode(value, :US, :big) when is_integer(value), do: <<value::big-unsigned-16>>
-  def encode(value, :SS, :little) when is_integer(value), do: <<value::little-signed-16>>
-  def encode(value, :SS, :big) when is_integer(value), do: <<value::big-signed-16>>
-  def encode(value, :UL, :little) when is_integer(value), do: <<value::little-unsigned-32>>
-  def encode(value, :UL, :big) when is_integer(value), do: <<value::big-unsigned-32>>
-  def encode(value, :SL, :little) when is_integer(value), do: <<value::little-signed-32>>
-  def encode(value, :SL, :big) when is_integer(value), do: <<value::big-signed-32>>
+  def encode(value, :US, :little) when is_integer(value) and value >= 0 and value <= 0xFFFF,
+    do: <<value::little-unsigned-16>>
+
+  def encode(value, :US, :big) when is_integer(value) and value >= 0 and value <= 0xFFFF,
+    do: <<value::big-unsigned-16>>
+
+  def encode(value, :SS, :little)
+      when is_integer(value) and value >= -0x8000 and value <= 0x7FFF,
+      do: <<value::little-signed-16>>
+
+  def encode(value, :SS, :big)
+      when is_integer(value) and value >= -0x8000 and value <= 0x7FFF,
+      do: <<value::big-signed-16>>
+
+  def encode(value, :UL, :little) when is_integer(value) and value >= 0 and value <= 0xFFFFFFFF,
+    do: <<value::little-unsigned-32>>
+
+  def encode(value, :UL, :big) when is_integer(value) and value >= 0 and value <= 0xFFFFFFFF,
+    do: <<value::big-unsigned-32>>
+
+  def encode(value, :SL, :little)
+      when is_integer(value) and value >= -0x80000000 and value <= 0x7FFFFFFF,
+      do: <<value::little-signed-32>>
+
+  def encode(value, :SL, :big)
+      when is_integer(value) and value >= -0x80000000 and value <= 0x7FFFFFFF,
+      do: <<value::big-signed-32>>
+
   def encode(value, :FL, :little) when is_number(value), do: <<value::little-float-32>>
   def encode(value, :FL, :big) when is_number(value), do: <<value::big-float-32>>
   def encode(value, :FD, :little) when is_number(value), do: <<value::little-float-64>>
   def encode(value, :FD, :big) when is_number(value), do: <<value::big-float-64>>
-  def encode(value, :UV, :little) when is_integer(value), do: <<value::little-unsigned-64>>
-  def encode(value, :UV, :big) when is_integer(value), do: <<value::big-unsigned-64>>
-  def encode(value, :SV, :little) when is_integer(value), do: <<value::little-signed-64>>
-  def encode(value, :SV, :big) when is_integer(value), do: <<value::big-signed-64>>
-  def encode({group, element}, :AT, :little), do: <<group::little-16, element::little-16>>
-  def encode({group, element}, :AT, :big), do: <<group::big-16, element::big-16>>
+
+  def encode(value, :UV, :little)
+      when is_integer(value) and value >= 0 and value <= 0xFFFFFFFFFFFFFFFF,
+      do: <<value::little-unsigned-64>>
+
+  def encode(value, :UV, :big)
+      when is_integer(value) and value >= 0 and value <= 0xFFFFFFFFFFFFFFFF,
+      do: <<value::big-unsigned-64>>
+
+  def encode(value, :SV, :little)
+      when is_integer(value) and value >= -0x8000000000000000 and value <= 0x7FFFFFFFFFFFFFFF,
+      do: <<value::little-signed-64>>
+
+  def encode(value, :SV, :big)
+      when is_integer(value) and value >= -0x8000000000000000 and value <= 0x7FFFFFFFFFFFFFFF,
+      do: <<value::big-signed-64>>
+
+  def encode({group, element}, :AT, :little)
+      when group >= 0 and group <= 0xFFFF and element >= 0 and element <= 0xFFFF,
+      do: <<group::little-16, element::little-16>>
+
+  def encode({group, element}, :AT, :big)
+      when group >= 0 and group <= 0xFFFF and element >= 0 and element <= 0xFFFF,
+      do: <<group::big-16, element::big-16>>
+
   def encode(value, _vr, _endianness) when is_binary(value), do: value
-  def encode(value, _vr, _endianness), do: to_string(value)
+  def encode(value, vr, _endianness) when vr in @string_vrs, do: to_string(value)
+
+  def encode(_value, vr, _endianness) when vr in @numeric_vrs or vr == :AT do
+    raise ArgumentError, "unsupported value for VR #{vr}"
+  end
+
+  def encode(_value, vr, _endianness) do
+    raise ArgumentError, "unsupported value for VR #{vr}"
+  end
 
   # Private helpers
 

@@ -136,6 +136,22 @@ defmodule Dicom.ValueTest do
     test "string types pass through" do
       assert Value.encode("DOE^JOHN", :PN) == "DOE^JOHN"
     end
+
+    test "raises for unsupported numeric VR value shapes" do
+      assert_raise ArgumentError, ~r/unsupported value for VR US/, fn ->
+        Value.encode([1, 2], :US)
+      end
+    end
+
+    test "raises for out-of-range numeric VR values" do
+      assert_raise ArgumentError, ~r/unsupported value for VR US/, fn ->
+        Value.encode(-1, :US)
+      end
+
+      assert_raise ArgumentError, ~r/unsupported value for VR UL/, fn ->
+        Value.encode(-1, :UL)
+      end
+    end
   end
 
   describe "decode/2 64-bit types" do

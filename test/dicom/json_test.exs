@@ -706,6 +706,20 @@ defmodule Dicom.JsonTest do
       elem = DataSet.get_element(ds, {0x0028, 0x0010})
       assert elem.value == <<256::little-16, 512::little-16>>
     end
+
+    test "rejects non-integer numeric JSON values for integer VRs" do
+      json = %{"00280010" => %{"vr" => "US", "Value" => [1.5]}}
+
+      assert {:error, {:invalid_value, {0x0028, 0x0010}, :US, :expected_numeric_values}} =
+               Json.from_map(json)
+    end
+
+    test "rejects out-of-range numeric JSON values" do
+      json = %{"00280010" => %{"vr" => "US", "Value" => [-1]}}
+
+      assert {:error, {:invalid_value, {0x0028, 0x0010}, :US, :expected_numeric_values}} =
+               Json.from_map(json)
+    end
   end
 
   describe "Json.from_map/1 - AT" do

@@ -377,11 +377,7 @@ defmodule Dicom.Json do
 
   defp decode_json_value(tag, vr, values, _opts)
        when vr in @numeric_vrs and is_list(values) do
-    if Enum.all?(values, &is_number/1) do
-      {:ok, IO.iodata_to_binary(Enum.map(values, &Value.encode(&1, vr)))}
-    else
-      {:error, {:invalid_value, tag, vr, :expected_numeric_values}}
-    end
+    encode_numeric_json_values(tag, vr, values)
   end
 
   defp decode_json_value(tag, vr, _value, _opts) when vr in @numeric_vrs do
@@ -516,6 +512,22 @@ defmodule Dicom.Json do
     end)
     |> case do
       {:ok, decoded} -> {:ok, Enum.reverse(decoded) |> Enum.join("\\")}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp encode_numeric_json_values(tag, vr, values) do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
+      try do
+        encoded = Value.encode(value, vr)
+        {:cont, {:ok, [encoded | acc]}}
+      rescue
+        ArgumentError ->
+          {:halt, {:error, {:invalid_value, tag, vr, :expected_numeric_values}}}
+      end
+    end)
+    |> case do
+      {:ok, encoded} -> {:ok, encoded |> Enum.reverse() |> IO.iodata_to_binary()}
       {:error, _} = error -> error
     end
   end
