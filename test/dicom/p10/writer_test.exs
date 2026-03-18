@@ -460,10 +460,75 @@ defmodule Dicom.P10.WriterTest do
   end
 
   describe "implementation version name" do
-    test "output binary contains DICOM_0.5.1 version name" do
+    test "output binary contains DICOM_0.6.0 version name" do
       ds = minimal_data_set()
       {:ok, binary} = Dicom.P10.Writer.serialize(ds)
-      assert binary =~ "DICOM_0.5.1"
+      assert binary =~ "DICOM_0.6.0"
+    end
+  end
+
+  describe "serialize edge cases" do
+    test "empty sequence (zero items) roundtrips" do
+      sq_elem = DataElement.new({0x0008, 0x1115}, :SQ, [])
+
+      ds = minimal_data_set()
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, sq_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      assert DataSet.get(parsed, {0x0008, 0x1115}) == []
+    end
+
+    test "encapsulated pixel data with empty BOT roundtrips" do
+      fragments = [<<>>, <<0xAA, 0xBB, 0xCC, 0xDD>>]
+      pixel_elem = DataElement.new({0x7FE0, 0x0010}, :OB, {:encapsulated, fragments})
+
+      ds =
+        minimal_data_set()
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x7FE0, 0x0010}, pixel_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      pixel = DataSet.get_element(parsed, {0x7FE0, 0x0010})
+      assert {:encapsulated, [<<>>, <<0xAA, 0xBB, 0xCC, 0xDD>>]} = pixel.value
+    end
+
+    test "nil element value writes zero-length" do
+      ds = minimal_data_set()
+      nil_elem = DataElement.new({0x0010, 0x0010}, :PN, nil)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0010, 0x0010}, nil_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      # nil should be written as zero-length, parsed back as empty string
+      value = DataSet.get(parsed, {0x0010, 0x0010})
+      assert value == "" or value == nil
+    end
+
+    test "multiple fragments with valid BOT roundtrip correctly" do
+      frag1 = <<1, 2, 3, 4>>
+      frag2 = <<5, 6, 7, 8>>
+      bot = <<0::little-32, 12::little-32>>
+      fragments = [bot, frag1, frag2]
+      pixel_elem = DataElement.new({0x7FE0, 0x0010}, :OB, {:encapsulated, fragments})
+
+      ds =
+        minimal_data_set()
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x0028, 0x0008}, :IS, "2")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x7FE0, 0x0010}, pixel_elem)}
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+      pixel = DataSet.get_element(parsed, {0x7FE0, 0x0010})
+      assert {:encapsulated, [^bot, ^frag1, ^frag2]} = pixel.value
     end
   end
 end

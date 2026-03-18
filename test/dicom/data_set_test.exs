@@ -406,4 +406,92 @@ defmodule Dicom.DataSetTest do
       assert output =~ "patient=42"
     end
   end
+
+  describe "Enumerable - member? with non-DataElement" do
+    test "Enum.member? with a plain map returns false", %{ds: ds} do
+      refute Enum.member?(ds, %{tag: {0x0010, 0x0010}})
+    end
+
+    test "Enum.member? with a string returns false", %{ds: ds} do
+      refute Enum.member?(ds, "not_an_element")
+    end
+
+    test "Enum.member? with nil returns false", %{ds: ds} do
+      refute Enum.member?(ds, nil)
+    end
+  end
+
+  describe "Enumerable - slice with step and offset" do
+    test "Enum.take_every/2 with step > 1", %{ds: ds} do
+      # ds has 3 elements. take_every(2) should get items at indices 0, 2
+      result = Enum.take_every(ds, 2)
+      assert length(result) == 2
+    end
+
+    test "Enum.slice/3 with start offset", %{ds: ds} do
+      sliced = Enum.slice(ds, 1, 2)
+      assert length(sliced) == 2
+      # First element should NOT be the first tag
+      tags = Enum.map(ds, & &1.tag)
+      sliced_tags = Enum.map(sliced, & &1.tag)
+      refute hd(tags) in sliced_tags
+    end
+
+    test "Enum.slice/2 with stepped range exercises slice step > 1", %{ds: ds} do
+      # ds has 3 sorted elements at indices 0, 1, 2.
+      # Slicing with step 2 should return elements at indices 0 and 2.
+      result = Enum.slice(ds, 0..2//2)
+      assert length(result) == 2
+      tags = Enum.map(result, & &1.tag)
+      all_tags = Enum.map(ds, & &1.tag)
+      assert Enum.at(all_tags, 0) in tags
+      assert Enum.at(all_tags, 2) in tags
+      refute Enum.at(all_tags, 1) in tags
+    end
+
+    test "Enum.reduce halts early" do
+      ds =
+        DataSet.from_list([
+          {{0x0008, 0x0060}, :CS, "CT"},
+          {{0x0010, 0x0010}, :PN, "DOE^JOHN"},
+          {{0x0010, 0x0020}, :LO, "PAT001"}
+        ])
+
+      result =
+        Enum.reduce_while(ds, [], fn elem, acc ->
+          if length(acc) >= 1, do: {:halt, acc}, else: {:cont, [elem | acc]}
+        end)
+
+      assert length(result) == 1
+    end
+  end
+
+  describe "decoded_value/2 - additional edge cases" do
+    test "odd-length FD binary returns nil" do
+      ds = DataSet.from_list([{{0x0018, 0x0050}, :FD, <<1, 2, 3, 4, 5, 6, 7>>}])
+      assert DataSet.decoded_value(ds, {0x0018, 0x0050}) == nil
+    end
+
+    test "odd-length UV binary returns nil" do
+      ds = DataSet.from_list([{{0x0018, 0x0050}, :UV, <<1, 2, 3>>}])
+      assert DataSet.decoded_value(ds, {0x0018, 0x0050}) == nil
+    end
+
+    test "odd-length SV binary returns nil" do
+      ds = DataSet.from_list([{{0x0018, 0x0050}, :SV, <<1, 2, 3, 4, 5>>}])
+      assert DataSet.decoded_value(ds, {0x0018, 0x0050}) == nil
+    end
+
+    test "DS with trailing whitespace returns parsed value" do
+      ds = DataSet.from_list([{{0x0018, 0x0050}, :DS, "3.14  "}])
+      result = DataSet.decoded_value(ds, {0x0018, 0x0050})
+      assert result != nil
+      assert_in_delta result, 3.14, 0.01
+    end
+
+    test "IS multi-value with some unparseable returns nil" do
+      ds = DataSet.from_list([{{0x0020, 0x0013}, :IS, "42\\abc"}])
+      assert DataSet.decoded_value(ds, {0x0020, 0x0013}) == nil
+    end
+  end
 end

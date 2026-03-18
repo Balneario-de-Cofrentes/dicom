@@ -22,7 +22,7 @@ Pure Elixir DICOM toolkit for DICOM Part 10 files. Zero runtime dependencies.
 
 - **P10 file parsing** -- read DICOM Part 10 files into structured data sets
 - **P10 file writing** -- serialize data sets back to Part 10 binaries with File Meta Information
-- **Streaming parser** -- lazy, event-based parsing for large files and pipelines
+- **Streaming parser** -- lazy, event-based parsing for large files and pipelines (stable API)
 - **Data dictionary** -- PS3.6 tag registry (5,035 entries) with VR, VM, keyword lookup, and retired flags
 - **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb
 - **Pixel data frames** -- extract individual frames from native and encapsulated pixel data (PS3.5 §A.4)
@@ -40,7 +40,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.5.2"}
+    {:dicom, "~> 0.6.0"}
   ]
 end
 ```
@@ -133,9 +133,11 @@ Indicative measurements on Apple Silicon (Elixir 1.18, OTP 27):
 
 ## Testing
 
+1300+ tests, 16 property-based tests, 35 doctests at 98%+ coverage.
+
 ```bash
-mix test
-mix test --cover
+mix test              # 0 failures
+mix test --cover      # HTML report in cover/
 mix format --check-formatted
 ```
 

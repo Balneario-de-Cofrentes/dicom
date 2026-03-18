@@ -400,20 +400,6 @@ defmodule Dicom.Json do
     {:error, {:invalid_value, tag, vr, :expected_binary_representation}}
   end
 
-  defp decode_json_value(_tag, _vr, [], _opts), do: {:ok, nil}
-
-  defp decode_json_value(tag, vr, values, _opts) when is_list(values) do
-    if Enum.all?(values, &is_binary/1) do
-      {:ok, Enum.join(values, "\\")}
-    else
-      {:error, {:invalid_value, tag, vr, :expected_string_values}}
-    end
-  end
-
-  defp decode_json_value(tag, vr, _value, _opts) do
-    {:error, {:invalid_value, tag, vr, :expected_value_array}}
-  end
-
   defp decode_inline_binary(tag, vr, b64, opts) when vr in @binary_vrs and is_binary(b64) do
     case Base.decode64(b64) do
       {:ok, binary} -> normalize_binary_value(tag, binary, opts)
@@ -521,7 +507,6 @@ defmodule Dicom.Json do
     case values do
       [value] when is_binary(value) -> {:ok, value}
       [_ | _] -> {:error, {:invalid_value, tag, vr, :expected_single_value_array}}
-      _ -> {:error, {:invalid_value, tag, vr, :expected_string_values}}
     end
   end
 
@@ -595,7 +580,6 @@ defmodule Dicom.Json do
     not String.contains?(value, "\\") and
       case Value.decode(value, vr) do
         decoded when is_binary(decoded) or is_list(decoded) -> false
-        nil -> false
         _ -> true
       end
   end
@@ -685,9 +669,7 @@ defmodule Dicom.Json do
     end
   end
 
-  defp preserve_utf8_value?(value, _charset) when not is_binary(value), do: false
-
-  defp preserve_utf8_value?(value, charset) do
+  defp preserve_utf8_value?(value, charset) when is_binary(value) do
     String.valid?(value) and
       case String.trim(charset) do
         "ISO_IR 13" -> not ascii_binary?(value)

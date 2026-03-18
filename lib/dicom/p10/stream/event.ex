@@ -25,6 +25,11 @@ defmodule Dicom.P10.Stream.Event do
       :end
 
   Reference: DICOM PS3.5 Section 7.
+
+  ## Stability
+
+  This module is **stable**. Its public API is covered by normal compatibility
+  expectations.
   """
 
   @type t ::

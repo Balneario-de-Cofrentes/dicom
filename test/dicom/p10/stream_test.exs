@@ -1,11 +1,16 @@
 defmodule Dicom.P10.StreamTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Dicom.{DataElement, DataSet}
   alias Dicom.P10.Deflated
 
   import Dicom.TestHelpers,
-    only: [pad_to_even: 1, elem_explicit: 3, build_group_length_element: 1]
+    only: [
+      pad_to_even: 1,
+      elem_explicit: 3,
+      build_group_length_element: 1
+    ]
 
   # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -3049,5 +3054,526 @@ defmodule Dicom.P10.StreamTest do
 
     assert elem1.value == elem2.value,
            "value mismatch for #{Dicom.Tag.format(tag)}: #{inspect(elem1.value)} vs #{inspect(elem2.value)}"
+  end
+
+  # ── Source coverage tests ──────────────────────────────────────────────
+
+  describe "Source - consume_until" do
+    alias Dicom.P10.Stream.Source
+
+    test "finds marker within existing buffer" do
+      source = Source.from_binary("hello\nworld")
+      {:ok, data, source} = Source.consume_until(source, "\n")
+      assert data == "hello"
+      assert source.buffer == "world"
+    end
+
+    test "returns whole buffer when marker not found at EOF" do
+      source = Source.from_binary("no marker here")
+      {:ok, data, source} = Source.consume_until(source, "\n")
+      assert data == "no marker here"
+      assert Source.eof?(source)
+    end
+
+    test "returns whole buffer when io is nil and marker not found" do
+      source = %Source{buffer: "partial", io: nil, offset: 0, read_ahead: 1024}
+      {:ok, data, source} = Source.consume_until(source, "\n")
+      assert data == "partial"
+      assert Source.eof?(source)
+    end
+
+    test "finds marker after IO refill" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "first_chunk" <> String.duplicate("x", 100) <> "\nafter_marker")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: 10)
+      {:ok, data, _source} = Source.consume_until(source, "\n")
+      assert data == "first_chunk" <> String.duplicate("x", 100)
+      File.close(io)
+      File.rm!(path)
+    end
+
+    test "returns remaining when IO exhausts without marker" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "no_newline_here")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: 5)
+      {:ok, data, source} = Source.consume_until(source, "\n")
+      assert data == "no_newline_here"
+      assert Source.eof?(source)
+      File.close(io)
+      File.rm!(path)
+    end
+  end
+
+  describe "Source - consume_until_required" do
+    alias Dicom.P10.Stream.Source
+
+    test "finds marker within buffer" do
+      source = Source.from_binary("data\x00end")
+      {:ok, data, _source} = Source.consume_until_required(source, <<0x00>>)
+      assert data == "data"
+    end
+
+    test "returns error when marker not found at EOF" do
+      source = Source.from_binary("no marker")
+      assert {:error, :unexpected_end} = Source.consume_until_required(source, <<0xFF, 0xFE>>)
+    end
+
+    test "returns error when io is nil and marker not found" do
+      source = %Source{buffer: "partial", io: nil, offset: 0, read_ahead: 1024}
+      assert {:error, :unexpected_end} = Source.consume_until_required(source, "\n")
+    end
+
+    test "finds marker after IO refill" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "start" <> String.duplicate("y", 50) <> "MARKER" <> "tail")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: 8)
+      {:ok, data, _source} = Source.consume_until_required(source, "MARKER")
+      assert data == "start" <> String.duplicate("y", 50)
+      File.close(io)
+      File.rm!(path)
+    end
+
+    test "returns error when IO exhausts without marker" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "short")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: 4)
+      assert {:error, :unexpected_end} = Source.consume_until_required(source, "NOTFOUND")
+      File.close(io)
+      File.rm!(path)
+    end
+  end
+
+  describe "Source - ensure and read_ahead" do
+    alias Dicom.P10.Stream.Source
+
+    test "ensure fills from IO when buffer insufficient" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "abcdefghij")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: 4)
+      assert Source.available(source) == 0
+
+      {:ok, source} = Source.ensure(source, 8)
+      assert Source.available(source) >= 8
+      File.close(io)
+      File.rm!(path)
+    end
+
+    test "ensure returns error when partial IO does not satisfy need" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "abc")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: 2)
+      assert {:error, :unexpected_end} = Source.ensure(source, 100)
+      File.close(io)
+      File.rm!(path)
+    end
+
+    test "normalize_read_ahead clamps invalid values to default" do
+      path = Path.join(System.tmp_dir!(), "dicom_source_test_#{:rand.uniform(100_000)}")
+      File.write!(path, "test")
+
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+      source = Source.from_io(io, read_ahead: -1)
+      assert source.read_ahead == 65_536
+
+      source2 = Source.from_io(io, read_ahead: 0)
+      assert source2.read_ahead == 65_536
+
+      source3 = Source.from_io(io, read_ahead: "invalid")
+      assert source3.read_ahead == 65_536
+      File.close(io)
+      File.rm!(path)
+    end
+  end
+
+  # ── Implicit VR sequence coverage ─────────────────────────────────────
+
+  describe "streaming: Implicit VR defined-length sequence" do
+    test "parses implicit VR data set with defined-length sequence via streaming" do
+      # Inner item element: PatientID (0010,0020)
+      inner_value = "12345678"
+      inner_elem = <<0x10, 0x00, 0x20, 0x00, byte_size(inner_value)::little-32>> <> inner_value
+
+      # Item with defined length
+      item_length = byte_size(inner_elem)
+      item = <<0xFE, 0xFF, 0x00, 0xE0, item_length::little-32>> <> inner_elem
+
+      # Sequence (0008,1115) with defined length
+      seq_length = byte_size(item)
+      seq_tag = <<0x08, 0x00, 0x15, 0x11, seq_length::little-32>>
+
+      # A normal element after the sequence
+      patient_name = "IMPLICIT^SEQ"
+      name_elem = <<0x10, 0x00, 0x10, 0x00, byte_size(patient_name)::little-32>> <> patient_name
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", seq_tag <> item <> name_elem)
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, {0x0008, 0x1115}, _}, &1))
+      assert Enum.any?(events, &match?({:item_start, _}, &1))
+      assert :sequence_end in events
+      assert :item_end in events
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      assert DataSet.get(ds, {0x0010, 0x0010}) == patient_name
+    end
+  end
+
+  # ── Encapsulated pixel data edge cases ────────────────────────────────
+
+  describe "streaming: encapsulated pixel data edge cases" do
+    test "EOF during pixel data fragment returns pixel_data_end" do
+      # Pixel data tag with undefined length
+      pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+
+      # Truncate: no fragment or delimiter after BOT
+      binary = build_p10_binary([], [pixel_tag, bot])
+      events = collect_events(binary)
+
+      # Should still produce pixel_data_end (not crash)
+      assert Enum.any?(events, &match?({:pixel_data_start, _, _}, &1))
+      assert :pixel_data_end in events
+    end
+
+    test "truncated fragment in encapsulated pixel data" do
+      pixel_tag = <<0xE0, 0x7F, 0x10, 0x00, "OB", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>>
+      bot = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      # Fragment header says 100 bytes, but only provide 10
+      truncated_frag =
+        <<0xFE, 0xFF, 0x00, 0xE0, 100::little-32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10>>
+
+      binary = build_p10_binary([], [pixel_tag, bot, truncated_frag])
+      events = collect_events(binary)
+
+      # Should get an error event for the truncated data
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+  end
+
+  # ── Big endian trailing padding ────────────────────────────────────────
+
+  describe "streaming: big endian trailing padding" do
+    test "detects trailing padding in big endian transfer syntax" do
+      patient_name = "DOE^JOHN"
+
+      name_elem =
+        <<0x00, 0x10, 0x00, 0x10, "PN", byte_size(patient_name)::big-16>> <> patient_name
+
+      padding = <<0xFF, 0xFC, 0xFF, 0xFC, "OB", 0::16, 4::big-32, 0, 0, 0, 0>>
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2.2", name_elem <> padding)
+      events = collect_events(binary)
+
+      assert :end in events
+
+      refute Enum.any?(events, fn
+               {:element, elem} -> elem.tag == {0xFFFC, 0xFFFC}
+               _ -> false
+             end)
+    end
+  end
+
+  # ── Stream.to_data_set error handling ──────────────────────────────────
+
+  describe "Stream - to_data_set error handling" do
+    test "to_data_set returns error when stream contains error event" do
+      events = [:file_meta_start, {:error, :test_error}]
+      assert {:error, :test_error} = Dicom.P10.Stream.to_data_set(events)
+    end
+
+    test "parse_file with custom read_ahead option" do
+      path = Path.join(System.tmp_dir!(), "dicom_parse_file_#{:rand.uniform(100_000)}.dcm")
+      binary = build_p10_binary([])
+      File.write!(path, binary)
+
+      events = Dicom.P10.Stream.parse_file(path, read_ahead: 256) |> Enum.to_list()
+      assert :file_meta_start in events
+      assert :end in events
+      File.rm!(path)
+    end
+
+    test "parse_file returns error for nonexistent file" do
+      events = Dicom.P10.Stream.parse_file("/nonexistent/path/file.dcm") |> Enum.to_list()
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+
+    test "parse_file halts cleanly when consumer stops early" do
+      path = Path.join(System.tmp_dir!(), "dicom_parse_file_halt_#{:rand.uniform(100_000)}.dcm")
+      binary = build_p10_binary([], [elem_explicit({0x0010, 0x0010}, :PN, "TEST")])
+      File.write!(path, binary)
+
+      # Take only 2 events, forcing early halt
+      events = Dicom.P10.Stream.parse_file(path) |> Enum.take(2)
+      assert length(events) == 2
+      File.rm!(path)
+    end
+  end
+
+  # ── Coverage: trailing padding in defined-length item ─────────────────
+
+  describe "trailing padding inside defined-length item" do
+    test "trailing padding tag in defined-length item terminates parsing" do
+      # Exercises line 306-307: @trailing_padding_tag branch in read_next_data_element
+      # called from defined-length item handler (line 197) which has no pre-check.
+      inner = elem_explicit({0x0008, 0x0060}, :CS, "CT")
+      padding_data = <<0, 0, 0, 0>>
+
+      padding =
+        <<0xFC, 0xFF, 0xFC, 0xFF, "OB", 0::16, byte_size(padding_data)::little-32>> <>
+          padding_data
+
+      # Item with defined length encompassing inner + padding
+      item_content = inner <> padding
+      item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(item_content)::little-32>> <> item_content
+
+      # Undefined-length sequence containing the item
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      sq =
+        <<0x08, 0x00, 0x15, 0x11, "SQ", 0::16, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          item <> seq_delim
+
+      binary = build_p10_binary([], [sq])
+      events = collect_events(binary)
+
+      # The defined-length item should have been processed and parsing should terminate
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert :end in events
+    end
+  end
+
+  # ── Coverage: implicit VR read_single_element via skip_trailing_padding ─
+
+  describe "implicit VR trailing padding in undefined-length item" do
+    test "trailing padding inside implicit VR undefined-length item exercises read_single_element" do
+      # Exercises lines 595-597, 599, 609, 632-636:
+      # implicit VR branch of read_single_element via skip_trailing_padding_in_item.
+      #
+      # Scenario: Implicit VR transfer syntax, undefined-length item contains
+      # a normal element followed by trailing padding (FFFC,FFFC) with OB value.
+      inner_value = "DOE^JOHN"
+
+      inner_elem =
+        <<0x10, 0x00, 0x10, 0x00, byte_size(inner_value)::little-32>> <> inner_value
+
+      # Trailing padding element in implicit VR: tag(4) + length(4) + value
+      padding_data = <<0, 0, 0, 0>>
+
+      trailing_padding =
+        <<0xFC, 0xFF, 0xFC, 0xFF, byte_size(padding_data)::little-32>> <> padding_data
+
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          inner_elem <> trailing_padding <> item_delim
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      # Use ReferencedImageSequence (0008,1140) which is :SQ in dictionary
+      sq =
+        <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <> item <> seq_delim
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:sequence_start, _, _}, &1))
+      assert :item_end in events
+      assert :sequence_end in events
+    end
+
+    test "truncated trailing padding in implicit VR item triggers error fallback" do
+      # Exercises line 613: error branch from read_uint32 in implicit read_single_element
+      # and line 704 (error fallback in skip_trailing_padding_in_item).
+      # The trailing padding tag is the ONLY remaining data (no length bytes).
+      # After consuming the 4-byte tag, read_uint32 has 0 bytes -> error.
+      inner_value = "DOE^JOHN"
+
+      inner_elem =
+        <<0x10, 0x00, 0x10, 0x00, byte_size(inner_value)::little-32>> <> inner_value
+
+      # Just the trailing padding tag, no length field at all
+      truncated_padding = <<0xFC, 0xFF, 0xFC, 0xFF>>
+
+      # No item_delim, no seq_delim after padding — total truncation
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          inner_elem <> truncated_padding
+
+      sq = <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <> item
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      # Should recover via error fallback in skip_trailing_padding_in_item
+      assert :item_end in events
+    end
+
+    test "trailing padding with undefined length in implicit VR item" do
+      # Exercises lines 625-626: read_value_for_element with 0xFFFFFFFF length,
+      # non-pixel-data tag, via skip_trailing_padding_in_item in implicit VR.
+      # The padding element has length 0xFFFFFFFF (undefined), followed by
+      # some data and a sequence delimiter marker.
+      inner_value = "CT"
+
+      inner_elem =
+        <<0x08, 0x00, 0x60, 0x00, byte_size(inner_value)::little-32>> <> inner_value
+
+      # Trailing padding with undefined length (0xFFFFFFFF)
+      # Then value data, then seq_delim_bytes (which is the marker for consume_until_required)
+      padding_value = <<"PADDING">>
+      seq_delim_bytes = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      trailing_padding =
+        <<0xFC, 0xFF, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>> <> padding_value <> seq_delim_bytes
+
+      item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          inner_elem <> trailing_padding <> item_delim
+
+      outer_seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      sq =
+        <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <> item <> outer_seq_delim
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      # The trailing padding should be consumed, then item_delim terminates the item
+      assert :item_end in events
+      assert :sequence_end in events
+    end
+
+    test "trailing padding with undefined length and no delimiter in implicit VR item" do
+      # Exercises line 627: error branch in read_value_for_element with 0xFFFFFFFF
+      # when consume_undefined_length_value finds no delimiter.
+      inner_value = "CT"
+
+      inner_elem =
+        <<0x08, 0x00, 0x60, 0x00, byte_size(inner_value)::little-32>> <> inner_value
+
+      # Trailing padding with undefined length but no seq_delim_bytes marker
+      trailing_padding =
+        <<0xFC, 0xFF, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>> <> <<"NODELIM">>
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          inner_elem <> trailing_padding
+
+      sq = <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <> item
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      # The error from consume_undefined_length_value triggers the fallback
+      assert :item_end in events
+    end
+
+    test "trailing padding in implicit VR with value truncated triggers error fallback" do
+      # Exercises line 639: error branch in read_value_for_element when
+      # Source.ensure fails for the value bytes.
+      inner_value = "CT"
+
+      inner_elem =
+        <<0x08, 0x00, 0x60, 0x00, byte_size(inner_value)::little-32>> <> inner_value
+
+      # Trailing padding claiming 100 bytes but only 4 present
+      truncated_padding =
+        <<0xFC, 0xFF, 0xFC, 0xFF, 100::little-32, 0x01, 0x02, 0x03, 0x04>>
+
+      item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          inner_elem <> truncated_padding
+
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      sq =
+        <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <> item <> seq_delim
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", sq)
+      events = collect_events(binary)
+
+      # Should recover via error fallback
+      assert :item_end in events
+    end
+  end
+
+  # ── Coverage: read_short_length(:big) error branch ──────────────────────
+
+  describe "big-endian short VR length error" do
+    test "truncated short VR length in big-endian produces error" do
+      # Exercises line 809: error branch in read_short_length(:big)
+      ts_uid = "1.2.840.10008.1.2.2"
+
+      # Big-endian element: tag(4, big) + VR(2) + only 1 byte of length (needs 2)
+      truncated_elem = <<0x00, 0x10, 0x00, 0x10, "PN", 0x08>>
+
+      binary = build_p10_with_ts(ts_uid, truncated_elem)
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+  end
+
+  # ── Coverage: read_item_eager error from read_uint32 ────────────────────
+
+  describe "eager item parsing: truncated item length" do
+    test "item with truncated length in bounded eager SQ produces error" do
+      # Exercises line 527: error branch in read_item_eager when read_uint32 fails.
+      # Use defined-length SQ in file meta with an item whose length is truncated.
+      sq_length = 6
+      sq_header = <<0x02, 0x00, 0x99, 0x00, "SQ", 0::16, sq_length::little-32>>
+      # Item tag (4 bytes) + only 1 byte of length (needs 4)
+      truncated_item = <<0xFE, 0xFF, 0x00, 0xE0, 0x05>>
+
+      binary = build_p10_binary([sq_header <> truncated_item])
+      events = collect_events(binary)
+
+      assert Enum.any?(events, &match?({:error, _}, &1))
+    end
+  end
+
+  # ── Property: stream parser matches reader ────────────────────────────
+
+  describe "property: stream parser matches reader" do
+    property "streaming parser produces same elements as reader for random string VRs" do
+      check all(
+              name <- StreamData.string(:alphanumeric, min_length: 1, max_length: 30),
+              id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
+            ) do
+        ds =
+          Dicom.TestHelpers.minimal_data_set()
+          |> DataSet.put({0x0010, 0x0010}, :PN, name)
+          |> DataSet.put({0x0010, 0x0020}, :LO, id)
+
+        {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+        {:ok, reader_ds} = Dicom.P10.Reader.parse(binary)
+
+        events = binary |> Dicom.P10.Stream.parse() |> Enum.to_list()
+        {:ok, stream_ds} = Dicom.P10.Stream.to_data_set(events)
+
+        reader_name = DataSet.get(reader_ds, {0x0010, 0x0010})
+        stream_name = DataSet.get(stream_ds, {0x0010, 0x0010})
+        assert reader_name == stream_name
+
+        reader_id = DataSet.get(reader_ds, {0x0010, 0x0020})
+        stream_id = DataSet.get(stream_ds, {0x0010, 0x0020})
+        assert reader_id == stream_id
+      end
+    end
   end
 end

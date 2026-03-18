@@ -653,4 +653,104 @@ defmodule Dicom.PixelDataTest do
       assert {:error, :invalid_number_of_frames} = PixelData.frame(ds, 0)
     end
   end
+
+  describe "parse_encapsulated_value_field" do
+    test "parses valid encapsulated binary" do
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      frag = <<1, 2, 3, 4>>
+      frag_item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(frag)::little-32>> <> frag
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      assert {:ok, [<<>>, ^frag]} =
+               PixelData.parse_encapsulated_value_field(bot_item <> frag_item <> seq_delim)
+    end
+
+    test "returns :error for empty binary" do
+      assert :error = PixelData.parse_encapsulated_value_field(<<>>)
+    end
+
+    test "returns :error for only sequence delimiter" do
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+      assert :error = PixelData.parse_encapsulated_value_field(seq_delim)
+    end
+
+    test "returns :error for binary with trailing data after delimiter" do
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      frag = <<1, 2>>
+      frag_item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(frag)::little-32>> <> frag
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+      trailing = <<0xFF, 0xFF>>
+
+      assert :error =
+               PixelData.parse_encapsulated_value_field(
+                 bot_item <> frag_item <> seq_delim <> trailing
+               )
+    end
+
+    test "returns :error for truncated fragment" do
+      # Fragment header says 100 bytes but binary is shorter
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      truncated = <<0xFE, 0xFF, 0x00, 0xE0, 100::little-32, 1, 2, 3>>
+
+      assert :error = PixelData.parse_encapsulated_value_field(bot_item <> truncated)
+    end
+
+    test "returns :error for BOT-only (no data fragments)" do
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      assert :error = PixelData.parse_encapsulated_value_field(bot_item <> seq_delim)
+    end
+  end
+
+  describe "multi-frame fragment grouping with 3+ frames" do
+    test "groups fragments by BOT for 3 frames" do
+      frag1 = :crypto.strong_rand_bytes(20)
+      frag2 = :crypto.strong_rand_bytes(30)
+      frag3 = :crypto.strong_rand_bytes(40)
+
+      # Each fragment boundary: 8 (item header) + fragment_size
+      offset_frame1 = 0
+      offset_frame2 = 8 + byte_size(frag1)
+      offset_frame3 = offset_frame2 + 8 + byte_size(frag2)
+      bot = <<offset_frame1::little-32, offset_frame2::little-32, offset_frame3::little-32>>
+
+      ds = image_ds(5, 4, 8, 1, frames: 3)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [bot, frag1, frag2, frag3],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:ok, frames} = PixelData.frames(ds)
+      assert length(frames) == 3
+      assert Enum.at(frames, 0) == frag1
+      assert Enum.at(frames, 1) == frag2
+      assert Enum.at(frames, 2) == frag3
+    end
+
+    test "BOT offsets not sorted returns error" do
+      frag1 = :crypto.strong_rand_bytes(10)
+      frag2 = :crypto.strong_rand_bytes(10)
+      # Offsets out of order
+      bot = <<18::little-32, 0::little-32>>
+
+      ds = image_ds(5, 2, 8, 1, frames: 2)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [bot, frag1, frag2],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_basic_offset_table} = PixelData.frames(ds)
+    end
+  end
 end

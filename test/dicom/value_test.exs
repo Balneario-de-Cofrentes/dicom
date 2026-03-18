@@ -1,5 +1,6 @@
 defmodule Dicom.ValueTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Dicom.Value
 
@@ -668,6 +669,83 @@ defmodule Dicom.ValueTest do
 
     test "AS trims padding" do
       assert Value.decode("045Y ", :AS) == "045Y"
+    end
+  end
+
+  describe "property: numeric encode/decode roundtrips" do
+    use ExUnitProperties
+
+    property "US roundtrips unsigned 16-bit integers" do
+      check all(n <- StreamData.integer(0..65535)) do
+        assert Value.decode(Value.encode(n, :US), :US) == n
+      end
+    end
+
+    property "SS roundtrips signed 16-bit integers" do
+      check all(n <- StreamData.integer(-32768..32767)) do
+        assert Value.decode(Value.encode(n, :SS), :SS) == n
+      end
+    end
+
+    property "UL roundtrips unsigned 32-bit integers" do
+      check all(n <- StreamData.integer(0..0xFFFFFFFF)) do
+        assert Value.decode(Value.encode(n, :UL), :UL) == n
+      end
+    end
+
+    property "SL roundtrips signed 32-bit integers" do
+      check all(n <- StreamData.integer(-2_147_483_648..2_147_483_647)) do
+        assert Value.decode(Value.encode(n, :SL), :SL) == n
+      end
+    end
+
+    property "FL roundtrips within float32 tolerance" do
+      check all(n <- StreamData.float(min: -1.0e30, max: 1.0e30)) do
+        encoded = Value.encode(n, :FL)
+        decoded = Value.decode(encoded, :FL)
+        assert_in_delta decoded, n, abs(n) * 1.0e-6 + 1.0e-38
+      end
+    end
+
+    property "FD roundtrips within float64 tolerance" do
+      check all(n <- StreamData.float(min: -1.0e100, max: 1.0e100)) do
+        encoded = Value.encode(n, :FD)
+        decoded = Value.decode(encoded, :FD)
+        assert_in_delta decoded, n, abs(n) * 1.0e-14 + 1.0e-300
+      end
+    end
+  end
+
+  describe "encode/decode roundtrip precision" do
+    test "FL roundtrip preserves precision" do
+      for val <- [0.0, 1.0, -1.0, 1.5, 3.14, 1.0e10, 1.0e-10] do
+        encoded = Value.encode(val, :FL)
+        decoded = Value.decode(encoded, :FL)
+        assert_in_delta decoded, val, abs(val) * 1.0e-6 + 1.0e-38
+      end
+    end
+
+    test "FD roundtrip preserves precision" do
+      for val <- [0.0, 1.0, -1.0, 3.14159265358979, 1.0e100, 1.0e-100] do
+        encoded = Value.encode(val, :FD)
+        decoded = Value.decode(encoded, :FD)
+        assert_in_delta decoded, val, abs(val) * 1.0e-15 + 1.0e-300
+      end
+    end
+  end
+
+  describe "to_datetime/1 - malformed timezone offset" do
+    test "rejects timezone with only sign and one digit" do
+      assert {:error, :invalid_datetime} = Value.to_datetime("20240315143022+0")
+    end
+
+    test "rejects timezone with non-numeric characters" do
+      assert {:error, :invalid_datetime} = Value.to_datetime("20240315143022+AB00")
+    end
+
+    test "parses DT with +1200 offset" do
+      assert {:ok, %DateTime{} = dt} = Value.to_datetime("20240315143022+1200")
+      assert dt.utc_offset == 43200
     end
   end
 end

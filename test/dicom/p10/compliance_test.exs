@@ -495,4 +495,20 @@ defmodule Dicom.P10.ComplianceTest do
     <<meta::binary-size(offset), rest::binary>> = binary
     {meta, rest}
   end
+
+  describe "property: arbitrary string VR elements roundtrip through write/read" do
+    property "LO elements with arbitrary printable strings roundtrip" do
+      check all(value <- StreamData.string(:printable, min_length: 1, max_length: 60)) do
+        ds =
+          minimal_data_set()
+          |> Dicom.DataSet.put({0x0010, 0x0020}, :LO, value)
+
+        {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+        {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+
+        result = Dicom.DataSet.get(parsed, {0x0010, 0x0020}) |> String.trim()
+        assert result == value
+      end
+    end
+  end
 end

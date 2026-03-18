@@ -24,6 +24,11 @@ defmodule Dicom.P10.Stream do
       {:ok, data_set} = Dicom.P10.Stream.to_data_set(events)
 
   Reference: DICOM PS3.5, PS3.10.
+
+  ## Stability
+
+  This module is **stable**. Its public API is covered by normal compatibility
+  expectations.
   """
 
   alias Dicom.P10.Stream.{Parser, Source}

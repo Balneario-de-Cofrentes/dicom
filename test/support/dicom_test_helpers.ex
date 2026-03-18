@@ -56,6 +56,29 @@ defmodule Dicom.TestHelpers do
   end
 
   @doc """
+  Builds an Implicit VR element binary (Little Endian).
+  Tag (4 bytes) + Length (4 bytes) + Value.
+  """
+  def elem_implicit({group, element}, value) do
+    value_binary = pad_to_even(value)
+
+    <<group::little-16, element::little-16, byte_size(value_binary)::little-32>> <> value_binary
+  end
+
+  @doc """
+  Builds a complete encapsulated pixel data binary: BOT + fragments + sequence delimiter.
+  Accepts a list of fragment binaries (first element is BOT data, rest are data fragments).
+  """
+  def build_encapsulated_fragments(fragments) when is_list(fragments) do
+    items =
+      Enum.map(fragments, fn fragment ->
+        <<0xFE, 0xFF, 0x00, 0xE0, byte_size(fragment)::little-32>> <> fragment
+      end)
+
+    IO.iodata_to_binary([items, <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>])
+  end
+
+  @doc """
   Wraps data set binary content with a valid P10 preamble and Explicit VR LE file meta.
   """
   def build_p10_with_data(data_binary) do

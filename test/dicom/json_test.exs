@@ -1240,4 +1240,521 @@ defmodule Dicom.JsonTest do
       assert item2[{0x0008, 0x1150}].value == "1.2.3.4"
     end
   end
+
+  describe "Json.from_map/2 - BulkDataURI edge cases" do
+    test "resolver returning {:error, reason} produces bulk_data_resolution_failed" do
+      json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "file:///data.bin"}}
+      resolver = fn _tag, _vr, _uri -> {:error, :not_found} end
+
+      assert {:error,
+              {:bulk_data_resolution_failed, {0x7FE0, 0x0010}, :OB, "file:///data.bin",
+               :not_found}} =
+               Json.from_map(json, bulk_data_resolver: resolver)
+    end
+
+    test "resolver returning unexpected shape produces invalid_bulk_data_resolution" do
+      json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "file:///data.bin"}}
+      resolver = fn _tag, _vr, _uri -> :unexpected end
+
+      assert {:error,
+              {:invalid_bulk_data_resolution, {0x7FE0, 0x0010}, :OB, "file:///data.bin",
+               :unexpected}} =
+               Json.from_map(json, bulk_data_resolver: resolver)
+    end
+
+    test "non-function resolver produces invalid_bulk_data_resolver" do
+      json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "file:///data.bin"}}
+
+      assert {:error, {:invalid_bulk_data_resolver, "not_a_function"}} =
+               Json.from_map(json, bulk_data_resolver: "not_a_function")
+    end
+
+    test "BulkDataURI with non-binary VR produces error" do
+      json = %{"00100010" => %{"vr" => "PN", "BulkDataURI" => "file:///name.bin"}}
+
+      assert {:error, {:invalid_value, {0x0010, 0x0010}, :PN, :expected_bulk_data_uri}} =
+               Json.from_map(json)
+    end
+
+    test "BulkDataURI without resolver returns unresolved error" do
+      json = %{"7FE00010" => %{"vr" => "OB", "BulkDataURI" => "file:///data.bin"}}
+
+      assert {:error, {:unresolved_bulk_data_uri, {0x7FE0, 0x0010}, :OB, "file:///data.bin"}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/2 - InlineBinary edge cases" do
+    test "InlineBinary with non-binary VR produces error" do
+      b64 = Base.encode64(<<1, 2, 3, 4>>)
+      json = %{"00100010" => %{"vr" => "PN", "InlineBinary" => b64}}
+
+      assert {:error, {:invalid_value, {0x0010, 0x0010}, :PN, :expected_inline_binary}} =
+               Json.from_map(json)
+    end
+
+    test "InlineBinary with invalid base64 produces error" do
+      json = %{"7FE00010" => %{"vr" => "OB", "InlineBinary" => "!!!not-base64!!!"}}
+
+      assert {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :invalid_base64}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/2 - DS/IS JSON number values" do
+    test "DS accepts JSON number values" do
+      json = %{"00180050" => %{"vr" => "DS", "Value" => [1.5, 2.0]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0018, 0x0050}) == "1.5\\2.0"
+    end
+
+    test "IS accepts JSON integer values" do
+      json = %{"00200013" => %{"vr" => "IS", "Value" => [42, 7]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0020, 0x0013}) == "42\\7"
+    end
+
+    test "DS rejects non-number non-string values" do
+      json = %{"00180050" => %{"vr" => "DS", "Value" => [true]}}
+
+      assert {:error, {:invalid_value, {0x0018, 0x0050}, :DS, :expected_number_or_string_values}} =
+               Json.from_map(json)
+    end
+
+    test "IS rejects non-integer non-string values" do
+      json = %{"00200013" => %{"vr" => "IS", "Value" => [nil]}}
+
+      assert {:error, {:invalid_value, {0x0020, 0x0013}, :IS, :expected_number_or_string_values}} =
+               Json.from_map(json)
+    end
+
+    test "IS rejects float values" do
+      json = %{"00200013" => %{"vr" => "IS", "Value" => [1.5]}}
+
+      assert {:error, {:invalid_value, {0x0020, 0x0013}, :IS, :expected_number_or_string_values}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/2 - single-value text VR errors" do
+    test "LT with multiple values returns error" do
+      json = %{"00204000" => %{"vr" => "LT", "Value" => ["first", "second"]}}
+
+      assert {:error, {:invalid_value, {0x0020, 0x4000}, :LT, :expected_single_value_array}} =
+               Json.from_map(json)
+    end
+
+    test "ST with multiple values returns error" do
+      json = %{"00080081" => %{"vr" => "ST", "Value" => ["one", "two"]}}
+
+      assert {:error, {:invalid_value, {0x0008, 0x0081}, :ST, :expected_single_value_array}} =
+               Json.from_map(json)
+    end
+
+    test "UC with multiple values returns error" do
+      json = %{"00080119" => %{"vr" => "UC", "Value" => ["a", "b"]}}
+
+      assert {:error, {:invalid_value, {0x0008, 0x0119}, :UC, :expected_single_value_array}} =
+               Json.from_map(json)
+    end
+
+    test "UR with multiple values returns error" do
+      json = %{"00080120" => %{"vr" => "UR", "Value" => ["http://a", "http://b"]}}
+
+      assert {:error, {:invalid_value, {0x0008, 0x0120}, :UR, :expected_single_value_array}} =
+               Json.from_map(json)
+    end
+
+    test "UT with multiple values returns error" do
+      json = %{"0008030E" => %{"vr" => "UT", "Value" => ["text1", "text2"]}}
+
+      assert {:error, {:invalid_value, {0x0008, 0x030E}, :UT, :expected_single_value_array}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/2 - compressed pixel data normalization" do
+    test "invalid encapsulated binary returns error for compressed TS" do
+      b64 = Base.encode64(<<1, 2, 3, 4>>)
+
+      json = %{
+        "00020010" => %{"vr" => "UI", "Value" => ["1.2.840.10008.1.2.4.50"]},
+        "7FE00010" => %{"vr" => "OB", "InlineBinary" => b64}
+      }
+
+      assert {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :invalid_encapsulated_pixel_data}} =
+               Json.from_map(json)
+    end
+
+    test "valid encapsulated binary normalizes to {:encapsulated, fragments}" do
+      bot_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      frag = <<1, 2, 3, 4>>
+      frag_item = <<0xFE, 0xFF, 0x00, 0xE0, byte_size(frag)::little-32>> <> frag
+      seq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+      encap_binary = bot_item <> frag_item <> seq_delim
+
+      b64 = Base.encode64(encap_binary)
+
+      json = %{
+        "00020010" => %{"vr" => "UI", "Value" => ["1.2.840.10008.1.2.4.50"]},
+        "7FE00010" => %{"vr" => "OB", "InlineBinary" => b64}
+      }
+
+      assert {:ok, ds} = Json.from_map(json)
+      pixel = DataSet.get_element(ds, {0x7FE0, 0x0010})
+      assert {:encapsulated, [<<>>, ^frag]} = pixel.value
+    end
+  end
+
+  describe "Json.to_map/1 - charset edge cases" do
+    test "multi-charset non-ASCII raises during encode" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO 2022 IR 87\\ISO 2022 IR 159")
+        |> DataSet.put({0x0010, 0x0010}, :PN, <<0xC0, 0xD0>>)
+
+      assert_raise ArgumentError,
+                   ~r/multi-valued SpecificCharacterSet is not supported/,
+                   fn -> Json.to_map(ds) end
+    end
+
+    test "multi-charset with ASCII-only text exports successfully" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO 2022 IR 87\\ISO 2022 IR 159")
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+
+      map = Json.to_map(ds)
+      assert map["00100010"]["Value"] == [%{"Alphabetic" => "DOE^JOHN"}]
+    end
+  end
+
+  describe "Json.from_map/2 - multiple value representations" do
+    test "element with both Value and InlineBinary returns error" do
+      json = %{"7FE00010" => %{"vr" => "OB", "Value" => [], "InlineBinary" => "AAAA"}}
+
+      assert {:error, {:multiple_value_representations, {0x7FE0, 0x0010}}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "Json.from_map/2 - numeric VR edge cases" do
+    test "numeric VR with non-array value returns error" do
+      json = %{"00280010" => %{"vr" => "US", "Value" => 42}}
+
+      assert {:error, {:invalid_value, {0x0028, 0x0010}, :US, :expected_value_array}} =
+               Json.from_map(json)
+    end
+
+    test "numeric VR with invalid values returns error" do
+      json = %{"00280010" => %{"vr" => "US", "Value" => [%{"bad" => true}]}}
+
+      assert {:error, {:invalid_value, {0x0028, 0x0010}, :US, :expected_numeric_values}} =
+               Json.from_map(json)
+    end
+
+    test "binary VR with Value (not InlineBinary) returns error" do
+      json = %{"7FE00010" => %{"vr" => "OB", "Value" => ["some_data"]}}
+
+      assert {:error, {:invalid_value, {0x7FE0, 0x0010}, :OB, :expected_binary_representation}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "Json roundtrip property" do
+    property "string VR elements roundtrip through JSON" do
+      check all(value <- StreamData.string(:alphanumeric, min_length: 1, max_length: 40)) do
+        ds = DataSet.new() |> DataSet.put({0x0010, 0x0020}, :LO, value)
+
+        map = Json.to_map(ds)
+        assert {:ok, ds2} = Json.from_map(map)
+
+        assert DataSet.get(ds2, {0x0010, 0x0020}) == value
+      end
+    end
+  end
+
+  # ── Coverage Gap Tests ───────────────────────────────────────────
+
+  describe "encoder - catchall binary value (line 171)" do
+    test "encodes SQ with binary value via catchall binary clause" do
+      # SQ is not in string_vrs/numeric_vrs/binary_vrs, so a binary value
+      # bypasses the SQ list clause and falls through to the catchall binary clause.
+      ds = DataSet.new()
+      elem = %DataElement{tag: {0x0008, 0x1140}, vr: :SQ, value: "raw", length: 3}
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1140}, elem)}
+      map = Json.to_map(ds)
+      assert map["00081140"] == %{"vr" => "SQ", "Value" => ["raw"]}
+    end
+  end
+
+  describe "encoder - sequence item with own charset (line 209)" do
+    test "sequence item uses its own SpecificCharacterSet when present" do
+      item = %{
+        {0x0008, 0x0005} => DataElement.new({0x0008, 0x0005}, :CS, "ISO_IR 100"),
+        {0x0010, 0x0010} =>
+          DataElement.new({0x0010, 0x0010}, :PN, <<0x4D, 0xDC, 0x4C, 0x4C, 0x45, 0x52>>)
+      }
+
+      ds = DataSet.new()
+      elem = DataElement.new({0x0008, 0x1111}, :SQ, [item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1111}, elem)}
+
+      map = Json.to_map(ds)
+      [encoded_item] = map["00081111"]["Value"]
+      assert encoded_item["00100010"]["Value"] == [%{"Alphabetic" => "MÜLLER"}]
+    end
+  end
+
+  describe "decoder - PN empty array (line 307)" do
+    test "PN with empty Value array decodes to nil" do
+      json = %{"00100010" => %{"vr" => "PN", "Value" => []}}
+      assert {:ok, ds} = Json.from_map(json)
+      elem = DataSet.get_element(ds, {0x0010, 0x0010})
+      assert elem.value == nil
+    end
+  end
+
+  describe "decoder - PN non-map in array (line 317)" do
+    test "PN with non-map entry in Value array returns error" do
+      json = %{
+        "00100010" => %{
+          "vr" => "PN",
+          "Value" => ["not-a-map"]
+        }
+      }
+
+      assert {:error, {:invalid_value, {0x0010, 0x0010}, :PN, :expected_person_name_components}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "decoder - PN non-array Value (line 326)" do
+    test "PN with non-array Value returns error" do
+      json = %{
+        "00100010" => %{
+          "vr" => "PN",
+          "Value" => %{"Alphabetic" => "DOE^JOHN"}
+        }
+      }
+
+      assert {:error, {:invalid_value, {0x0010, 0x0010}, :PN, :expected_value_array}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "decoder - SQ non-array Value (line 345)" do
+    test "SQ with non-array Value returns error" do
+      json = %{
+        "00081140" => %{
+          "vr" => "SQ",
+          "Value" => "not-an-array"
+        }
+      }
+
+      assert {:error, {:invalid_value, {0x0008, 0x1140}, :SQ, :expected_value_array}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "decoder - AT empty array (line 349)" do
+    test "AT with empty Value array decodes to nil" do
+      json = %{"00205000" => %{"vr" => "AT", "Value" => []}}
+      assert {:ok, ds} = Json.from_map(json)
+      elem = DataSet.get_element(ds, {0x0020, 0x5000})
+      assert elem.value == nil
+    end
+  end
+
+  describe "decoder - AT invalid hex tag and non-string value (lines 357, 360)" do
+    test "AT with invalid hex tag in array returns error" do
+      json = %{"00205000" => %{"vr" => "AT", "Value" => ["ZZZZZZZZ"]}}
+
+      assert {:error, {:invalid_tag, "ZZZZZZZZ"}} = Json.from_map(json)
+    end
+
+    test "AT with non-string value in array returns error" do
+      json = %{"00205000" => %{"vr" => "AT", "Value" => [12345]}}
+
+      assert {:error, {:invalid_value, {0x0020, 0x5000}, :AT, :expected_tag_hex}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "decoder - AT non-array Value (line 365)" do
+    test "AT with non-array Value returns error" do
+      json = %{"00205000" => %{"vr" => "AT", "Value" => "00100020"}}
+
+      assert {:error, {:invalid_value, {0x0020, 0x5000}, :AT, :expected_value_array}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "decoder - string VR empty array (line 369)" do
+    test "string VR with empty Value array decodes to nil" do
+      json = %{"00100020" => %{"vr" => "LO", "Value" => []}}
+      assert {:ok, ds} = Json.from_map(json)
+      elem = DataSet.get_element(ds, {0x0010, 0x0020})
+      assert elem.value == nil
+    end
+  end
+
+  describe "decoder - string VR non-array Value (line 384)" do
+    test "string VR with non-array Value returns error" do
+      json = %{"00100020" => %{"vr" => "LO", "Value" => "not-an-array"}}
+
+      assert {:error, {:invalid_value, {0x0010, 0x0020}, :LO, :expected_value_array}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "decoder - numeric VR empty array (line 388)" do
+    test "numeric VR with empty Value array decodes to nil" do
+      json = %{"00280010" => %{"vr" => "US", "Value" => []}}
+      assert {:ok, ds} = Json.from_map(json)
+      elem = DataSet.get_element(ds, {0x0028, 0x0010})
+      assert elem.value == nil
+    end
+  end
+
+  describe "decoder - single-value text VR success path (line 522)" do
+    test "LT with single valid value decodes successfully" do
+      json = %{"00204000" => %{"vr" => "LT", "Value" => ["Some long text"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0020, 0x4000}) == "Some long text"
+    end
+
+    test "ST with single valid value decodes successfully" do
+      json = %{"00080081" => %{"vr" => "ST", "Value" => ["123 Main St"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0008, 0x0081}) == "123 Main St"
+    end
+
+    test "UT with single valid value decodes successfully" do
+      json = %{"00080119" => %{"vr" => "UT", "Value" => ["long text value"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0008, 0x0119}) == "long text value"
+    end
+
+    test "UC with single valid value decodes successfully" do
+      json = %{"00080120" => %{"vr" => "UC", "Value" => ["unlimited chars"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0008, 0x0120}) == "unlimited chars"
+    end
+
+    test "UR with single valid value decodes successfully" do
+      json = %{"00080121" => %{"vr" => "UR", "Value" => ["https://example.com"]}}
+      assert {:ok, ds} = Json.from_map(json)
+      assert DataSet.get(ds, {0x0008, 0x0121}) == "https://example.com"
+    end
+  end
+
+  describe "decoder - single-value text VR non-string single value (line 523)" do
+    test "LT with single non-string value returns expected_single_value_array error" do
+      # A single-value text VR like LT with a non-binary element [42] matches
+      # [_ | _] -> expected_single_value_array. Line 524 (_ catch-all) is
+      # unreachable since all inputs are lists.
+      json = %{"00204000" => %{"vr" => "LT", "Value" => [42]}}
+
+      assert {:error, {:invalid_value, {0x0020, 0x4000}, :LT, :expected_single_value_array}} =
+               Json.from_map(json)
+    end
+  end
+
+  describe "encoder - charset decode paths" do
+    test "encodes charset-sensitive text (LO) with single charset" do
+      # Hits line 676: decode_charset_text!/3 with single charset, preserve_utf8_value? returns true
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100")
+        |> DataSet.put({0x0010, 0x0020}, :LO, "MÜLLER")
+
+      map = Json.to_map(ds)
+      assert map["00100020"]["Value"] == ["MÜLLER"]
+    end
+
+    test "encodes charset-sensitive text with single charset requiring decode" do
+      # Hits line 676-684: decode_charset_text!/3 with single charset,
+      # preserve_utf8_value? returns false (non-UTF-8 binary), falls through
+      # to CharacterSet.decode
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100")
+        |> DataSet.put({0x0010, 0x0020}, :LO, <<0x4D, 0xDC, 0x4C, 0x4C, 0x45, 0x52>>)
+
+      map = Json.to_map(ds)
+      assert map["00100020"]["Value"] == ["MÜLLER"]
+    end
+
+    test "encodes with default charset and non-ASCII non-valid UTF-8 falls through to decode" do
+      # Hits line 656-658: decode_charset_text!/3 with empty charsets,
+      # String.valid? returns false, CharacterSet.decode(value, nil) is called
+      # Default charset is ISO_IR 6 (ASCII). Non-ASCII bytes that aren't valid
+      # UTF-8 will go through the decode path.
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0010, 0x0020}, :LO, <<0x48, 0x65, 0x6C, 0x6C, 0x6F>>)
+
+      map = Json.to_map(ds)
+      # "Hello" in ASCII
+      assert map["00100020"]["Value"] == ["Hello"]
+    end
+
+    test "encodes with ISO_IR 192 (UTF-8) charset preserves value" do
+      # Hits line 694: preserve_utf8_value? with ISO_IR 192 returns true
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 192")
+        |> DataSet.put({0x0010, 0x0020}, :LO, "Ünïcödé")
+
+      map = Json.to_map(ds)
+      assert map["00100020"]["Value"] == ["Ünïcödé"]
+    end
+
+    test "encodes with ISO_IR 6 charset and ASCII text preserves value" do
+      # Hits line 695: preserve_utf8_value? with ISO_IR 6 returns ascii_binary?
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 6")
+        |> DataSet.put({0x0010, 0x0020}, :LO, "ASCII")
+
+      map = Json.to_map(ds)
+      assert map["00100020"]["Value"] == ["ASCII"]
+    end
+
+    test "encodes with ISO 2022 IR 6 charset and ASCII text preserves value" do
+      # Hits line 696: preserve_utf8_value? with ISO 2022 IR 6
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO 2022 IR 6")
+        |> DataSet.put({0x0010, 0x0020}, :LO, "ASCII")
+
+      map = Json.to_map(ds)
+      assert map["00100020"]["Value"] == ["ASCII"]
+    end
+
+    test "encodes with unrecognized single charset preserves valid UTF-8" do
+      # Hits line 697: preserve_utf8_value? default branch -> true
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "ISO_IR 100")
+        |> DataSet.put({0x0010, 0x0020}, :LO, "valid-utf8")
+
+      map = Json.to_map(ds)
+      assert map["00100020"]["Value"] == ["valid-utf8"]
+    end
+
+    test "raises when single charset decode fails" do
+      # Hits line 683: CharacterSet.decode returns {:error, reason}
+      # Use a charset that's unsupported for a non-UTF-8 binary
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0008, 0x0005}, :CS, "UNSUPPORTED_CHARSET")
+        |> DataSet.put({0x0010, 0x0020}, :LO, <<0xFF, 0xFE>>)
+
+      assert_raise ArgumentError, ~r/invalid text value for VR/, fn ->
+        Json.to_map(ds)
+      end
+    end
+  end
 end

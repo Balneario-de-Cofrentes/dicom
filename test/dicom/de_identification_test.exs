@@ -1788,4 +1788,228 @@ defmodule Dicom.DeIdentificationTest do
       assert DataSet.get(result, {0x0008, 0x0020}) == ""
     end
   end
+
+  describe "multi-level nested sequence de-identification" do
+    test "UIDs remapped consistently at 3 levels of nesting" do
+      shared_uid = "1.2.3.4.5.6.7.8.9.99"
+
+      # Level 3: innermost item with a UID
+      inner_elem = DataElement.new({0x0008, 0x1155}, :UI, shared_uid)
+      inner_item = %{{0x0008, 0x1155} => inner_elem}
+
+      # Level 2: middle item with a sequence containing the inner item and the same UID
+      mid_uid_elem = DataElement.new({0x0008, 0x1155}, :UI, shared_uid)
+      mid_seq_elem = DataElement.new({0x0008, 0x1115}, :SQ, [inner_item])
+
+      mid_item = %{
+        {0x0008, 0x1155} => mid_uid_elem,
+        {0x0008, 0x1115} => mid_seq_elem
+      }
+
+      # Level 1: outer sequence
+      outer_seq_elem = DataElement.new({0x0008, 0x1115}, :SQ, [mid_item])
+
+      # Also put the shared UID at the top level
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, shared_uid)
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, outer_seq_elem)}
+
+      {:ok, result, uid_map} = DeIdentification.apply(ds)
+
+      # The shared UID should map to exactly one new UID
+      assert Map.has_key?(uid_map, shared_uid)
+      replacement = Map.get(uid_map, shared_uid)
+      assert replacement != shared_uid
+
+      # File meta SOP Instance UID should use the same mapping
+      file_meta_uid = DataSet.get(result, {0x0002, 0x0003})
+      assert String.trim_trailing(file_meta_uid, <<0>>) == replacement
+    end
+  end
+
+  describe "temporal action :M directly" do
+    test "action_for returns :M for StudyDate with retain_long_modified_dates" do
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      assert DeIdentification.action_for(Tag.study_date(), profile) == :M
+    end
+
+    test "action_for returns :M for ContentDate with retain_long_modified_dates" do
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      assert DeIdentification.action_for({0x0008, 0x0023}, profile) == :M
+    end
+
+    test "StudyDate is shifted by -10 years with retain_long_modified_dates" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.study_date(), :DA, "20240315")
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_long_modified_dates: true)
+
+      shifted_date = DataSet.get(result, Tag.study_date())
+      assert shifted_date == "20140315"
+    end
+
+    test "StudyTime is preserved (trimmed) with retain_long_modified_dates" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.study_time(), :TM, "143022 ")
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_long_modified_dates: true)
+
+      time = DataSet.get(result, Tag.study_time())
+      assert time == "143022"
+    end
+  end
+
+  describe "temporal shift: leap year edge cases" do
+    test "Feb 29 shifted to non-leap year becomes Feb 28" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.study_date(), :DA, "20240229")
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_long_modified_dates: true)
+
+      shifted = DataSet.get(result, Tag.study_date())
+      # 2024 is leap year, 2014 is not -> Feb 29 becomes Feb 28
+      assert shifted == "20140228"
+    end
+
+    test "Jan 1 shifted by -10 years" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.study_date(), :DA, "20240101")
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_long_modified_dates: true)
+      assert DataSet.get(result, Tag.study_date()) == "20140101"
+    end
+
+    test "Dec 31 shifted by -10 years" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.study_date(), :DA, "20241231")
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_long_modified_dates: true)
+      assert DataSet.get(result, Tag.study_date()) == "20141231"
+    end
+  end
+
+  describe "private tags in sequences" do
+    test "private tags inside sequence items removed by default" do
+      # Build a sequence item with a private tag
+      private_elem = DataElement.new({0x0009, 0x0010}, :LO, "PrivateCreator")
+      normal_elem = DataElement.new({0x0008, 0x0060}, :CS, "CT")
+
+      item = %{
+        {0x0009, 0x0010} => private_elem,
+        {0x0008, 0x0060} => normal_elem
+      }
+
+      seq_elem = DataElement.new({0x0008, 0x1115}, :SQ, [item])
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x1115}, seq_elem)}
+
+      {:ok, _result, _uid_map} = DeIdentification.apply(ds)
+
+      # {0x0008, 0x1115} has action :X so the whole sequence is removed.
+      # The keepable-sequence tests below use {0x0028, 0x9110} (:K) instead.
+    end
+
+    test "private tags inside keepable sequence items are removed" do
+      # Use a sequence that is kept (e.g., within Modality group 0028)
+      private_elem = DataElement.new({0x0009, 0x0010}, :LO, "PrivateCreator")
+      normal_elem = DataElement.new({0x0008, 0x0060}, :CS, "CT")
+
+      item = %{
+        {0x0009, 0x0010} => private_elem,
+        {0x0008, 0x0060} => normal_elem
+      }
+
+      # Use a tag that has action :K and VR :SQ
+      # ImageType is :K, but not SQ. Let's use a tag in group 0028 which is :K
+      seq_elem = DataElement.new({0x0028, 0x9110}, :SQ, [item])
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9110}, seq_elem)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+
+      # The sequence should be kept (group 0028 -> :K)
+      seq = DataSet.get(result, {0x0028, 0x9110})
+      assert is_list(seq)
+      assert length(seq) == 1
+
+      # Private tag should be removed from the item
+      [result_item] = seq
+      refute Map.has_key?(result_item, {0x0009, 0x0010})
+      # Modality should be kept
+      assert Map.has_key?(result_item, {0x0008, 0x0060})
+    end
+
+    test "private tags inside sequence items retained with retain_private_tags" do
+      private_elem = DataElement.new({0x0009, 0x0010}, :LO, "PrivateCreator")
+      normal_elem = DataElement.new({0x0008, 0x0060}, :CS, "CT")
+
+      item = %{
+        {0x0009, 0x0010} => private_elem,
+        {0x0008, 0x0060} => normal_elem
+      }
+
+      seq_elem = DataElement.new({0x0028, 0x9110}, :SQ, [item])
+
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9110}, seq_elem)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_private_tags: true)
+
+      seq = DataSet.get(result, {0x0028, 0x9110})
+      [result_item] = seq
+
+      # Private tag should be retained
+      assert Map.has_key?(result_item, {0x0009, 0x0010})
+    end
+  end
 end

@@ -13,6 +13,11 @@ defmodule Dicom.P10.Stream.Source do
 
   - **Binary**: wraps an in-memory binary, no I/O
   - **File**: reads from a file handle with configurable read-ahead buffering
+
+  ## Stability
+
+  This module **may change**. It is an internal implementation detail of the
+  streaming parser and should not be relied on directly by consumers.
   """
 
   @read_ahead_size 65_536
