@@ -232,7 +232,8 @@ defmodule Dicom.DataSet do
   defp decode_value_or_nil(value, vr) do
     decoded = Dicom.Value.decode(value, vr)
 
-    if undecodable_fixed_width_binary?(value, vr, decoded) do
+    if undecodable_fixed_width_binary?(value, vr, decoded) or
+         invalid_decimal_or_integer_string?(value, vr, decoded) do
       nil
     else
       decoded
@@ -255,6 +256,25 @@ defmodule Dicom.DataSet do
   end
 
   defp undecodable_fixed_width_binary?(_value, _vr, _decoded), do: false
+
+  defp invalid_decimal_or_integer_string?(value, vr, decoded)
+       when vr in [:DS, :IS] and is_binary(value) do
+    trimmed = String.trim(value)
+
+    trimmed != "" and
+      cond do
+        is_binary(decoded) ->
+          decoded == trimmed
+
+        is_list(decoded) ->
+          Enum.any?(decoded, &is_binary/1)
+
+        true ->
+          false
+      end
+  end
+
+  defp invalid_decimal_or_integer_string?(_value, _vr, _decoded), do: false
 end
 
 defimpl Inspect, for: Dicom.DataSet do

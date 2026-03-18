@@ -310,15 +310,17 @@ defmodule Dicom.Value do
 
   defp parse_float(str) do
     case Float.parse(str) do
-      {f, _} -> f
+      {f, ""} -> f
       :error -> str
+      _ -> str
     end
   end
 
   defp parse_integer(str) do
     case Integer.parse(str) do
-      {i, _} -> i
+      {i, ""} -> i
       :error -> str
+      _ -> str
     end
   end
 

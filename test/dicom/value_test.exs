@@ -78,6 +78,16 @@ defmodule Dicom.ValueTest do
       assert Value.decode("1\\2\\3 ", :IS) == [1, 2, 3]
     end
 
+    test "DS does not partially parse malformed decimal strings" do
+      assert Value.decode("1.2.3 ", :DS) == "1.2.3"
+      assert Value.decode("12\\1.2.3 ", :DS) == [12.0, "1.2.3"]
+    end
+
+    test "IS does not partially parse malformed integer strings" do
+      assert Value.decode("12A ", :IS) == "12A"
+      assert Value.decode("12\\+34garbage ", :IS) == [12, "+34garbage"]
+    end
+
     test "UT preserves leading spaces while trimming trailing padding" do
       assert Value.decode("  leading text  ", :UT) == "  leading text"
     end

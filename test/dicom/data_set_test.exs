@@ -134,6 +134,16 @@ defmodule Dicom.DataSetTest do
       ds = DataSet.from_list([{{0x0028, 0x0010}, :US, <<1>>}])
       assert DataSet.decoded_value(ds, {0x0028, 0x0010}) == nil
     end
+
+    test "returns nil for malformed DS lexical values" do
+      ds = DataSet.from_list([{{0x0028, 0x1050}, :DS, "1.2.3"}])
+      assert DataSet.decoded_value(ds, {0x0028, 0x1050}) == nil
+    end
+
+    test "returns nil for malformed IS lexical values" do
+      ds = DataSet.from_list([{{0x0010, 0x0020}, :IS, "+12garbage"}])
+      assert DataSet.decoded_value(ds, {0x0010, 0x0020}) == nil
+    end
   end
 
   describe "Access behaviour (ds[tag])" do
