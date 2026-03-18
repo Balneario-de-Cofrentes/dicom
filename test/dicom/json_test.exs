@@ -92,6 +92,11 @@ defmodule Dicom.JsonTest do
       assert map["00080119"] == %{"vr" => "UT", "Value" => ["long text value"]}
     end
 
+    test "does not split single-valued text VRs on backslashes" do
+      ds = DataSet.new() |> DataSet.put({0x0040, 0xA160}, :UT, "line1\\line2")
+      assert Json.to_map(ds)["0040A160"] == %{"vr" => "UT", "Value" => ["line1\\line2"]}
+    end
+
     test "encodes UC as string Value" do
       ds = DataSet.new() |> DataSet.put({0x0008, 0x0120}, :UC, "unlimited chars")
       map = Json.to_map(ds)
@@ -781,6 +786,13 @@ defmodule Dicom.JsonTest do
 
       assert {:error,
               {:unresolved_bulk_data_uri, {0x7FE0, 0x0010}, :OB, "http://example.com/pixel"}} =
+               Json.from_map(json)
+    end
+
+    test "rejects multiple JSON values for single-valued text VRs" do
+      json = %{"0040A160" => %{"vr" => "UT", "Value" => ["line1", "line2"]}}
+
+      assert {:error, {:invalid_value, {0x0040, 0xA160}, :UT, :expected_single_value_array}} =
                Json.from_map(json)
     end
 

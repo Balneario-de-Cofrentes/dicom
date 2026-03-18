@@ -34,6 +34,7 @@ defmodule Dicom.Json do
   @numeric_vrs VR.numeric_vrs()
   @binary_vrs VR.binary_vrs()
   @charset_sensitive_vrs [:LO, :LT, :PN, :SH, :ST, :UC, :UT]
+  @single_value_string_vrs [:LT, :ST, :UC, :UR, :UT]
 
   # ── Encoder ───────────────────────────────────────────────────
 
@@ -111,13 +112,12 @@ defmodule Dicom.Json do
 
   defp encode_value(base, _tag, vr, value, _bulk_fn, charsets)
        when vr in @charset_sensitive_vrs and vr != :PN and is_binary(value) do
-    values =
+    text =
       value
       |> decode_charset_text!(vr, charsets)
       |> trim_string_padding(vr)
-      |> split_multi_string()
 
-    Map.put(base, "Value", values)
+    Map.put(base, "Value", encode_string_values(vr, text))
   end
 
   defp encode_value(base, _tag, vr, value, _bulk_fn, _charset)
@@ -125,7 +125,7 @@ defmodule Dicom.Json do
     values =
       value
       |> trim_string_padding(vr)
-      |> split_multi_string()
+      |> then(&encode_string_values(vr, &1))
 
     Map.put(base, "Value", values)
   end
@@ -366,11 +366,7 @@ defmodule Dicom.Json do
 
   defp decode_json_value(tag, vr, values, _opts)
        when vr in @string_vrs and is_list(values) do
-    if Enum.all?(values, &is_binary/1) do
-      {:ok, Enum.join(values, "\\")}
-    else
-      {:error, {:invalid_value, tag, vr, :expected_string_values}}
-    end
+    decode_string_values(tag, vr, values)
   end
 
   defp decode_json_value(tag, vr, _value, _opts) when vr in @string_vrs do
@@ -475,6 +471,9 @@ defmodule Dicom.Json do
     String.split(value, "\\")
   end
 
+  defp encode_string_values(vr, value) when vr in @single_value_string_vrs, do: [value]
+  defp encode_string_values(_vr, value), do: split_multi_string(value)
+
   defp trim_string_padding(value, vr) when is_binary(value) do
     case vr do
       :UI -> String.trim_trailing(value, <<0>>)
@@ -485,6 +484,22 @@ defmodule Dicom.Json do
   defp validate_pn_component(nil), do: :ok
   defp validate_pn_component(value) when is_binary(value), do: :ok
   defp validate_pn_component(_value), do: :error
+
+  defp decode_string_values(tag, vr, values) when vr in @single_value_string_vrs do
+    case values do
+      [value] when is_binary(value) -> {:ok, value}
+      [_ | _] -> {:error, {:invalid_value, tag, vr, :expected_single_value_array}}
+      _ -> {:error, {:invalid_value, tag, vr, :expected_string_values}}
+    end
+  end
+
+  defp decode_string_values(tag, vr, values) do
+    if Enum.all?(values, &is_binary/1) do
+      {:ok, Enum.join(values, "\\")}
+    else
+      {:error, {:invalid_value, tag, vr, :expected_string_values}}
+    end
+  end
 
   defp decode_decimal_string_values(tag, values) do
     Enum.reduce_while(values, {:ok, []}, fn
