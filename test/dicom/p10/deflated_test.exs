@@ -2,6 +2,7 @@ defmodule Dicom.P10.DeflatedTest do
   use ExUnit.Case, async: true
 
   alias Dicom.DataSet
+  alias Dicom.P10.Deflated
 
   describe "Deflated Explicit VR Little Endian" do
     test "roundtrips through write and read" do
@@ -43,6 +44,25 @@ defmodule Dicom.P10.DeflatedTest do
       {:ok, explicit_binary} = Dicom.P10.Writer.serialize(ds_explicit)
 
       assert byte_size(deflated_binary) < byte_size(explicit_binary)
+    end
+
+    test "writes raw deflate payloads without a zlib wrapper header" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
+        |> DataSet.put({0x0002, 0x0010}, :UI, Dicom.UID.deflated_explicit_vr_little_endian())
+        |> DataSet.put({0x0010, 0x0010}, :PN, String.duplicate("DOE^JOHN", 16))
+
+      {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+
+      <<_preamble::binary-size(128), "DICM", _tag::binary-size(4), _vr::binary-size(2),
+        _length::little-16, group_length::little-32, rest::binary>> = binary
+
+      <<_file_meta::binary-size(group_length), payload::binary>> = rest
+
+      refute binary_part(payload, 0, 2) == <<0x78, 0x9C>>
+      assert {:ok, _} = Deflated.decompress(payload)
     end
   end
 end

@@ -11,6 +11,7 @@ defmodule Dicom.P10.Stream.Parser do
   This module is not meant to be used directly. Use `Dicom.P10.Stream` instead.
   """
 
+  alias Dicom.P10.Deflated
   alias Dicom.P10.Stream.Source
   alias Dicom.{DataElement, TransferSyntax, VR}
 
@@ -278,11 +279,12 @@ defmodule Dicom.P10.Stream.Parser do
     buffer = state.source.buffer
 
     if byte_size(buffer) > 0 do
-      try do
-        inflated = :zlib.uncompress(buffer)
-        {:ok, %{state | source: Source.from_binary(inflated)}}
-      rescue
-        ErlangError -> {:error, :invalid_deflated_data}
+      case Deflated.decompress(buffer) do
+        {:ok, inflated} ->
+          {:ok, %{state | source: Source.from_binary(inflated)}}
+
+        {:error, _} = error ->
+          error
       end
     else
       {:ok, state}

@@ -2,6 +2,7 @@ defmodule Dicom.P10.StreamTest do
   use ExUnit.Case, async: true
 
   alias Dicom.{DataElement, DataSet}
+  alias Dicom.P10.Deflated
 
   import Dicom.TestHelpers,
     only: [pad_to_even: 1, elem_explicit: 3, build_group_length_element: 1]
@@ -243,7 +244,7 @@ defmodule Dicom.P10.StreamTest do
   describe "Deflated Explicit VR Little Endian" do
     test "parses deflated data set" do
       patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
-      deflated = :zlib.compress(patient)
+      deflated = Deflated.compress(patient)
       binary = build_p10_with_ts("1.2.840.10008.1.2.1.99", deflated)
 
       events = collect_events(binary)
@@ -763,7 +764,7 @@ defmodule Dicom.P10.StreamTest do
 
     test "deflated data set matches Reader output" do
       patient = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
-      deflated = :zlib.compress(patient)
+      deflated = Deflated.compress(patient)
       binary = build_p10_with_ts("1.2.840.10008.1.2.1.99", deflated)
 
       {:ok, reader_ds} = Dicom.P10.Reader.parse(binary)
@@ -2096,7 +2097,7 @@ defmodule Dicom.P10.StreamTest do
       patient_name = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
       modality = elem_explicit({0x0008, 0x0060}, :CS, "CT")
       data = IO.iodata_to_binary([modality, patient_name])
-      compressed = :zlib.compress(data)
+      compressed = Deflated.compress(data)
 
       ts_elem = elem_explicit({0x0002, 0x0010}, :UI, pad_to_even(ts_uid))
       group_length = build_group_length_element(ts_elem)

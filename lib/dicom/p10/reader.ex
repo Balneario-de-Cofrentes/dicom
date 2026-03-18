@@ -17,6 +17,7 @@ defmodule Dicom.P10.Reader do
   """
 
   alias Dicom.{DataElement, DataSet, TransferSyntax, VR}
+  alias Dicom.P10.Deflated
 
   @compile {:inline, peek_tag: 2, lookup_implicit_vr: 1}
 
@@ -61,11 +62,7 @@ defmodule Dicom.P10.Reader do
 
   defp inflate_if_needed(binary, transfer_syntax_uid) do
     if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
-      try do
-        {:ok, :zlib.uncompress(binary)}
-      rescue
-        ErlangError -> {:error, :invalid_deflated_data}
-      end
+      Deflated.decompress(binary)
     else
       {:ok, binary}
     end

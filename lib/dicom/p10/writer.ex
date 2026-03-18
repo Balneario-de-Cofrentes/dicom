@@ -14,6 +14,7 @@ defmodule Dicom.P10.Writer do
   """
 
   alias Dicom.{DataElement, DataSet, PixelData, TransferSyntax, VR}
+  alias Dicom.P10.Deflated
 
   @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
@@ -167,7 +168,7 @@ defmodule Dicom.P10.Writer do
       # Deflate if transfer syntax requires it (PS3.5 Section 10)
       final_data_set =
         if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
-          :zlib.compress(data_set_iodata)
+          Deflated.compress(data_set_iodata)
         else
           data_set_iodata
         end
