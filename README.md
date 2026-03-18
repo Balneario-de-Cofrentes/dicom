@@ -42,6 +42,7 @@ It is not a full DICOM stack. In particular:
 - It preserves encapsulated pixel payloads and frame boundaries, but it does not decode JPEG/JPEG 2000/JPEG-LS/MPEG/HEVC codec bitstreams
 - De-identification support is a best-effort helper over the library's supported tag/action set, not a regulatory or standards-conformance guarantee
 - `retain_private_tags` retains all private tags; this library does not claim PS3.15 safe-private evaluation
+- `Dicom.DeIdentification.apply/2` accepts either `profile: %Profile{}` or direct boolean profile flags in its options
 
 ## Installation
 
