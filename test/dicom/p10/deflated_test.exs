@@ -5,6 +5,18 @@ defmodule Dicom.P10.DeflatedTest do
   alias Dicom.P10.Deflated
 
   describe "Deflated Explicit VR Little Endian" do
+    test "raw deflate helper roundtrips without a zlib wrapper" do
+      data = IO.iodata_to_binary(List.duplicate("ABCD", 32))
+      compressed = Deflated.compress(data)
+
+      refute binary_part(compressed, 0, 2) == <<0x78, 0x9C>>
+      assert {:ok, ^data} = Deflated.decompress(compressed)
+    end
+
+    test "raw deflate helper rejects invalid payloads" do
+      assert {:error, :invalid_deflated_data} = Deflated.decompress(<<1, 2, 3, 4, 5>>)
+    end
+
     test "roundtrips through write and read" do
       ds =
         DataSet.new()
