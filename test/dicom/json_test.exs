@@ -812,6 +812,25 @@ defmodule Dicom.JsonTest do
                {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
     end
 
+    test "normalizes compressed Pixel Data using file meta transfer syntax context" do
+      encapsulated =
+        IO.iodata_to_binary([
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 0::little-32>>,
+          <<0xFE, 0xFF, 0x00, 0xE0, 4::little-32, 1, 2, 3, 4>>,
+          <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+        ])
+
+      json = %{
+        "00020010" => %{"vr" => "UI", "Value" => [Dicom.UID.jpeg_baseline()]},
+        "7FE00010" => %{"vr" => "OB", "InlineBinary" => Base.encode64(encapsulated)}
+      }
+
+      assert {:ok, ds} = Json.from_map(json)
+
+      assert DataSet.get(ds, {0x7FE0, 0x0010}) ==
+               {:encapsulated, [<<0::little-32>>, <<1, 2, 3, 4>>]}
+    end
+
     test "keeps Pixel Data as raw binary without compressed transfer syntax context" do
       encapsulated =
         IO.iodata_to_binary([
