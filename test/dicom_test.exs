@@ -43,6 +43,69 @@ defmodule DicomTest do
     end
   end
 
+  describe "Dicom.parse_data_set/2 and write_data_set/2" do
+    test "roundtrip a raw data set with Explicit VR Little Endian" do
+      ds =
+        Dicom.DataSet.new()
+        |> Dicom.DataSet.put({0x0008, 0x0052}, :CS, "STUDY")
+        |> Dicom.DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+        |> Dicom.DataSet.put({0x0010, 0x0020}, :LO, "PAT001")
+        |> Dicom.DataSet.put({0x0020, 0x000D}, :UI, "1.2.3.4.5")
+
+      transfer_syntax = Dicom.UID.explicit_vr_little_endian()
+
+      assert {:ok, binary} = Dicom.write_data_set(ds, transfer_syntax)
+      assert {:ok, parsed} = Dicom.parse_data_set(binary, transfer_syntax)
+      assert parsed.file_meta == %{}
+      assert Dicom.DataSet.get(parsed, {0x0008, 0x0052}) |> String.trim() == "STUDY"
+      assert Dicom.DataSet.get(parsed, {0x0010, 0x0010}) == "DOE^JOHN"
+      assert Dicom.DataSet.get(parsed, {0x0010, 0x0020}) == "PAT001"
+      assert Dicom.DataSet.decoded_value(parsed, {0x0020, 0x000D}) == "1.2.3.4.5"
+    end
+
+    test "roundtrip a raw data set with Implicit VR Little Endian" do
+      ds =
+        Dicom.DataSet.new()
+        |> Dicom.DataSet.put({0x0008, 0x0052}, :CS, "STUDY")
+        |> Dicom.DataSet.put({0x0008, 0x0020}, :DA, "20260319")
+        |> Dicom.DataSet.put({0x0020, 0x000D}, :UI, "2.25.1000")
+
+      transfer_syntax = Dicom.UID.implicit_vr_little_endian()
+
+      assert {:ok, binary} = Dicom.write_data_set(ds, transfer_syntax)
+      assert {:ok, parsed} = Dicom.parse_data_set(binary, transfer_syntax)
+      assert Dicom.DataSet.get(parsed, {0x0008, 0x0052}) |> String.trim() == "STUDY"
+      assert Dicom.DataSet.get(parsed, {0x0008, 0x0020}) == "20260319"
+      assert Dicom.DataSet.decoded_value(parsed, {0x0020, 0x000D}) == "2.25.1000"
+    end
+
+    test "roundtrip a raw data set with Explicit VR Big Endian" do
+      ds =
+        Dicom.DataSet.new()
+        |> Dicom.DataSet.put({0x0008, 0x0052}, :CS, "STUDY")
+        |> Dicom.DataSet.put({0x0020, 0x1206}, :IS, "2")
+        |> Dicom.DataSet.put({0x0020, 0x1208}, :IS, "12")
+
+      transfer_syntax = Dicom.UID.explicit_vr_big_endian()
+
+      assert {:ok, binary} = Dicom.write_data_set(ds, transfer_syntax)
+      assert {:ok, parsed} = Dicom.parse_data_set(binary, transfer_syntax)
+      assert Dicom.DataSet.get(parsed, {0x0008, 0x0052}) |> String.trim() == "STUDY"
+      assert Dicom.DataSet.decoded_value(parsed, {0x0020, 0x1206}) == 2
+      assert Dicom.DataSet.decoded_value(parsed, {0x0020, 0x1208}) == 12
+    end
+
+    test "returns error for unknown transfer syntax" do
+      ds = Dicom.DataSet.new() |> Dicom.DataSet.put({0x0008, 0x0052}, :CS, "STUDY")
+
+      assert {:error, {:unknown_transfer_syntax, "1.2.3.4"}} =
+               Dicom.write_data_set(ds, "1.2.3.4")
+
+      assert {:error, {:unknown_transfer_syntax, "1.2.3.4"}} =
+               Dicom.parse_data_set(<<>>, "1.2.3.4")
+    end
+  end
+
   describe "Dicom.parse_file/1 and write_file/2" do
     @tag :tmp_dir
     test "roundtrips through file I/O", %{tmp_dir: tmp_dir} do

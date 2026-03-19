@@ -44,6 +44,22 @@ defmodule Dicom.P10.Reader do
     end
   end
 
+  @doc """
+  Parses a raw DICOM data set binary using the given transfer syntax UID.
+
+  The binary must contain only the encoded data set body used in DIMSE
+  messages, with no Part 10 preamble or file meta information.
+  """
+  @spec parse_data_set(binary(), String.t()) :: {:ok, DataSet.t()} | {:error, term()}
+  def parse_data_set(binary, transfer_syntax_uid)
+      when is_binary(binary) and is_binary(transfer_syntax_uid) do
+    case read_data_set(binary, transfer_syntax_uid) do
+      {:ok, elements} -> {:ok, %DataSet{elements: elements}}
+      {:error, {:unknown_transfer_syntax, _} = error} -> {:error, error}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # File Meta Information is always Explicit VR Little Endian.
   # Group 0002 elements end when we hit a non-0002 group.
   defp read_file_meta(binary) do
@@ -57,6 +73,13 @@ defmodule Dicom.P10.Reader do
         {:ok, data} -> read_all_elements(data, vr_encoding, endianness, [])
         {:error, _} = error -> error
       end
+    end
+    |> case do
+      {:error, :unknown_transfer_syntax} ->
+        {:error, {:unknown_transfer_syntax, transfer_syntax_uid}}
+
+      other ->
+        other
     end
   end
 

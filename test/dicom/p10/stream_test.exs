@@ -99,7 +99,7 @@ defmodule Dicom.P10.StreamTest do
 
       events = collect_events(binary)
 
-      assert List.last(events) == {:error, :unknown_transfer_syntax}
+      assert List.last(events) == {:error, {:unknown_transfer_syntax, "1.2.999.999.999"}}
     end
 
     test "emits multiple file meta elements" do

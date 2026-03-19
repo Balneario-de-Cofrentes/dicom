@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-03-19
+
+### Added
+
+- `Dicom.parse_data_set/2` — parse raw DIMSE data set payloads using an explicit transfer syntax UID
+- `Dicom.write_data_set/2` — serialize raw DIMSE data set payloads without Part 10 file meta or preamble
+- Raw-data-set roundtrip coverage across Implicit VR Little Endian, Explicit VR Little Endian, and Explicit VR Big Endian
+
+### Changed
+
+- Unknown transfer syntax errors now include the offending UID for eager parse, stream parse, and write paths
+
 ## [0.6.0] - 2026-03-18
 
 ### Changed
@@ -301,7 +313,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.5.0...v0.5.1

@@ -249,7 +249,7 @@ defmodule Dicom.P10.Stream.Parser do
   defp transition_to_data_set(state) do
     ts_uid = TransferSyntax.extract_uid(state.file_meta)
 
-    with {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(ts_uid),
+    with {:ok, {vr_encoding, endianness}} <- stream_encoding(ts_uid),
          {:ok, state} <- inflate_remaining_if_needed(state, ts_uid) do
       state = %{
         state
@@ -263,6 +263,16 @@ defmodule Dicom.P10.Stream.Parser do
     else
       {:error, reason} ->
         {{:error, reason}, %{state | phase: :done}}
+    end
+  end
+
+  defp stream_encoding(ts_uid) do
+    case TransferSyntax.encoding(ts_uid) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, :unknown_transfer_syntax} ->
+        {:error, {:unknown_transfer_syntax, ts_uid}}
     end
   end
 
