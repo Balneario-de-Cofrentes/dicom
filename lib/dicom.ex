@@ -57,6 +57,18 @@ defmodule Dicom do
   end
 
   @doc """
+  Parses a raw DICOM data set binary using the given transfer syntax UID.
+
+  Unlike `parse/1`, this expects only the encoded data set payload used by
+  DIMSE services, not a full Part 10 file with preamble and file meta.
+  """
+  @spec parse_data_set(binary(), String.t()) :: {:ok, Dicom.DataSet.t()} | {:error, term()}
+  def parse_data_set(binary, transfer_syntax_uid)
+      when is_binary(binary) and is_binary(transfer_syntax_uid) do
+    Dicom.P10.Reader.parse_data_set(binary, transfer_syntax_uid)
+  end
+
+  @doc """
   Parses a DICOM P10 binary into a lazy stream of events.
 
   Returns an `Enumerable` that emits `Dicom.P10.Stream.Event` values as the
@@ -96,6 +108,18 @@ defmodule Dicom do
   @spec write(Dicom.DataSet.t()) :: {:ok, binary()} | {:error, term()}
   def write(%Dicom.DataSet{} = data_set) do
     Dicom.P10.Writer.serialize(data_set)
+  end
+
+  @doc """
+  Serializes a `Dicom.DataSet` as a raw DICOM data set using the given transfer syntax UID.
+
+  Unlike `write/1`, this writes only the encoded data set payload used by DIMSE
+  services, without Part 10 preamble or file meta information.
+  """
+  @spec write_data_set(Dicom.DataSet.t(), String.t()) :: {:ok, binary()} | {:error, term()}
+  def write_data_set(%Dicom.DataSet{} = data_set, transfer_syntax_uid)
+      when is_binary(transfer_syntax_uid) do
+    Dicom.P10.Writer.serialize_data_set(data_set, transfer_syntax_uid)
   end
 
   @doc """

@@ -21,7 +21,7 @@ defmodule Dicom.P10.Writer do
   @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
   @implementation_class_uid "1.2.826.0.1.3680043.10.1137"
-  @implementation_version_name "DICOM_0.6.0"
+  @implementation_version_name "DICOM_0.6.1"
 
   @required_meta_tags [
     {0x0002, 0x0002},
@@ -154,7 +154,7 @@ defmodule Dicom.P10.Writer do
 
     with :ok <- validate_file_meta(data_set),
          :ok <- validate_pixel_data_encoding(data_set, transfer_syntax_uid),
-         {:ok, {vr_encoding, endianness}} <- TransferSyntax.encoding(transfer_syntax_uid),
+         {:ok, {vr_encoding, endianness}} <- encode_transfer_syntax(transfer_syntax_uid),
          {:ok, meta_iodata} <-
            safe_encode_elements(meta_without_group_length, :explicit, :little),
          {:ok, data_set_iodata} <-
@@ -174,6 +174,45 @@ defmodule Dicom.P10.Writer do
         end
 
       {:ok, IO.iodata_to_binary([preamble, group_length_iodata, meta_iodata, final_data_set])}
+    else
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Serializes a raw DICOM data set using the given transfer syntax UID.
+
+  The output contains only the encoded data set payload used in DIMSE
+  messages, with no Part 10 preamble or file meta information.
+  """
+  @spec serialize_data_set(DataSet.t(), String.t()) :: {:ok, binary()} | {:error, term()}
+  def serialize_data_set(%DataSet{} = data_set, transfer_syntax_uid)
+      when is_binary(transfer_syntax_uid) do
+    with {:ok, {vr_encoding, endianness}} <- encode_transfer_syntax(transfer_syntax_uid),
+         :ok <- validate_pixel_data_encoding(data_set, transfer_syntax_uid),
+         {:ok, data_set_iodata} <-
+           safe_encode_elements(data_set.elements, vr_encoding, endianness) do
+      final_data_set =
+        if transfer_syntax_uid == Dicom.UID.deflated_explicit_vr_little_endian() do
+          Deflated.compress(data_set_iodata)
+        else
+          data_set_iodata
+        end
+
+      {:ok, IO.iodata_to_binary(final_data_set)}
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  defp encode_transfer_syntax(transfer_syntax_uid) do
+    case TransferSyntax.encoding(transfer_syntax_uid) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, :unknown_transfer_syntax} ->
+        {:error, {:unknown_transfer_syntax, transfer_syntax_uid}}
     end
   end
 

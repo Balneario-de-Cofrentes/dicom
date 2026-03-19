@@ -26,7 +26,8 @@ defmodule Dicom.P10.InteropTest do
           build_group_length_element(ts_elem) <>
           ts_elem <> patient
 
-      assert {:error, :unknown_transfer_syntax} = Dicom.P10.Reader.parse(binary)
+      assert {:error, {:unknown_transfer_syntax, "1.2.999.999.999"}} =
+               Dicom.P10.Reader.parse(binary)
     end
 
     test "writer returns error for unknown transfer syntax UID" do
@@ -36,7 +37,8 @@ defmodule Dicom.P10.InteropTest do
         |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9.0")
         |> DataSet.put({0x0002, 0x0010}, :UI, "1.2.999.999.999")
 
-      assert {:error, :unknown_transfer_syntax} = Dicom.P10.Writer.serialize(ds)
+      assert {:error, {:unknown_transfer_syntax, "1.2.999.999.999"}} =
+               Dicom.P10.Writer.serialize(ds)
     end
 
     test "stream parser returns error for unknown transfer syntax UID" do
@@ -48,7 +50,7 @@ defmodule Dicom.P10.InteropTest do
           build_group_length_element(ts_elem) <>
           ts_elem <> patient
 
-      assert {:error, :unknown_transfer_syntax} =
+      assert {:error, {:unknown_transfer_syntax, "1.2.999.999.999"}} =
                binary
                |> Dicom.stream_parse()
                |> Enum.to_list()
