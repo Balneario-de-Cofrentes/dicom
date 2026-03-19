@@ -460,10 +460,10 @@ defmodule Dicom.P10.WriterTest do
   end
 
   describe "implementation version name" do
-    test "output binary contains DICOM_0.6.1 version name" do
+    test "output binary contains DICOM_0.6.2 version name" do
       ds = minimal_data_set()
       {:ok, binary} = Dicom.P10.Writer.serialize(ds)
-      assert binary =~ "DICOM_0.6.1"
+      assert binary =~ "DICOM_0.6.2"
     end
   end
 
