@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Dicom.GenSopClasses do
+  @compile {:no_warn_undefined, :json}
   @moduledoc """
   Generates `Dicom.SOPClass` from innolitics sops.json and service_sop_classes.exs.
 

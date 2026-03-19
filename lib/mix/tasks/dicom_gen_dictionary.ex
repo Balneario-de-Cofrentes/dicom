@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Dicom.GenDictionary do
+  @compile {:no_warn_undefined, :json}
   @moduledoc """
   Generates `Dicom.Dictionary.Registry` from innolitics/dicom-standard JSON.
 
