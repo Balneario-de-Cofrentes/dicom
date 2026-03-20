@@ -41,7 +41,7 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.7.0"}
+    {:dicom, "~> 0.8.1"}
   ]
 end
 ```

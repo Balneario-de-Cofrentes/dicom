@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-03-20
+
+### Changed
+
+- README install snippet updated to `~> 0.8.1`
+- Implementation version name updated to `DICOM_0.8.1`
+
 ## [0.8.0] - 2026-03-20
 
 ### Added
@@ -394,7 +401,8 @@ _Yanked — published before peer changes were merged. Use 0.6.2._
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.0...v0.7.1
