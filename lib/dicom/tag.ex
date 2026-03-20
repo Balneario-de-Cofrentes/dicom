@@ -75,8 +75,14 @@ defmodule Dicom.Tag do
   def coding_scheme_designator, do: {0x0008, 0x0102}
   def coding_scheme_version, do: {0x0008, 0x0103}
   def code_meaning, do: {0x0008, 0x0104}
+  def referenced_sop_class_uid, do: {0x0008, 0x1150}
+  def referenced_sop_instance_uid, do: {0x0008, 0x1155}
+  def referenced_frame_number, do: {0x0008, 0x1160}
+  def referenced_sop_sequence, do: {0x0008, 0x1199}
   def verification_date_time, do: {0x0040, 0xA030}
   def observation_date_time, do: {0x0040, 0xA032}
+  def referenced_frame_numbers, do: {0x0040, 0xA136}
+  def purpose_of_reference_code_sequence, do: {0x0040, 0xA170}
   def relationship_type, do: {0x0040, 0xA010}
   def value_type, do: {0x0040, 0xA040}
   def concept_name_code_sequence, do: {0x0040, 0xA043}
@@ -98,6 +104,9 @@ defmodule Dicom.Tag do
   def content_sequence, do: {0x0040, 0xA730}
   def measurement_units_code_sequence, do: {0x0040, 0x08EA}
   def template_identifier, do: {0x0040, 0xDB00}
+  def referenced_segment_number, do: {0x0062, 0x000B}
+  def graphic_data, do: {0x0070, 0x0022}
+  def graphic_type, do: {0x0070, 0x0023}
 
   # Image
   def rows, do: {0x0028, 0x0010}

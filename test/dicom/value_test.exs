@@ -143,9 +143,21 @@ defmodule Dicom.ValueTest do
       assert Value.encode("DOE^JOHN", :PN) == "DOE^JOHN"
     end
 
-    test "raises for unsupported numeric VR value shapes" do
+    test "encodes multi-valued numeric VR value shapes" do
+      assert Value.encode([1, 2], :US) == <<1::little-16, 2::little-16>>
+      assert Value.encode([1.5, 2.5], :FL) == <<1.5::little-float-32, 2.5::little-float-32>>
+
+      assert Value.encode([{0x0010, 0x0010}, {0x0008, 0x0018}], :AT) ==
+               <<0x0010::little-16, 0x0010::little-16, 0x0008::little-16, 0x0018::little-16>>
+    end
+
+    test "raises for unsupported numeric list shapes" do
       assert_raise ArgumentError, ~r/unsupported value for VR US/, fn ->
-        Value.encode([1, 2], :US)
+        Value.encode([], :US)
+      end
+
+      assert_raise ArgumentError, ~r/unsupported value for VR US/, fn ->
+        Value.encode([1, -1], :US)
       end
     end
 
@@ -367,6 +379,11 @@ defmodule Dicom.ValueTest do
 
     test "AT encodes big-endian tag tuples" do
       assert Value.encode({0x0010, 0x0010}, :AT, :big) == <<0x0010::big-16, 0x0010::big-16>>
+    end
+
+    test "encodes multi-valued numerics in big-endian" do
+      assert Value.encode([1, 2], :US, :big) == <<1::big-16, 2::big-16>>
+      assert Value.encode([1.5, 2.5], :FL, :big) == <<1.5::big-float-32, 2.5::big-float-32>>
     end
   end
 

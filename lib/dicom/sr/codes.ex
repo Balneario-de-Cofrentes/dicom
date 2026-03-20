@@ -24,6 +24,9 @@ defmodule Dicom.SR.Codes do
   @spec finding() :: Code.t()
   def finding, do: Code.new("121071", "DCM", "Finding")
 
+  @spec finding_site() :: Code.t()
+  def finding_site, do: Code.new("363698007", "SCT", "Finding Site")
+
   @spec impression() :: Code.t()
   def impression, do: Code.new("121073", "DCM", "Impression")
 
@@ -46,8 +49,37 @@ defmodule Dicom.SR.Codes do
   @spec device() :: Code.t()
   def device, do: Code.new("121007", "DCM", "Device")
 
+  @spec device_observer_uid() :: Code.t()
+  def device_observer_uid, do: Code.new("121012", "DCM", "Device Observer UID")
+
+  @spec device_observer_name() :: Code.t()
+  def device_observer_name, do: Code.new("121013", "DCM", "Device Observer Name")
+
+  @spec device_observer_manufacturer() :: Code.t()
+  def device_observer_manufacturer,
+    do: Code.new("121014", "DCM", "Device Observer Manufacturer")
+
+  @spec device_observer_model_name() :: Code.t()
+  def device_observer_model_name, do: Code.new("121015", "DCM", "Device Observer Model Name")
+
+  @spec device_observer_serial_number() :: Code.t()
+  def device_observer_serial_number,
+    do: Code.new("121016", "DCM", "Device Observer Serial Number")
+
   @spec person_observer_name() :: Code.t()
   def person_observer_name, do: Code.new("121008", "DCM", "Person Observer Name")
+
+  @spec source() :: Code.t()
+  def source, do: Code.new("260753009", "SCT", "Source")
+
+  @spec image_library() :: Code.t()
+  def image_library, do: Code.new("111028", "DCM", "Image Library")
+
+  @spec image_region() :: Code.t()
+  def image_region, do: Code.new("111030", "DCM", "Image Region")
+
+  @spec original_source() :: Code.t()
+  def original_source, do: Code.new("111040", "DCM", "Original Source")
 
   @spec procedure_description() :: Code.t()
   def procedure_description, do: Code.new("121065", "DCM", "Procedure Description")

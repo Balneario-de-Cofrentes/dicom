@@ -3,7 +3,7 @@ defmodule Dicom.SR.MeasurementGroup do
   A measurement group suitable for TID 1500-style content trees.
   """
 
-  alias Dicom.SR.{Code, Codes, ContentItem, Measurement}
+  alias Dicom.SR.{Code, Codes, ContentItem, Measurement, Reference}
 
   @enforce_keys [:tracking_id, :tracking_uid]
   defstruct [
@@ -11,6 +11,8 @@ defmodule Dicom.SR.MeasurementGroup do
     :tracking_uid,
     :activity_session,
     :finding_category,
+    finding_sites: [],
+    source_images: [],
     measurements: [],
     qualitative_evaluations: []
   ]
@@ -20,6 +22,8 @@ defmodule Dicom.SR.MeasurementGroup do
           tracking_uid: String.t(),
           activity_session: String.t() | nil,
           finding_category: Code.t() | nil,
+          finding_sites: [Code.t()],
+          source_images: [Reference.t()],
           measurements: [Measurement.t()],
           qualitative_evaluations: [ContentItem.t()]
         }
@@ -32,6 +36,8 @@ defmodule Dicom.SR.MeasurementGroup do
       tracking_uid: tracking_uid,
       activity_session: Keyword.get(opts, :activity_session),
       finding_category: Keyword.get(opts, :finding_category),
+      finding_sites: Keyword.get(opts, :finding_sites, []),
+      source_images: Keyword.get(opts, :source_images, []),
       measurements: Keyword.get(opts, :measurements, []),
       qualitative_evaluations: Keyword.get(opts, :qualitative_evaluations, [])
     }
@@ -51,6 +57,8 @@ defmodule Dicom.SR.MeasurementGroup do
         )
       ])
       |> maybe_add_finding_category(group.finding_category)
+      |> Kernel.++(Enum.map(group.finding_sites, &finding_site_item/1))
+      |> Kernel.++(Enum.map(group.source_images, &source_image_item/1))
       |> Kernel.++(Enum.map(group.measurements, &Measurement.to_content_item/1))
       |> Kernel.++(group.qualitative_evaluations)
 
@@ -80,5 +88,13 @@ defmodule Dicom.SR.MeasurementGroup do
           relationship_type: "CONTAINS"
         )
       ]
+  end
+
+  defp finding_site_item(%Code{} = finding_site) do
+    ContentItem.code(Codes.finding_site(), finding_site, relationship_type: "HAS CONCEPT MOD")
+  end
+
+  defp source_image_item(%Reference{} = reference) do
+    ContentItem.image(Codes.source(), reference, relationship_type: "CONTAINS")
   end
 end

@@ -134,7 +134,7 @@ defmodule Dicom.P10.WriterTest do
       ds =
         minimal_data_set()
         |> then(fn ds ->
-          elem = DataElement.new({0x0028, 0x0010}, :US, [1, 2])
+          elem = DataElement.new({0x0028, 0x0010}, :US, [])
           %{ds | elements: Map.put(ds.elements, {0x0028, 0x0010}, elem)}
         end)
 

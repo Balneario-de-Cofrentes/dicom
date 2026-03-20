@@ -289,11 +289,17 @@ defmodule Dicom.Value do
   Encodes a native Elixir value using the given endianness.
   """
   @spec encode(term(), Dicom.VR.t(), :little | :big) :: binary()
+  def encode(values, :US, endianness) when is_list(values),
+    do: encode_numeric_list(values, :US, endianness)
+
   def encode(value, :US, :little) when is_integer(value) and value >= 0 and value <= 0xFFFF,
     do: <<value::little-unsigned-16>>
 
   def encode(value, :US, :big) when is_integer(value) and value >= 0 and value <= 0xFFFF,
     do: <<value::big-unsigned-16>>
+
+  def encode(values, :SS, endianness) when is_list(values),
+    do: encode_numeric_list(values, :SS, endianness)
 
   def encode(value, :SS, :little)
       when is_integer(value) and value >= -0x8000 and value <= 0x7FFF,
@@ -303,11 +309,17 @@ defmodule Dicom.Value do
       when is_integer(value) and value >= -0x8000 and value <= 0x7FFF,
       do: <<value::big-signed-16>>
 
+  def encode(values, :UL, endianness) when is_list(values),
+    do: encode_numeric_list(values, :UL, endianness)
+
   def encode(value, :UL, :little) when is_integer(value) and value >= 0 and value <= 0xFFFFFFFF,
     do: <<value::little-unsigned-32>>
 
   def encode(value, :UL, :big) when is_integer(value) and value >= 0 and value <= 0xFFFFFFFF,
     do: <<value::big-unsigned-32>>
+
+  def encode(values, :SL, endianness) when is_list(values),
+    do: encode_numeric_list(values, :SL, endianness)
 
   def encode(value, :SL, :little)
       when is_integer(value) and value >= -0x80000000 and value <= 0x7FFFFFFF,
@@ -317,10 +329,20 @@ defmodule Dicom.Value do
       when is_integer(value) and value >= -0x80000000 and value <= 0x7FFFFFFF,
       do: <<value::big-signed-32>>
 
+  def encode(values, :FL, endianness) when is_list(values),
+    do: encode_numeric_list(values, :FL, endianness)
+
   def encode(value, :FL, :little) when is_number(value), do: <<value::little-float-32>>
   def encode(value, :FL, :big) when is_number(value), do: <<value::big-float-32>>
+
+  def encode(values, :FD, endianness) when is_list(values),
+    do: encode_numeric_list(values, :FD, endianness)
+
   def encode(value, :FD, :little) when is_number(value), do: <<value::little-float-64>>
   def encode(value, :FD, :big) when is_number(value), do: <<value::big-float-64>>
+
+  def encode(values, :UV, endianness) when is_list(values),
+    do: encode_numeric_list(values, :UV, endianness)
 
   def encode(value, :UV, :little)
       when is_integer(value) and value >= 0 and value <= 0xFFFFFFFFFFFFFFFF,
@@ -330,6 +352,9 @@ defmodule Dicom.Value do
       when is_integer(value) and value >= 0 and value <= 0xFFFFFFFFFFFFFFFF,
       do: <<value::big-unsigned-64>>
 
+  def encode(values, :SV, endianness) when is_list(values),
+    do: encode_numeric_list(values, :SV, endianness)
+
   def encode(value, :SV, :little)
       when is_integer(value) and value >= -0x8000000000000000 and value <= 0x7FFFFFFFFFFFFFFF,
       do: <<value::little-signed-64>>
@@ -337,6 +362,9 @@ defmodule Dicom.Value do
   def encode(value, :SV, :big)
       when is_integer(value) and value >= -0x8000000000000000 and value <= 0x7FFFFFFFFFFFFFFF,
       do: <<value::big-signed-64>>
+
+  def encode(values, :AT, endianness) when is_list(values),
+    do: encode_numeric_list(values, :AT, endianness)
 
   def encode({group, element}, :AT, :little)
       when group >= 0 and group <= 0xFFFF and element >= 0 and element <= 0xFFFF,
@@ -364,6 +392,16 @@ defmodule Dicom.Value do
       [single] -> parser.(single)
       multiple -> Enum.map(multiple, &parser.(String.trim(&1)))
     end
+  end
+
+  defp encode_numeric_list(values, vr, endianness) when values != [] do
+    values
+    |> Enum.map(&encode(&1, vr, endianness))
+    |> IO.iodata_to_binary()
+  end
+
+  defp encode_numeric_list(_values, vr, _endianness) do
+    raise ArgumentError, "unsupported value for VR #{vr}"
   end
 
   defp parse_float(str) do

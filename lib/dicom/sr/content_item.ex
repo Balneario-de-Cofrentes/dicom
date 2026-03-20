@@ -4,7 +4,7 @@ defmodule Dicom.SR.ContentItem do
   """
 
   alias Dicom.{DataElement, Tag}
-  alias Dicom.SR.Code
+  alias Dicom.SR.{Code, Reference, Scoord2D}
 
   @type value_type ::
           :container
@@ -12,6 +12,9 @@ defmodule Dicom.SR.ContentItem do
           | :text
           | :num
           | :uidref
+          | :image
+          | :composite
+          | :scoord
           | :pname
 
   @type t :: %__MODULE__{
@@ -87,6 +90,39 @@ defmodule Dicom.SR.ContentItem do
       when is_binary(value) do
     %__MODULE__{
       value_type: :uidref,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: value,
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec image(Code.t(), Reference.t(), keyword()) :: t()
+  def image(%Code{} = concept_name, %Reference{} = value, opts \\ []) do
+    %__MODULE__{
+      value_type: :image,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: value,
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec composite(Code.t(), Reference.t(), keyword()) :: t()
+  def composite(%Code{} = concept_name, %Reference{} = value, opts \\ []) do
+    %__MODULE__{
+      value_type: :composite,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: value,
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec scoord(Code.t(), Scoord2D.t(), keyword()) :: t()
+  def scoord(%Code{} = concept_name, %Scoord2D{} = value, opts \\ []) do
+    %__MODULE__{
+      value_type: :scoord,
       concept_name: concept_name,
       relationship_type: Keyword.fetch!(opts, :relationship_type),
       value: value,
@@ -176,6 +212,33 @@ defmodule Dicom.SR.ContentItem do
     Map.put(base, Tag.uid_value(), DataElement.new(Tag.uid_value(), :UI, uid))
   end
 
+  defp put_value(base, %__MODULE__{value_type: value_type, value: %Reference{} = reference})
+       when value_type in [:image, :composite] do
+    base
+    |> Map.put(
+      Tag.referenced_sop_sequence(),
+      DataElement.new(Tag.referenced_sop_sequence(), :SQ, [reference_item(reference)])
+    )
+    |> maybe_put_reference_purpose(reference.purpose)
+  end
+
+  defp put_value(base, %__MODULE__{value_type: :scoord, value: %Scoord2D{} = scoord}) do
+    base
+    |> Map.put(
+      Tag.graphic_type(),
+      DataElement.new(Tag.graphic_type(), :CS, scoord.graphic_type)
+    )
+    |> Map.put(
+      Tag.graphic_data(),
+      DataElement.new(Tag.graphic_data(), :FL, scoord.graphic_data)
+    )
+    |> Map.put(
+      Tag.referenced_sop_sequence(),
+      DataElement.new(Tag.referenced_sop_sequence(), :SQ, [reference_item(scoord.reference)])
+    )
+    |> maybe_put_reference_purpose(scoord.reference.purpose)
+  end
+
   defp put_value(base, %__MODULE__{value_type: :pname, value: person_name}) do
     Map.put(
       base,
@@ -223,7 +286,55 @@ defmodule Dicom.SR.ContentItem do
   defp encode_value_type(:text), do: "TEXT"
   defp encode_value_type(:num), do: "NUM"
   defp encode_value_type(:uidref), do: "UIDREF"
+  defp encode_value_type(:image), do: "IMAGE"
+  defp encode_value_type(:composite), do: "COMPOSITE"
+  defp encode_value_type(:scoord), do: "SCOORD"
   defp encode_value_type(:pname), do: "PNAME"
+
+  defp maybe_put_reference_purpose(base, nil), do: base
+
+  defp maybe_put_reference_purpose(base, %Code{} = purpose) do
+    Map.put(
+      base,
+      Tag.purpose_of_reference_code_sequence(),
+      DataElement.new(Tag.purpose_of_reference_code_sequence(), :SQ, [Code.to_item(purpose)])
+    )
+  end
+
+  defp reference_item(%Reference{} = reference) do
+    %{
+      Tag.referenced_sop_class_uid() =>
+        DataElement.new(Tag.referenced_sop_class_uid(), :UI, reference.sop_class_uid),
+      Tag.referenced_sop_instance_uid() =>
+        DataElement.new(Tag.referenced_sop_instance_uid(), :UI, reference.sop_instance_uid)
+    }
+    |> maybe_put_reference_frames(reference.frame_numbers)
+    |> maybe_put_reference_segments(reference.segment_numbers)
+  end
+
+  defp maybe_put_reference_frames(item, []), do: item
+
+  defp maybe_put_reference_frames(item, frame_numbers) do
+    Map.put(
+      item,
+      Tag.referenced_frame_number(),
+      DataElement.new(
+        Tag.referenced_frame_number(),
+        :IS,
+        Enum.map_join(frame_numbers, "\\", &Integer.to_string/1)
+      )
+    )
+  end
+
+  defp maybe_put_reference_segments(item, []), do: item
+
+  defp maybe_put_reference_segments(item, segment_numbers) do
+    Map.put(
+      item,
+      Tag.referenced_segment_number(),
+      DataElement.new(Tag.referenced_segment_number(), :US, segment_numbers)
+    )
+  end
 
   defp normalize_numeric_value(value) when is_integer(value), do: Integer.to_string(value)
 

@@ -20,7 +20,7 @@ defmodule Dicom.SR.Templates.ECGReport do
     root_children =
       []
       |> add_optional([Observer.language(language)])
-      |> add_optional(Observer.person(observer_name))
+      |> add_optional(observer_items(opts, observer_name))
       |> add_optional(optional_procedure_item(procedure_reported))
       |> add_optional(map_text_or_code_items(Keyword.get(opts, :reasons, []), "CONTAINS"))
       |> add_optional(optional_global_measurements(Keyword.get(opts, :global_measurements, [])))
@@ -101,6 +101,14 @@ defmodule Dicom.SR.Templates.ECGReport do
       text when is_binary(text) ->
         ContentItem.text(Codes.finding(), text, relationship_type: relationship_type)
     end)
+  end
+
+  defp observer_items(opts, observer_name) do
+    Observer.person(observer_name) ++
+      case opts[:observer_device] do
+        nil -> []
+        device_opts -> Observer.device(device_opts)
+      end
   end
 
   defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)

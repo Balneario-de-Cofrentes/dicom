@@ -7,6 +7,8 @@ defmodule Dicom.SR do
 
   - coded entries
   - content items and relationship trees
+  - composite and image references
+  - 2D spatial coordinate references
   - observation context helpers
   - SR document construction
   - focused builders for selected PS3.16 templates
