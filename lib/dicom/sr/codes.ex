@@ -101,4 +101,19 @@ defmodule Dicom.SR.Codes do
 
   @spec stress_testing_report() :: Code.t()
   def stress_testing_report, do: Code.new("18752-6", "LN", "Stress Testing Report")
+
+  # Key Object Selection codes (TID 2000)
+
+  @spec key_object_selection() :: Code.t()
+  def key_object_selection, do: Code.new("113000", "DCM", "Of Interest")
+
+  @spec key_object_description() :: Code.t()
+  def key_object_description, do: Code.new("113012", "DCM", "Key Object Description")
+
+  @spec rejected_for_quality_reasons() :: Code.t()
+  def rejected_for_quality_reasons,
+    do: Code.new("113001", "DCM", "Rejected for Quality Reasons")
+
+  @spec best_in_set() :: Code.t()
+  def best_in_set, do: Code.new("113018", "DCM", "Best In Set")
 end

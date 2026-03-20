@@ -39,6 +39,7 @@ defmodule Dicom.UID do
   def basic_text_sr_storage, do: "1.2.840.10008.5.1.4.1.1.88.11"
   def enhanced_sr_storage, do: "1.2.840.10008.5.1.4.1.1.88.22"
   def comprehensive_sr_storage, do: "1.2.840.10008.5.1.4.1.1.88.33"
+  def key_object_selection_document_storage, do: "1.2.840.10008.5.1.4.1.1.88.59"
   def encapsulated_pdf_storage, do: "1.2.840.10008.5.1.4.1.1.104.1"
   def segmentation_storage, do: "1.2.840.10008.5.1.4.1.1.66.4"
 
