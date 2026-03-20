@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-20
+
+### Added
+
+- **SR read path** — `Dicom.SR.ContentTree.from_data_set/1` reconstructs a full `ContentItem` tree from a parsed `DataSet`, enabling SR document analysis and content indexing. Handles all 12 value types including nested containers and sequences.
+- **SR document metadata reader** — `Dicom.SR.DocumentReader.from_data_set/1` extracts document-level SR metadata (completion/verification flags, template ID, content datetime) for efficient indexing without full tree reconstruction.
+- **SCOORD3D value type** — `Dicom.SR.Scoord3D` module for 3D spatial coordinates in patient coordinate space (PS3.3 C.18.9). Supports POINT, MULTIPOINT, POLYLINE, POLYGON, ELLIPSE, and ELLIPSOID graphic types with Float64 (FD) encoding.
+- **DATE, TIME, DATETIME value types** — `Dicom.SR.ContentItem` now supports `:date`, `:time`, and `:datetime` content item value types with bidirectional Elixir struct conversion.
+- **KOS builder** — `Dicom.SR.Templates.KeyObjectSelection` for TID 2000 Key Object Selection documents with purpose codes (rejected for quality, best in set, key object description).
+- **Image Library helper** — `Dicom.SR.ImageLibrary` for TID 1600 Image Library CONTAINER/IMAGE structures.
+- 4 new tag constants: `sr_datetime/0`, `sr_date/0`, `sr_time/0`, `referenced_frame_of_reference_uid/0`
+- 94 new tests across SR read path, SCOORD3D, temporal types, and KOS builder
+
+### Changed
+
+- `ContentTree` reader now handles all 12 SR value types (was write-only, now bidirectional)
+- Test suite expanded to 1510 tests (1459 tests + 35 doctests + 16 properties), 0 failures
+- Coverage maintained at 98.71% with 26 modules at 100%
+- Implementation version name updated to `DICOM_0.8.0`
+
 ## [0.7.2] - 2026-03-20
 
 ### Changed
@@ -374,7 +394,9 @@ _Yanked — published before peer changes were merged. Use 0.6.2._
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.2...v0.8.0
+[0.7.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.2...v0.6.3
