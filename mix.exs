@@ -1,7 +1,7 @@
 defmodule Dicom.MixProject do
   use Mix.Project
 
-  @version "0.6.3"
+  @version "0.7.0"
   @source_url "https://github.com/Balneario-de-Cofrentes/dicom"
 
   def project do
@@ -13,7 +13,7 @@ defmodule Dicom.MixProject do
       deps: deps(),
       name: "Dicom",
       description:
-        "Pure Elixir DICOM toolkit for PS3.10 files, DICOM JSON, and de-identification helpers",
+        "Pure Elixir DICOM toolkit for P10 files, DICOM JSON, de-identification, and structured-report foundations",
       package: package(),
       docs: docs(),
       source_url: @source_url,

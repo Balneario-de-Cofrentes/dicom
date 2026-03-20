@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-20
+
+### Added
+
+- Initial PS3.16 structured-report authoring foundation under `Dicom.SR`
+- Reusable coded entries, content items, observation context helpers, measurement groups, and SR document rendering
+- Focused builders for:
+  - `TID 1500` Measurement Report
+  - `TID 3300` Stress Testing Report
+  - `TID 3700` ECG Report
+- Regression coverage for SR tree rendering, template identifiers, and P10 roundtrips
+
+### Changed
+
+- README and standard coverage docs now describe PS3.16 support as a scoped foundation instead of an absent capability
+- Implementation version name updated to `DICOM_0.7.0`
+- Verified SR document construction now fails fast when required verification observer metadata is missing
+
+### Conformance Notes
+
+- This release does **not** claim full PS3.16 coverage
+- The implemented surface focuses on reusable SR building blocks and three concrete root templates
+- Full CID enforcement, exhaustive included-template coverage, and richer image/SEG/SCOORD linkage remain future work
+
 ## [0.6.3] - 2026-03-19
 
 ### Fixed
@@ -328,7 +352,8 @@ _Yanked — published before peer changes were merged. Use 0.6.2._
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.0...v0.6.1

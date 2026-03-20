@@ -13,7 +13,7 @@
 ██████╔╝██║╚██████╗╚██████╔╝██║ ╚═╝ ██║
 ╚═════╝ ╚═╝ ╚═════╝ ╚═════╝ ╚═╝     ╚═╝
 
-  DICOM P10 toolkit for Elixir · PS3.5/6/10/18
+  DICOM toolkit for Elixir · PS3.5/6/10/15/16/18
 ```
 
 Pure Elixir DICOM toolkit for DICOM Part 10 files. Zero runtime dependencies.
@@ -27,6 +27,7 @@ Pure Elixir DICOM toolkit for DICOM Part 10 files. Zero runtime dependencies.
 - **DICOM JSON** -- encode/decode DataSets to/from the DICOM JSON model (PS3.18 Annex F.2) for DICOMweb
 - **Pixel data frames** -- extract individual frames from native and encapsulated pixel data (PS3.5 §A.4)
 - **De-identification** -- PS3.15 Basic Profile helpers with consistent UID replacement and private tag control
+- **Structured Reports** -- reusable PS3.16 building blocks plus focused builders for TID 1500, TID 3300, and TID 3700
 - **Character set support** -- single-byte Specific Character Set repertoires and UTF-8
 - **SOP Class registry** -- 232 SOP Classes with modality mapping and O(1) lookup
 - **Transfer syntaxes** -- 49 tracked (34 active + 15 retired); unknown UIDs rejected by default
@@ -40,10 +41,72 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.6.3"}
+    {:dicom, "~> 0.7.0"}
   ]
 end
 ```
+
+## Structured Reports
+
+`dicom` now includes an initial PS3.16 authoring foundation:
+
+- coded entries via `Dicom.SR.Code`
+- content-tree construction via `Dicom.SR.ContentItem`
+- observation context helpers via `Dicom.SR.Observer`
+- SR document rendering via `Dicom.SR.Document`
+- focused template builders:
+  - `Dicom.SR.Templates.MeasurementReport` (`TID 1500`)
+  - `Dicom.SR.Templates.StressTestingReport` (`TID 3300`)
+  - `Dicom.SR.Templates.ECGReport` (`TID 3700`)
+
+Example:
+
+```elixir
+alias Dicom.SR.{Code, Measurement, MeasurementGroup}
+alias Dicom.SR.Templates.MeasurementReport
+
+measurement =
+  Measurement.new(
+    Code.new("8867-4", "LN", "Heart rate"),
+    62,
+    Code.new("/min", "UCUM", "beats per minute")
+  )
+
+group =
+  MeasurementGroup.new("lesion-1", Dicom.UID.generate(),
+    measurements: [measurement]
+  )
+
+{:ok, document} =
+  MeasurementReport.new(
+    study_instance_uid: Dicom.UID.generate(),
+    series_instance_uid: Dicom.UID.generate(),
+    sop_instance_uid: Dicom.UID.generate(),
+    observer_name: "REPORTER^ALICE",
+    procedure_reported: [Code.new("P5-09051", "SRT", "Chest CT")],
+    measurement_groups: [group]
+  )
+
+{:ok, data_set} = Dicom.SR.Document.to_data_set(document)
+{:ok, binary} = Dicom.write(data_set)
+```
+
+Current PS3.16 scope is deliberately explicit:
+
+- implemented now:
+  - SR coding primitives
+  - reusable content trees
+  - template identification
+  - SR document rendering with Part 10 serialization
+  - practical document builders for TID 1500, TID 3300, and TID 3700
+- not claimed yet:
+  - full CID validation across every invoked context group
+  - every included sub-template of those TIDs
+  - full image-reference / spatial-coordinate / segmentation linkage semantics
+  - broad “complete PS3.16” conformance language
+
+The implemented builders aim to be clean and normative within that scoped
+surface, but they are intentionally not marketed as full PS3.16 coverage.
 
 ## Quick Start
 
@@ -111,6 +174,7 @@ patient_tags =
 | PS3.6 | Tag dictionary (5,035 entries), keyword lookup, retired flags |
 | PS3.10 | P10 read/write, File Meta Information, preamble |
 | PS3.15 | Best-effort Basic Application Level Confidentiality Profile helpers |
+| PS3.16 | Partial SR authoring foundation with focused TID 1500 / 3300 / 3700 builders |
 | PS3.18 | DICOM JSON model encoding/decoding for DataSets (Annex F.2) |
 
 Transfer syntaxes: Implicit VR LE, Explicit VR LE, Deflated Explicit VR LE, and Explicit VR BE

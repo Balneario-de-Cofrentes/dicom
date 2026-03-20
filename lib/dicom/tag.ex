@@ -33,6 +33,7 @@ defmodule Dicom.Tag do
   def receiving_presentation_address, do: {0x0002, 0x0028}
   def private_information_creator_uid, do: {0x0002, 0x0100}
   def private_information, do: {0x0002, 0x0102}
+  def mapping_resource, do: {0x0008, 0x0105}
 
   # Data Set Trailing Padding (PS3.10 Section 7.2)
   def data_set_trailing_padding, do: {0xFFFC, 0xFFFC}
@@ -46,7 +47,9 @@ defmodule Dicom.Tag do
 
   # Study (Group 0008/0020)
   def study_date, do: {0x0008, 0x0020}
+  def content_date, do: {0x0008, 0x0023}
   def study_time, do: {0x0008, 0x0030}
+  def content_time, do: {0x0008, 0x0033}
   def accession_number, do: {0x0008, 0x0050}
   def referring_physician_name, do: {0x0008, 0x0090}
   def study_description, do: {0x0008, 0x1030}
@@ -66,6 +69,35 @@ defmodule Dicom.Tag do
   def instance_number, do: {0x0020, 0x0013}
   def instance_creation_date, do: {0x0008, 0x0012}
   def instance_creation_time, do: {0x0008, 0x0013}
+
+  # Coding / SR
+  def code_value, do: {0x0008, 0x0100}
+  def coding_scheme_designator, do: {0x0008, 0x0102}
+  def coding_scheme_version, do: {0x0008, 0x0103}
+  def code_meaning, do: {0x0008, 0x0104}
+  def verification_date_time, do: {0x0040, 0xA030}
+  def observation_date_time, do: {0x0040, 0xA032}
+  def relationship_type, do: {0x0040, 0xA010}
+  def value_type, do: {0x0040, 0xA040}
+  def concept_name_code_sequence, do: {0x0040, 0xA043}
+  def continuity_of_content, do: {0x0040, 0xA050}
+  def verifying_observer_sequence, do: {0x0040, 0xA073}
+  def verifying_observer_name, do: {0x0040, 0xA075}
+  def person_name_value, do: {0x0040, 0xA123}
+  def uid_value, do: {0x0040, 0xA124}
+  def text_value, do: {0x0040, 0xA160}
+  def concept_code_sequence, do: {0x0040, 0xA168}
+  def observation_uid, do: {0x0040, 0xA171}
+  def measured_value_sequence, do: {0x0040, 0xA300}
+  def numeric_value_qualifier_code_sequence, do: {0x0040, 0xA301}
+  def numeric_value, do: {0x0040, 0xA30A}
+  def content_template_sequence, do: {0x0040, 0xA504}
+  def completion_flag, do: {0x0040, 0xA491}
+  def completion_flag_description, do: {0x0040, 0xA492}
+  def verification_flag, do: {0x0040, 0xA493}
+  def content_sequence, do: {0x0040, 0xA730}
+  def measurement_units_code_sequence, do: {0x0040, 0x08EA}
+  def template_identifier, do: {0x0040, 0xDB00}
 
   # Image
   def rows, do: {0x0028, 0x0010}
