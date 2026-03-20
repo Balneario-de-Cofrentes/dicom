@@ -4,6 +4,7 @@ defmodule Dicom.P10.StreamTest do
 
   alias Dicom.{DataElement, DataSet}
   alias Dicom.P10.Deflated
+  alias Dicom.P10.Stream.{Parser, Source}
 
   import Dicom.TestHelpers,
     only: [
@@ -123,6 +124,54 @@ defmodule Dicom.P10.StreamTest do
         {group, _} = tag
         refute group == 0x0002
       end
+    end
+  end
+
+  describe "parse_file/2 resource handling" do
+    test "returns file open errors as a single stream event" do
+      missing = Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}.dcm")
+      assert [{:error, :enoent}] = missing |> Dicom.P10.Stream.parse_file() |> Enum.to_list()
+    end
+
+    test "open_file_source/2 returns structured open errors" do
+      missing = Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}.dcm")
+      assert {:error, :enoent, nil} = Dicom.P10.Stream.open_file_source(missing, [])
+    end
+
+    test "closes cleanly when parsing stops without an explicit end event" do
+      path = Path.join(System.tmp_dir!(), "truncated-#{System.unique_integer([:positive])}.dcm")
+      File.write!(path, <<0::1024, "DICM">>)
+
+      try do
+        assert [:file_meta_start, {:file_meta_end, "1.2.840.10008.1.2"}, :end] =
+                 path |> Dicom.P10.Stream.parse_file() |> Enum.to_list()
+      after
+        File.rm(path)
+      end
+    end
+
+    test "next_file_event/1 halts cleanly when parser state is already done" do
+      state = Parser.new(Source.from_binary("")) |> Map.put(:phase, :done)
+      assert {:halt, {:done, :fake_io}} = Dicom.P10.Stream.next_file_event({:ok, state, :fake_io})
+    end
+
+    test "close_file_resource/1 closes done IO handles" do
+      path = Path.join(System.tmp_dir!(), "closer-#{System.unique_integer([:positive])}.dcm")
+      File.write!(path, "")
+      {:ok, io} = File.open(path, [:raw, :binary, :read])
+
+      try do
+        assert :ok = Dicom.P10.Stream.close_file_resource({:done, io})
+        assert {:error, reason} = :file.position(io, :cur)
+        assert reason in [:terminated, :einval]
+      after
+        File.rm(path)
+      end
+    end
+
+    test "close_file_resource/1 handles error and fallback states" do
+      assert :ok = Dicom.P10.Stream.close_file_resource({:error, :enoent, nil})
+      assert :ok = Dicom.P10.Stream.close_file_resource(:unexpected_state)
     end
   end
 

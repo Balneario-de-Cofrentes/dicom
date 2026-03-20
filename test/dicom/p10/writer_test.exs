@@ -154,6 +154,21 @@ defmodule Dicom.P10.WriterTest do
                Dicom.P10.Writer.serialize(ds)
     end
 
+    test "serializes with deflated explicit VR little endian" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta(
+          {0x0002, 0x0010},
+          :UI,
+          Dicom.UID.deflated_explicit_vr_little_endian()
+        )
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+
+      assert {:ok, binary} = Dicom.P10.Writer.serialize(ds)
+      assert {:ok, parsed} = Dicom.P10.Reader.parse(binary)
+      assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+    end
+
     test "returns an error when uncompressed transfer syntax uses encapsulated Pixel Data" do
       ds =
         minimal_data_set()
@@ -182,6 +197,15 @@ defmodule Dicom.P10.WriterTest do
 
       assert {:error, {:invalid_encapsulated_pixel_data_vr, :OW}} =
                Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "returns an error when encapsulated Pixel Data has no basic offset table" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x7FE0, 0x0010}, :OB, {:encapsulated, []})
+
+      assert {:error, :invalid_encapsulated_pixel_data} = Dicom.P10.Writer.serialize(ds)
     end
 
     test "returns an error when encapsulated Pixel Data fragments have odd length" do
@@ -217,6 +241,50 @@ defmodule Dicom.P10.WriterTest do
       assert {:error, :invalid_basic_offset_table} = Dicom.P10.Writer.serialize(ds)
     end
 
+    test "accepts encapsulated Pixel Data when NumberOfFrames is not parseable" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x0028, 0x0008}, :IS, "bad")
+        |> DataSet.put(
+          {0x7FE0, 0x0010},
+          :OB,
+          {:encapsulated, [<<0::little-32>>, <<1, 2>>, <<3, 4>>]}
+        )
+
+      assert {:ok, _binary} = Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "accepts encapsulated Pixel Data when NumberOfFrames is stored as an integer" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x0028, 0x0008}, :IS, 1)
+        |> DataSet.put(
+          {0x7FE0, 0x0010},
+          :OB,
+          {:encapsulated, [<<0::little-32>>, <<1, 2>>]}
+        )
+
+      assert {:ok, _binary} = Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "accepts encapsulated Pixel Data when NumberOfFrames has an unsupported shape" do
+      ds =
+        minimal_data_set()
+        |> put_file_meta({0x0002, 0x0010}, :UI, Dicom.UID.jpeg_baseline())
+        |> DataSet.put({0x0028, 0x0008}, :IS, [:bad])
+        |> DataSet.put(
+          {0x7FE0, 0x0010},
+          :OB,
+          {:encapsulated, [<<0::little-32>>, <<1, 2>>]}
+        )
+
+      assert true = Dicom.P10.Writer.test_valid_basic_offset_table_count?(<<0::little-32>>, ds)
+      assert {:error, {:invalid_element_value, {0x0028, 0x0008}, :IS, ArgumentError}} =
+               Dicom.P10.Writer.serialize(ds)
+    end
+
     test "returns an error when BOT offsets do not start at fragment boundaries" do
       ds =
         minimal_data_set()
@@ -229,6 +297,11 @@ defmodule Dicom.P10.WriterTest do
         )
 
       assert {:error, :invalid_basic_offset_table} = Dicom.P10.Writer.serialize(ds)
+    end
+
+    test "returns an error when encapsulated Pixel Data contains a non-binary fragment" do
+      assert {:error, :invalid_encapsulated_pixel_data} =
+               Dicom.P10.Writer.test_validate_fragment_lengths([:bad], 1)
     end
 
     test "returns an error for compressed Pixel Data binaries that only mimic encapsulated framing" do
@@ -317,6 +390,13 @@ defmodule Dicom.P10.WriterTest do
       ds = put_file_meta(minimal_data_set(), {0x0002, 0x0003}, :UI, "not-a-uid")
 
       assert {:error, {:invalid_uid_in_file_meta, {0x0002, 0x0003}}} =
+               Dicom.P10.Writer.validate_file_meta(ds)
+    end
+
+    test "returns error when a required UID value is not binary" do
+      ds = put_file_meta(minimal_data_set(), {0x0002, 0x0010}, :UI, 123)
+
+      assert {:error, {:invalid_meta_value, {0x0002, 0x0010}}} =
                Dicom.P10.Writer.validate_file_meta(ds)
     end
 
@@ -460,10 +540,10 @@ defmodule Dicom.P10.WriterTest do
   end
 
   describe "implementation version name" do
-    test "output binary contains DICOM_0.7.1 version name" do
+    test "output binary contains DICOM_0.7.2 version name" do
       ds = minimal_data_set()
       {:ok, binary} = Dicom.P10.Writer.serialize(ds)
-      assert binary =~ "DICOM_0.7.1"
+      assert binary =~ "DICOM_0.7.2"
     end
   end
 

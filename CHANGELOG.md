@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-03-20
+
+### Changed
+
+- Coverage increased to 98.66% overall, with `Dicom.P10.Stream` raised to 100% and `Dicom.P10.Writer` to 99.11%
+- Refactored `Dicom.P10.Stream.parse_file/2` into focused resource helpers so IO lifecycle branches are directly testable and behavior remains unchanged
+- Added regression tests for deflated P10 writing, encapsulated pixel-data edge cases, stream file-open/close paths, and SR code validation blanks
+- Exposed a minimal set of `@doc false` writer/stream helpers for deterministic internal coverage without relying on brittle IO races
+- Implementation version name updated to `DICOM_0.7.2`
+
 ## [0.7.1] - 2026-03-20
 
 ### Fixed

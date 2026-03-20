@@ -21,7 +21,7 @@ defmodule Dicom.P10.Writer do
   @compile {:inline, encode_tag: 2, encode_u32: 2, encode_u16: 2, ensure_meta_element: 4}
 
   @implementation_class_uid "1.2.826.0.1.3680043.10.1137"
-  @implementation_version_name "DICOM_0.7.1"
+  @implementation_version_name "DICOM_0.7.2"
 
   @required_meta_tags [
     {0x0002, 0x0002},
@@ -312,6 +312,16 @@ defmodule Dicom.P10.Writer do
 
   defp validate_fragment_lengths(_fragments, _index),
     do: {:error, :invalid_encapsulated_pixel_data}
+
+  @doc false
+  @spec test_valid_basic_offset_table_count?(binary(), DataSet.t()) :: boolean()
+  def test_valid_basic_offset_table_count?(bot, data_set),
+    do: valid_basic_offset_table_count?(bot, data_set)
+
+  @doc false
+  @spec test_validate_fragment_lengths(term(), pos_integer()) :: :ok | {:error, term()}
+  def test_validate_fragment_lengths(fragments, index),
+    do: validate_fragment_lengths(fragments, index)
 
   # Returns iodata — no intermediate binary allocation. Single IO.iodata_to_binary at serialize/1.
   defp encode_elements(elements, vr_encoding, endianness) do

@@ -78,47 +78,60 @@ defmodule Dicom.P10.Stream do
   @spec parse_file(Path.t(), keyword()) :: Enumerable.t()
   def parse_file(path, opts \\ []) do
     Stream.resource(
-      fn ->
-        case File.open(path, [:raw, :binary, :read]) do
-          {:ok, io} ->
-            source = Source.from_io(io, opts)
-            {:ok, Parser.new(source), io}
-
-          {:error, reason} ->
-            {:error, reason, nil}
-        end
-      end,
-      fn
-        {:error, reason, _io} ->
-          {[{:error, reason}], {:done, nil}}
-
-        {:done, _io} ->
-          {:halt, {:done, nil}}
-
-        {:ok, state, io} ->
-          case Parser.next(state) do
-            nil ->
-              {:halt, {:done, io}}
-
-            {:end, _state} ->
-              {[:end], {:done, io}}
-
-            {{:error, _} = error, _state} ->
-              {[error], {:done, io}}
-
-            {event, new_state} ->
-              {[event], {:ok, new_state, io}}
-          end
-      end,
-      fn
-        {:done, nil} -> :ok
-        {:done, io} when not is_nil(io) -> File.close(io)
-        {:ok, _state, io} when not is_nil(io) -> File.close(io)
-        {:error, _reason, nil} -> :ok
-        _ -> :ok
-      end
+      fn -> open_file_source(path, opts) end,
+      &next_file_event/1,
+      &close_file_resource/1
     )
   end
+
+  @doc false
+  @spec open_file_source(Path.t(), keyword()) ::
+          {:ok, Dicom.P10.Stream.Parser.state(), IO.device()}
+          | {:error, File.posix(), nil}
+  def open_file_source(path, opts) do
+    case File.open(path, [:raw, :binary, :read]) do
+      {:ok, io} ->
+        source = Source.from_io(io, opts)
+        {:ok, Parser.new(source), io}
+
+      {:error, reason} ->
+        {:error, reason, nil}
+    end
+  end
+
+  @doc false
+  @spec next_file_event(tuple()) :: {[term()], tuple()} | {:halt, tuple()}
+  def next_file_event({:error, reason, _io}) do
+    {[{:error, reason}], {:done, nil}}
+  end
+
+  def next_file_event({:done, _io}) do
+    {:halt, {:done, nil}}
+  end
+
+  def next_file_event({:ok, state, io}) do
+    case Parser.next(state) do
+      nil ->
+        {:halt, {:done, io}}
+
+      {:end, _state} ->
+        {[:end], {:done, io}}
+
+      {{:error, _} = error, _state} ->
+        {[error], {:done, io}}
+
+      {event, new_state} ->
+        {[event], {:ok, new_state, io}}
+    end
+  end
+
+  @doc false
+  @spec close_file_resource(tuple()) :: :ok
+  def close_file_resource({:done, nil}), do: :ok
+  def close_file_resource({:done, io}) when not is_nil(io), do: File.close(io)
+  def close_file_resource({:ok, _state, io}) when not is_nil(io), do: File.close(io)
+  def close_file_resource({:error, _reason, nil}), do: :ok
+  def close_file_resource(_resource), do: :ok
 
   @doc """
   Materializes a stream of events into a `Dicom.DataSet`.

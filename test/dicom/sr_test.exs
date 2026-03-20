@@ -27,6 +27,20 @@ defmodule Dicom.SRTest do
       assert item[Tag.code_meaning()].value == "Procedure reported"
       assert item[Tag.coding_scheme_version()].value == "2026a"
     end
+
+    test "rejects blank coded entry fields" do
+      assert_raise ArgumentError, ~r/value/, fn ->
+        Code.new("   ", "DCM", "Procedure reported")
+      end
+
+      assert_raise ArgumentError, ~r/scheme_designator/, fn ->
+        Code.new("121058", "   ", "Procedure reported")
+      end
+
+      assert_raise ArgumentError, ~r/meaning/, fn ->
+        Code.new("121058", "DCM", "   ")
+      end
+    end
   end
 
   describe "Reference" do
