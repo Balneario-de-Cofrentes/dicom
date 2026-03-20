@@ -43,6 +43,25 @@ defmodule Dicom.SRTest do
         )
       end
     end
+
+    test "accepts segment numbers and rejects non-list inputs" do
+      reference =
+        Reference.new(
+          Dicom.UID.segmentation_storage(),
+          "1.2.826.0.1.3680043.10.1137.805",
+          segment_numbers: [1, 2]
+        )
+
+      assert reference.segment_numbers == [1, 2]
+
+      assert_raise ArgumentError, ~r/segment_numbers to be a list/, fn ->
+        Reference.new(
+          Dicom.UID.segmentation_storage(),
+          "1.2.826.0.1.3680043.10.1137.806",
+          segment_numbers: 1
+        )
+      end
+    end
   end
 
   describe "Scoord2D" do
@@ -58,9 +77,61 @@ defmodule Dicom.SRTest do
         Scoord2D.new(reference, "POINT", [1.0, 2.0, 3.0])
       end
     end
+
+    test "normalizes case and supports remaining graphic types" do
+      reference =
+        Reference.new(Dicom.UID.dx_image_storage(), "1.2.826.0.1.3680043.10.1137.803")
+
+      assert %Scoord2D{graphic_type: "MULTIPOINT"} =
+               Scoord2D.new(reference, "multipoint", [1.0, 2.0, 3.0, 4.0])
+
+      assert %Scoord2D{graphic_type: "CIRCLE"} =
+               Scoord2D.new(reference, "circle", [1.0, 2.0, 3.0, 4.0])
+
+      assert %Scoord2D{graphic_type: "ELLIPSE"} =
+               Scoord2D.new(reference, "ellipse", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+
+      assert_raise ArgumentError, ~r/contain only numbers/, fn ->
+        Scoord2D.new(reference, "POINT", [1.0, "bad"])
+      end
+    end
   end
 
   describe "ContentItem" do
+    test "default wrappers require relationship_type and preserve binary numeric values" do
+      code = Code.new("121058", "DCM", "Procedure reported")
+      reference = Reference.new(Dicom.UID.dx_image_storage(), "1.2.826.0.1.3680043.10.1137.707")
+      region = Scoord2D.new(reference, "POINT", [1.0, 2.0])
+
+      assert_raise KeyError, fn -> ContentItem.code(Codes.finding(), code) end
+      assert_raise KeyError, fn -> ContentItem.text(Codes.finding(), "missing relationship") end
+
+      assert_raise KeyError, fn ->
+        ContentItem.num(Codes.finding(), 1, Code.new("1", "UCUM", "one"))
+      end
+
+      assert_raise KeyError, fn ->
+        ContentItem.uidref(Codes.tracking_unique_identifier(), "1.2.826.0.1.3680043.10.1137.708")
+      end
+
+      assert_raise KeyError, fn -> ContentItem.image(Codes.source(), reference) end
+      assert_raise KeyError, fn -> ContentItem.composite(Codes.source(), reference) end
+      assert_raise KeyError, fn -> ContentItem.scoord(Codes.image_region(), region) end
+      assert_raise KeyError, fn -> ContentItem.pname(Codes.person_observer_name(), "DOE^JOHN") end
+
+      numeric_item =
+        ContentItem.num(
+          Code.new("8867-4", "LN", "Heart rate"),
+          "62.5",
+          Code.new("/min", "UCUM", "beats per minute"),
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      [measured_value] = numeric_item[Tag.measured_value_sequence()].value
+      assert measured_value[Tag.numeric_value()].value == "62.5"
+    end
+
     test "renders a rooted container with nested children" do
       root =
         ContentItem.container(Codes.imaging_measurement_report(),
@@ -149,9 +220,95 @@ defmodule Dicom.SRTest do
       assert item[Tag.value_type()].value == "COMPOSITE"
       assert code_value(item, Tag.purpose_of_reference_code_sequence()) == "111040"
     end
+
+    test "renders uidref, pname, numeric qualifiers, segment references, and root continuity overrides" do
+      segment_reference =
+        Reference.new(
+          Dicom.UID.segmentation_storage(),
+          "1.2.826.0.1.3680043.10.1137.704",
+          segment_numbers: [2, 4]
+        )
+
+      uid_item =
+        ContentItem.uidref(Codes.tracking_unique_identifier(), "1.2.826.0.1.3680043.10.1137.705",
+          relationship_type: "HAS OBS CONTEXT"
+        )
+        |> ContentItem.to_item()
+
+      pname_item =
+        ContentItem.pname(Codes.person_observer_name(), "DOE^JANE",
+          relationship_type: "HAS OBS CONTEXT"
+        )
+        |> ContentItem.to_item()
+
+      numeric_item =
+        ContentItem.num(
+          Code.new("8867-4", "LN", "Heart rate"),
+          62.5,
+          Code.new("/min", "UCUM", "beats per minute"),
+          relationship_type: "CONTAINS",
+          qualifier: Code.new("114006", "DCM", "Measurement failure")
+        )
+        |> ContentItem.to_item()
+
+      segment_item =
+        ContentItem.image(Codes.source(), segment_reference, relationship_type: "CONTAINS")
+        |> ContentItem.to_item()
+
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          continuity_of_content: "CONTINUOUS"
+        )
+        |> ContentItem.to_root_elements()
+
+      assert uid_item[Tag.uid_value()].value == "1.2.826.0.1.3680043.10.1137.705"
+      assert pname_item[Tag.person_name_value()].value == "DOE^JANE"
+      assert numeric_item[Tag.measured_value_sequence()].value |> hd() |> Map.has_key?(Tag.numeric_value_qualifier_code_sequence())
+
+      [segment_ref] = segment_item[Tag.referenced_sop_sequence()].value
+      assert segment_ref[Tag.referenced_segment_number()].value == [2, 4]
+      assert root[Tag.continuity_of_content()].value == "CONTINUOUS"
+    end
+
+    test "requires relationship types for non-root items" do
+      assert_raise ArgumentError, ~r/require a relationship_type/, fn ->
+        %ContentItem{
+          value_type: :text,
+          concept_name: Codes.finding(),
+          value: "orphaned item"
+        }
+        |> ContentItem.to_item()
+      end
+    end
   end
 
   describe "MeasurementReport" do
+    test "builds measurement groups with default opts and optional finding category" do
+      group =
+        MeasurementGroup.new("lesion-plain", "1.2.826.0.1.3680043.10.1137.1500.9")
+
+      plain_item = MeasurementGroup.to_content_item(group) |> ContentItem.to_item()
+
+      assert plain_item[Tag.relationship_type()].value == "CONTAINS"
+
+      plain_codes =
+        plain_item[Tag.content_sequence()].value
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "276214006" in plain_codes
+
+      categorized_group =
+        MeasurementGroup.new("lesion-cat", "1.2.826.0.1.3680043.10.1137.1500.10",
+          finding_category: Code.new("M-01000", "SRT", "Morphologically Altered Structure")
+        )
+
+      categorized_item = MeasurementGroup.to_content_item(categorized_group) |> ContentItem.to_item()
+
+      assert Enum.any?(categorized_item[Tag.content_sequence()].value, fn item ->
+               code_value(item, Tag.concept_name_code_sequence()) == "276214006"
+             end)
+    end
+
     test "builds a TID 1500 document with measurement groups and serializes to P10" do
       measurement =
         Measurement.new(
@@ -254,6 +411,59 @@ defmodule Dicom.SRTest do
       assert DataSet.get(data_set, Tag.verification_date_time()) == "20260320100000"
       [observer] = DataSet.get(data_set, Tag.verifying_observer_sequence())
       assert observer[Tag.verifying_observer_name()].value == "REPORTER^ALICE"
+    end
+
+    test "rejects invalid roots and missing or malformed UIDs" do
+      orphan =
+        ContentItem.text(Codes.finding(), "invalid root", relationship_type: "CONTAINS")
+
+      assert {:error, :invalid_root_content} =
+               Document.new(
+                 orphan,
+                 study_instance_uid: "1.2.826.0.1.3680043.10.1137.199",
+                 series_instance_uid: "1.2.826.0.1.3680043.10.1137.200",
+                 sop_instance_uid: "1.2.826.0.1.3680043.10.1137.201"
+               )
+
+      root = ContentItem.container(Codes.imaging_measurement_report())
+
+      assert {:error, {:missing_uid, :study_instance_uid}} =
+               Document.new(
+                 root,
+                 series_instance_uid: "1.2.826.0.1.3680043.10.1137.202",
+                 sop_instance_uid: "1.2.826.0.1.3680043.10.1137.203"
+               )
+
+      assert {:error, {:invalid_uid, :study_instance_uid}} =
+               Document.new(
+                 root,
+                 study_instance_uid: "not-a-uid",
+                 series_instance_uid: "1.2.826.0.1.3680043.10.1137.204",
+                 sop_instance_uid: "1.2.826.0.1.3680043.10.1137.205"
+               )
+    end
+
+    test "supports DateTime content and verification timestamps" do
+      root = ContentItem.container(Codes.imaging_measurement_report())
+      datetime = DateTime.from_naive!(~N[2026-03-20 12:34:56], "Etc/UTC")
+
+      {:ok, document} =
+        Document.new(
+          root,
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.206",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.207",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.208",
+          content_datetime: datetime,
+          verification_flag: "VERIFIED",
+          verifying_observer_name: "REPORTER^ALICE",
+          verification_datetime: datetime
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.content_date()) == "20260320"
+      assert DataSet.get(data_set, Tag.content_time()) == "123456"
+      assert DataSet.get(data_set, Tag.verification_date_time()) == "20260320123456+0000"
     end
 
     test "supports device observer context and image-backed measurement evidence" do
@@ -367,9 +577,35 @@ defmodule Dicom.SRTest do
       assert "121015" in codes
       assert "121016" in codes
     end
+
+    test "omits optional device text fields when they are not provided" do
+      items = Observer.device(uid: "1.2.826.0.1.3680043.10.1137.821")
+      assert length(items) == 2
+    end
   end
 
   describe "ECGReport" do
+    test "omits device observer context when observer_device is nil" do
+      {:ok, document} =
+        ECGReport.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.213",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.214",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.215",
+          observer_name: "CARDIOLOGIST^BOB",
+          observer_device: nil
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "121012" in concept_codes
+      refute "121013" in concept_codes
+    end
+
     test "builds a TID 3700 document with global and lead measurement sections" do
       global_measurement =
         Measurement.new(
@@ -416,9 +652,56 @@ defmodule Dicom.SRTest do
       assert "121071" in section_codes
       assert "121073" in section_codes
     end
+
+    test "supports code and text mixtures without optional procedure or device sections" do
+      {:ok, document} =
+        ECGReport.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.210",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.211",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.212",
+          observer_name: "CARDIOLOGIST^BOB",
+          reasons: [Code.new("12345", "99B", "Palpitations"), "Dyspnea"],
+          findings: ["Sinus tachycardia"],
+          summary: [Code.new("373930000", "SCT", "Normal ECG")]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      section_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121071" in section_codes
+      assert "121073" in section_codes
+      refute "121058" in section_codes
+      refute "122158" in section_codes
+      refute "122159" in section_codes
+    end
   end
 
   describe "StressTestingReport" do
+    test "omits device observer context when observer_device is nil" do
+      {:ok, document} =
+        StressTestingReport.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.313",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.314",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.315",
+          observer_name: "STRESS^CAROL",
+          observer_device: nil
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "121012" in concept_codes
+      refute "121013" in concept_codes
+    end
+
     test "builds a TID 3300 document with procedure, phases, conclusions, and recommendations" do
       phase_measurement =
         Measurement.new(
@@ -462,6 +745,33 @@ defmodule Dicom.SRTest do
       assert "121071" in concept_codes
       assert "121073" in concept_codes
       assert "121075" in concept_codes
+    end
+
+    test "supports code-based indications, impressions, and recommendations without optional procedure text" do
+      {:ok, document} =
+        StressTestingReport.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.310",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.311",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.312",
+          observer_name: "STRESS^CAROL",
+          indications: [Code.new("233604007", "SCT", "Chest pain")],
+          summary: [Code.new("373930000", "SCT", "Normal ECG")],
+          conclusions: [Code.new("17621005", "SCT", "Exercise tolerance test normal")],
+          recommendations: [Code.new("710830005", "SCT", "Clinical follow-up")]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121071" in concept_codes
+      assert "121073" in concept_codes
+      assert "121075" in concept_codes
+      refute "121065" in concept_codes
+      refute "121058" in concept_codes
     end
   end
 

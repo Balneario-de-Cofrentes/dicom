@@ -340,7 +340,7 @@ defmodule Dicom.SR.ContentItem do
 
   defp normalize_numeric_value(value) when is_float(value) do
     value
-    |> :erlang.float_to_binary(decimals: 12, compact: true)
+    |> :erlang.float_to_binary([:compact, decimals: 12])
     |> String.trim_trailing(".0")
   end
 

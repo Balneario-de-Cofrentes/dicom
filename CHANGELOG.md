@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-03-20
+
+### Fixed
+
+- `Dicom.SR.ContentItem` now preserves numeric string inputs and formats float values without raising while building NUM content items
+
+### Changed
+
+- Coverage increased to 98.18% overall, with the new PS3.16 SR surface driven to 100% module coverage
+- Added regression tests for SR wrapper defaults, measurement-group finding categories, observer-device omission branches, verification metadata, and mixed code/text template inputs
+- Implementation version name updated to `DICOM_0.7.1`
+
 ## [0.7.0] - 2026-03-20
 
 ### Added
