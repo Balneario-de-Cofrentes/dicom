@@ -281,6 +281,7 @@ defmodule Dicom.P10.WriterTest do
         )
 
       assert true = Dicom.P10.Writer.test_valid_basic_offset_table_count?(<<0::little-32>>, ds)
+
       assert {:error, {:invalid_element_value, {0x0028, 0x0008}, :IS, ArgumentError}} =
                Dicom.P10.Writer.serialize(ds)
     end
