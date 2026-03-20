@@ -263,7 +263,10 @@ defmodule Dicom.SRTest do
 
       assert uid_item[Tag.uid_value()].value == "1.2.826.0.1.3680043.10.1137.705"
       assert pname_item[Tag.person_name_value()].value == "DOE^JANE"
-      assert numeric_item[Tag.measured_value_sequence()].value |> hd() |> Map.has_key?(Tag.numeric_value_qualifier_code_sequence())
+
+      assert numeric_item[Tag.measured_value_sequence()].value
+             |> hd()
+             |> Map.has_key?(Tag.numeric_value_qualifier_code_sequence())
 
       [segment_ref] = segment_item[Tag.referenced_sop_sequence()].value
       assert segment_ref[Tag.referenced_segment_number()].value == [2, 4]
@@ -302,7 +305,8 @@ defmodule Dicom.SRTest do
           finding_category: Code.new("M-01000", "SRT", "Morphologically Altered Structure")
         )
 
-      categorized_item = MeasurementGroup.to_content_item(categorized_group) |> ContentItem.to_item()
+      categorized_item =
+        MeasurementGroup.to_content_item(categorized_group) |> ContentItem.to_item()
 
       assert Enum.any?(categorized_item[Tag.content_sequence()].value, fn item ->
                code_value(item, Tag.concept_name_code_sequence()) == "276214006"

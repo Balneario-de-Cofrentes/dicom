@@ -364,7 +364,8 @@ _Yanked — published before peer changes were merged. Use 0.6.2._
 - 100% test coverage across all 12 modules (259 tests)
 - Property-based tests with StreamData for encode/decode roundtrips
 
-[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/Balneario-de-Cofrentes/dicom/compare/v0.6.1...v0.6.2
