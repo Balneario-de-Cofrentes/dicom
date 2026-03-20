@@ -17,7 +17,7 @@ defmodule Dicom.SR.ContentTree do
   """
 
   alias Dicom.{DataSet, Tag, Value}
-  alias Dicom.SR.{Code, ContentItem, Reference, Scoord2D}
+  alias Dicom.SR.{Code, ContentItem, Reference, Scoord2D, Scoord3D}
 
   @doc """
   Reconstructs the root `ContentItem` tree from a parsed DICOM SR data set.
@@ -80,6 +80,10 @@ defmodule Dicom.SR.ContentTree do
       "IMAGE" -> {:ok, :image}
       "COMPOSITE" -> {:ok, :composite}
       "SCOORD" -> {:ok, :scoord}
+      "SCOORD3D" -> {:ok, :scoord3d}
+      "DATE" -> {:ok, :date}
+      "TIME" -> {:ok, :time}
+      "DATETIME" -> {:ok, :datetime}
       "PNAME" -> {:ok, :pname}
       other -> {:error, {:unsupported_value_type, other}}
     end
@@ -196,6 +200,54 @@ defmodule Dicom.SR.ContentTree do
       concept_name: concept_name,
       relationship_type: trim_or_nil(relationship_type),
       value: scoord,
+      children: extract_children(source)
+    }
+  end
+
+  defp build_item(:scoord3d, concept_name, relationship_type, source) do
+    scoord3d = extract_scoord3d(source)
+
+    %ContentItem{
+      value_type: :scoord3d,
+      concept_name: concept_name,
+      relationship_type: trim_or_nil(relationship_type),
+      value: scoord3d,
+      children: extract_children(source)
+    }
+  end
+
+  defp build_item(:date, concept_name, relationship_type, source) do
+    date_value = get_value(source, Tag.sr_date())
+
+    %ContentItem{
+      value_type: :date,
+      concept_name: concept_name,
+      relationship_type: trim_or_nil(relationship_type),
+      value: trim_or_nil(date_value),
+      children: extract_children(source)
+    }
+  end
+
+  defp build_item(:time, concept_name, relationship_type, source) do
+    time_value = get_value(source, Tag.sr_time())
+
+    %ContentItem{
+      value_type: :time,
+      concept_name: concept_name,
+      relationship_type: trim_or_nil(relationship_type),
+      value: trim_or_nil(time_value),
+      children: extract_children(source)
+    }
+  end
+
+  defp build_item(:datetime, concept_name, relationship_type, source) do
+    dt_value = get_value(source, Tag.sr_datetime())
+
+    %ContentItem{
+      value_type: :datetime,
+      concept_name: concept_name,
+      relationship_type: trim_or_nil(relationship_type),
+      value: trim_or_nil(dt_value),
       children: extract_children(source)
     }
   end
@@ -393,6 +445,33 @@ defmodule Dicom.SR.ContentTree do
 
   defp decode_fl(binary) when rem(byte_size(binary), 4) == 0 do
     case Value.decode(binary, :FL) do
+      values when is_list(values) -> values
+      value when is_number(value) -> [value]
+    end
+  end
+
+  # -- SCOORD3D Extraction ----------------------------------------------------
+
+  defp extract_scoord3d(source) do
+    graphic_type = trim_or_nil(get_value(source, Tag.graphic_type()))
+    graphic_data = extract_graphic_data_fd(source)
+
+    frame_of_reference_uid =
+      trim_uid(get_value(source, Tag.referenced_frame_of_reference_uid()) || "")
+
+    Scoord3D.new(graphic_type, graphic_data, frame_of_reference_uid)
+  end
+
+  defp extract_graphic_data_fd(source) do
+    case get_value(source, Tag.graphic_data()) do
+      values when is_list(values) -> values
+      value when is_binary(value) -> decode_fd(value)
+      nil -> []
+    end
+  end
+
+  defp decode_fd(binary) when rem(byte_size(binary), 8) == 0 do
+    case Value.decode(binary, :FD) do
       values when is_list(values) -> values
       value when is_number(value) -> [value]
     end

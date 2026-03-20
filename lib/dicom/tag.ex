@@ -105,8 +105,12 @@ defmodule Dicom.Tag do
   def measurement_units_code_sequence, do: {0x0040, 0x08EA}
   def template_identifier, do: {0x0040, 0xDB00}
   def referenced_segment_number, do: {0x0062, 0x000B}
+  def sr_datetime, do: {0x0040, 0xA120}
+  def sr_date, do: {0x0040, 0xA121}
+  def sr_time, do: {0x0040, 0xA122}
   def graphic_data, do: {0x0070, 0x0022}
   def graphic_type, do: {0x0070, 0x0023}
+  def referenced_frame_of_reference_uid, do: {0x3006, 0x0024}
 
   # Image
   def rows, do: {0x0028, 0x0010}

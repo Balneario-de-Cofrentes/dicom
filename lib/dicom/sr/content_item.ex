@@ -3,8 +3,8 @@ defmodule Dicom.SR.ContentItem do
   A reusable SR content item with relationship and child content.
   """
 
-  alias Dicom.{DataElement, Tag}
-  alias Dicom.SR.{Code, Reference, Scoord2D}
+  alias Dicom.{DataElement, Tag, Value}
+  alias Dicom.SR.{Code, Reference, Scoord2D, Scoord3D}
 
   @type value_type ::
           :container
@@ -15,6 +15,10 @@ defmodule Dicom.SR.ContentItem do
           | :image
           | :composite
           | :scoord
+          | :scoord3d
+          | :date
+          | :time
+          | :datetime
           | :pname
 
   @type t :: %__MODULE__{
@@ -130,6 +134,50 @@ defmodule Dicom.SR.ContentItem do
     }
   end
 
+  @spec scoord3d(Code.t(), Scoord3D.t(), keyword()) :: t()
+  def scoord3d(%Code{} = concept_name, %Scoord3D{} = value, opts \\ []) do
+    %__MODULE__{
+      value_type: :scoord3d,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: value,
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec date(Code.t(), Date.t() | String.t(), keyword()) :: t()
+  def date(%Code{} = concept_name, value, opts \\ []) do
+    %__MODULE__{
+      value_type: :date,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: normalize_date(value),
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec time(Code.t(), Time.t() | String.t(), keyword()) :: t()
+  def time(%Code{} = concept_name, value, opts \\ []) do
+    %__MODULE__{
+      value_type: :time,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: normalize_time(value),
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec datetime(Code.t(), DateTime.t() | NaiveDateTime.t() | String.t(), keyword()) :: t()
+  def datetime(%Code{} = concept_name, value, opts \\ []) do
+    %__MODULE__{
+      value_type: :datetime,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: normalize_datetime(value),
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
   @spec pname(Code.t(), String.t(), keyword()) :: t()
   def pname(%Code{} = concept_name, value, opts \\ [])
       when is_binary(value) do
@@ -239,6 +287,38 @@ defmodule Dicom.SR.ContentItem do
     |> maybe_put_reference_purpose(scoord.reference.purpose)
   end
 
+  defp put_value(base, %__MODULE__{value_type: :scoord3d, value: %Scoord3D{} = scoord3d}) do
+    base
+    |> Map.put(
+      Tag.graphic_type(),
+      DataElement.new(Tag.graphic_type(), :CS, scoord3d.graphic_type)
+    )
+    |> Map.put(
+      Tag.graphic_data(),
+      DataElement.new(Tag.graphic_data(), :FD, scoord3d.graphic_data)
+    )
+    |> Map.put(
+      Tag.referenced_frame_of_reference_uid(),
+      DataElement.new(
+        Tag.referenced_frame_of_reference_uid(),
+        :UI,
+        scoord3d.frame_of_reference_uid
+      )
+    )
+  end
+
+  defp put_value(base, %__MODULE__{value_type: :date, value: date_str}) do
+    Map.put(base, Tag.sr_date(), DataElement.new(Tag.sr_date(), :DA, date_str))
+  end
+
+  defp put_value(base, %__MODULE__{value_type: :time, value: time_str}) do
+    Map.put(base, Tag.sr_time(), DataElement.new(Tag.sr_time(), :TM, time_str))
+  end
+
+  defp put_value(base, %__MODULE__{value_type: :datetime, value: dt_str}) do
+    Map.put(base, Tag.sr_datetime(), DataElement.new(Tag.sr_datetime(), :DT, dt_str))
+  end
+
   defp put_value(base, %__MODULE__{value_type: :pname, value: person_name}) do
     Map.put(
       base,
@@ -289,6 +369,10 @@ defmodule Dicom.SR.ContentItem do
   defp encode_value_type(:image), do: "IMAGE"
   defp encode_value_type(:composite), do: "COMPOSITE"
   defp encode_value_type(:scoord), do: "SCOORD"
+  defp encode_value_type(:scoord3d), do: "SCOORD3D"
+  defp encode_value_type(:date), do: "DATE"
+  defp encode_value_type(:time), do: "TIME"
+  defp encode_value_type(:datetime), do: "DATETIME"
   defp encode_value_type(:pname), do: "PNAME"
 
   defp maybe_put_reference_purpose(base, nil), do: base
@@ -345,4 +429,14 @@ defmodule Dicom.SR.ContentItem do
   end
 
   defp normalize_numeric_value(value) when is_binary(value), do: value
+
+  defp normalize_date(%Date{} = date), do: Value.from_date(date)
+  defp normalize_date(value) when is_binary(value), do: value
+
+  defp normalize_time(%Time{} = time), do: Value.from_time(time)
+  defp normalize_time(value) when is_binary(value), do: value
+
+  defp normalize_datetime(%DateTime{} = dt), do: Value.from_datetime(dt)
+  defp normalize_datetime(%NaiveDateTime{} = ndt), do: Value.from_datetime(ndt)
+  defp normalize_datetime(value) when is_binary(value), do: value
 end

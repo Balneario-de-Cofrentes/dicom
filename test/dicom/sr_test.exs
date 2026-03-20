@@ -12,7 +12,8 @@ defmodule Dicom.SRTest do
     MeasurementGroup,
     Observer,
     Reference,
-    Scoord2D
+    Scoord2D,
+    Scoord3D
   }
 
   alias Dicom.SR.Templates.{ECGReport, MeasurementReport, StressTestingReport}
@@ -107,6 +108,91 @@ defmodule Dicom.SRTest do
 
       assert_raise ArgumentError, ~r/contain only numbers/, fn ->
         Scoord2D.new(reference, "POINT", [1.0, "bad"])
+      end
+    end
+  end
+
+  describe "Scoord3D" do
+    @frame_of_ref_uid "1.2.826.0.1.3680043.10.1137.900"
+
+    test "validates supported graphic types and coordinate counts" do
+      assert_raise ArgumentError, ~r/unsupported SCOORD3D graphic_type/, fn ->
+        Scoord3D.new("RECTANGLE", [1.0, 2.0, 3.0], @frame_of_ref_uid)
+      end
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("POINT", [1.0, 2.0], @frame_of_ref_uid)
+      end
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("POINT", [1.0, 2.0, 3.0, 4.0], @frame_of_ref_uid)
+      end
+    end
+
+    test "creates POINT with exactly 3 values" do
+      scoord = Scoord3D.new("POINT", [1.0, 2.0, 3.0], @frame_of_ref_uid)
+      assert scoord.graphic_type == "POINT"
+      assert scoord.graphic_data == [1.0, 2.0, 3.0]
+      assert scoord.frame_of_reference_uid == @frame_of_ref_uid
+    end
+
+    test "creates MULTIPOINT with divisible-by-3, minimum 3 values" do
+      scoord = Scoord3D.new("MULTIPOINT", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], @frame_of_ref_uid)
+      assert scoord.graphic_type == "MULTIPOINT"
+      assert length(scoord.graphic_data) == 6
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("MULTIPOINT", [1.0, 2.0], @frame_of_ref_uid)
+      end
+    end
+
+    test "creates POLYLINE with divisible-by-3, minimum 6 values" do
+      scoord = Scoord3D.new("POLYLINE", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], @frame_of_ref_uid)
+      assert scoord.graphic_type == "POLYLINE"
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("POLYLINE", [1.0, 2.0, 3.0], @frame_of_ref_uid)
+      end
+    end
+
+    test "creates POLYGON with divisible-by-3, minimum 9 values" do
+      data = Enum.map(1..9, &(&1 * 1.0))
+      scoord = Scoord3D.new("POLYGON", data, @frame_of_ref_uid)
+      assert scoord.graphic_type == "POLYGON"
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("POLYGON", Enum.map(1..6, &(&1 * 1.0)), @frame_of_ref_uid)
+      end
+    end
+
+    test "creates ELLIPSE with exactly 12 values" do
+      data = Enum.map(1..12, &(&1 * 1.0))
+      scoord = Scoord3D.new("ELLIPSE", data, @frame_of_ref_uid)
+      assert scoord.graphic_type == "ELLIPSE"
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("ELLIPSE", Enum.map(1..9, &(&1 * 1.0)), @frame_of_ref_uid)
+      end
+    end
+
+    test "creates ELLIPSOID with exactly 18 values" do
+      data = Enum.map(1..18, &(&1 * 1.0))
+      scoord = Scoord3D.new("ELLIPSOID", data, @frame_of_ref_uid)
+      assert scoord.graphic_type == "ELLIPSOID"
+
+      assert_raise ArgumentError, ~r/invalid graphic_data/, fn ->
+        Scoord3D.new("ELLIPSOID", Enum.map(1..12, &(&1 * 1.0)), @frame_of_ref_uid)
+      end
+    end
+
+    test "normalizes case" do
+      scoord = Scoord3D.new("point", [1.0, 2.0, 3.0], @frame_of_ref_uid)
+      assert scoord.graphic_type == "POINT"
+    end
+
+    test "rejects non-numeric graphic_data" do
+      assert_raise ArgumentError, ~r/contain only numbers/, fn ->
+        Scoord3D.new("POINT", [1.0, "bad", 3.0], @frame_of_ref_uid)
       end
     end
   end
@@ -217,6 +303,134 @@ defmodule Dicom.SRTest do
 
       [sop_ref] = item[Tag.referenced_sop_sequence()].value
       assert sop_ref[Tag.referenced_sop_instance_uid()].value == "1.2.826.0.1.3680043.10.1137.701"
+    end
+
+    test "renders SCOORD3D references with graphic data and frame of reference UID" do
+      frame_of_ref_uid = "1.2.826.0.1.3680043.10.1137.850"
+
+      region =
+        Scoord3D.new("POINT", [10.0, 20.0, 30.0], frame_of_ref_uid)
+
+      item =
+        ContentItem.scoord3d(
+          Code.new("111030", "DCM", "Image Region"),
+          region,
+          relationship_type: "INFERRED FROM"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.value_type()].value == "SCOORD3D"
+      assert item[Tag.graphic_type()].value == "POINT"
+      assert item[Tag.graphic_data()].value == [10.0, 20.0, 30.0]
+      assert item[Tag.graphic_data()].vr == :FD
+      assert item[Tag.referenced_frame_of_reference_uid()].value == frame_of_ref_uid
+      refute Map.has_key?(item, Tag.referenced_sop_sequence())
+    end
+
+    test "renders DATE content items" do
+      item =
+        ContentItem.date(
+          Code.new("82688-0", "LN", "Date of measurement"),
+          ~D[2026-03-20],
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.value_type()].value == "DATE"
+      assert item[Tag.sr_date()].value == "20260320"
+      assert item[Tag.sr_date()].vr == :DA
+    end
+
+    test "renders DATE content items from string" do
+      item =
+        ContentItem.date(
+          Code.new("82688-0", "LN", "Date of measurement"),
+          "20260320",
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.sr_date()].value == "20260320"
+    end
+
+    test "renders TIME content items" do
+      item =
+        ContentItem.time(
+          Code.new("82689-8", "LN", "Time of measurement"),
+          ~T[14:30:22],
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.value_type()].value == "TIME"
+      assert item[Tag.sr_time()].value == "143022"
+      assert item[Tag.sr_time()].vr == :TM
+    end
+
+    test "renders TIME content items from string" do
+      item =
+        ContentItem.time(
+          Code.new("82689-8", "LN", "Time of measurement"),
+          "143022.500",
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.sr_time()].value == "143022.500"
+    end
+
+    test "renders DATETIME content items from NaiveDateTime" do
+      item =
+        ContentItem.datetime(
+          Code.new("82690-6", "LN", "DateTime of measurement"),
+          ~N[2026-03-20 14:30:22],
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.value_type()].value == "DATETIME"
+      assert item[Tag.sr_datetime()].value == "20260320143022"
+      assert item[Tag.sr_datetime()].vr == :DT
+    end
+
+    test "renders DATETIME content items from DateTime with timezone" do
+      dt = DateTime.from_naive!(~N[2026-03-20 14:30:22], "Etc/UTC")
+
+      item =
+        ContentItem.datetime(
+          Code.new("82690-6", "LN", "DateTime of measurement"),
+          dt,
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.sr_datetime()].value == "20260320143022+0000"
+    end
+
+    test "renders DATETIME content items from string" do
+      item =
+        ContentItem.datetime(
+          Code.new("82690-6", "LN", "DateTime of measurement"),
+          "20260320143022",
+          relationship_type: "CONTAINS"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.sr_datetime()].value == "20260320143022"
+    end
+
+    test "scoord3d, date, time, and datetime require relationship_type" do
+      scoord3d = Scoord3D.new("POINT", [1.0, 2.0, 3.0], "1.2.826.0.1.3680043.10.1137.851")
+      concept = Code.new("111030", "DCM", "Image Region")
+      date_concept = Code.new("82688-0", "LN", "Date")
+
+      assert_raise KeyError, fn -> ContentItem.scoord3d(concept, scoord3d) end
+      assert_raise KeyError, fn -> ContentItem.date(date_concept, ~D[2026-03-20]) end
+      assert_raise KeyError, fn -> ContentItem.time(date_concept, ~T[14:30:00]) end
+
+      assert_raise KeyError, fn ->
+        ContentItem.datetime(date_concept, ~N[2026-03-20 14:30:00])
+      end
     end
 
     test "renders composite references" do

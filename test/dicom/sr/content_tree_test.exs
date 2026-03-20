@@ -13,7 +13,8 @@ defmodule Dicom.SR.ContentTreeTest do
     Measurement,
     MeasurementGroup,
     Reference,
-    Scoord2D
+    Scoord2D,
+    Scoord3D
   }
 
   alias Dicom.SR.Templates.MeasurementReport
@@ -492,6 +493,273 @@ defmodule Dicom.SR.ContentTreeTest do
     end
   end
 
+  # -- Round-trip: SCOORD3D ---------------------------------------------------
+
+  describe "SCOORD3D round-trip" do
+    @frame_of_ref_uid "1.2.826.0.1.3680043.10.1137.850"
+
+    test "reconstructs SCOORD3D content items with POINT graphic type" do
+      region =
+        Scoord3D.new("POINT", [120.0, 220.0, 50.0], @frame_of_ref_uid)
+
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.scoord3d(
+              Code.new("111030", "DCM", "Image Region"),
+              region,
+              relationship_type: "INFERRED FROM"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [scoord3d_item] = tree.children
+      assert scoord3d_item.value_type == :scoord3d
+      assert scoord3d_item.relationship_type == "INFERRED FROM"
+      assert scoord3d_item.value.graphic_type == "POINT"
+      assert_in_delta Enum.at(scoord3d_item.value.graphic_data, 0), 120.0, 0.001
+      assert_in_delta Enum.at(scoord3d_item.value.graphic_data, 1), 220.0, 0.001
+      assert_in_delta Enum.at(scoord3d_item.value.graphic_data, 2), 50.0, 0.001
+      assert scoord3d_item.value.frame_of_reference_uid == @frame_of_ref_uid
+    end
+
+    test "reconstructs SCOORD3D content items with POLYLINE graphic type" do
+      region =
+        Scoord3D.new("POLYLINE", [10.0, 20.0, 30.0, 40.0, 50.0, 60.0], @frame_of_ref_uid)
+
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.scoord3d(
+              Code.new("111030", "DCM", "Image Region"),
+              region,
+              relationship_type: "INFERRED FROM"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [scoord3d_item] = tree.children
+      assert scoord3d_item.value.graphic_type == "POLYLINE"
+      assert length(scoord3d_item.value.graphic_data) == 6
+    end
+
+    test "reconstructs SCOORD3D content items with POLYGON graphic type" do
+      data = Enum.map(1..9, &(&1 * 1.0))
+      region = Scoord3D.new("POLYGON", data, @frame_of_ref_uid)
+
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.scoord3d(
+              Code.new("111030", "DCM", "Image Region"),
+              region,
+              relationship_type: "INFERRED FROM"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [scoord3d_item] = tree.children
+      assert scoord3d_item.value.graphic_type == "POLYGON"
+      assert length(scoord3d_item.value.graphic_data) == 9
+    end
+
+    test "reconstructs SCOORD3D content items with ELLIPSOID graphic type" do
+      data = Enum.map(1..18, &(&1 * 1.0))
+      region = Scoord3D.new("ELLIPSOID", data, @frame_of_ref_uid)
+
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.scoord3d(
+              Code.new("111030", "DCM", "Image Region"),
+              region,
+              relationship_type: "INFERRED FROM"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [scoord3d_item] = tree.children
+      assert scoord3d_item.value.graphic_type == "ELLIPSOID"
+      assert length(scoord3d_item.value.graphic_data) == 18
+    end
+  end
+
+  # -- Round-trip: DATE -------------------------------------------------------
+
+  describe "DATE round-trip" do
+    test "reconstructs date content items from Date struct" do
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.date(
+              Code.new("82688-0", "LN", "Date of measurement"),
+              ~D[2026-03-20],
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [date_item] = tree.children
+      assert date_item.value_type == :date
+      assert date_item.value == "20260320"
+      assert date_item.relationship_type == "CONTAINS"
+    end
+
+    test "reconstructs date content items from string" do
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.date(
+              Code.new("82688-0", "LN", "Date of measurement"),
+              "20260101",
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [date_item] = tree.children
+      assert date_item.value == "20260101"
+    end
+  end
+
+  # -- Round-trip: TIME -------------------------------------------------------
+
+  describe "TIME round-trip" do
+    test "reconstructs time content items from Time struct" do
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.time(
+              Code.new("82689-8", "LN", "Time of measurement"),
+              ~T[14:30:22],
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [time_item] = tree.children
+      assert time_item.value_type == :time
+      assert time_item.value == "143022"
+      assert time_item.relationship_type == "CONTAINS"
+    end
+
+    test "reconstructs time content items from string" do
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.time(
+              Code.new("82689-8", "LN", "Time of measurement"),
+              "080000",
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [time_item] = tree.children
+      assert time_item.value == "080000"
+    end
+  end
+
+  # -- Round-trip: DATETIME ---------------------------------------------------
+
+  describe "DATETIME round-trip" do
+    test "reconstructs datetime content items from NaiveDateTime" do
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.datetime(
+              Code.new("82690-6", "LN", "DateTime of measurement"),
+              ~N[2026-03-20 14:30:22],
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [dt_item] = tree.children
+      assert dt_item.value_type == :datetime
+      assert dt_item.value == "20260320143022"
+      assert dt_item.relationship_type == "CONTAINS"
+    end
+
+    test "reconstructs datetime content items from DateTime with timezone" do
+      dt = DateTime.from_naive!(~N[2026-03-20 14:30:22], "Etc/UTC")
+
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.datetime(
+              Code.new("82690-6", "LN", "DateTime of measurement"),
+              dt,
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [dt_item] = tree.children
+      assert dt_item.value == "20260320143022+0000"
+    end
+
+    test "reconstructs datetime content items from string" do
+      root =
+        ContentItem.container(Codes.imaging_measurement_report(),
+          children: [
+            ContentItem.datetime(
+              Code.new("82690-6", "LN", "DateTime of measurement"),
+              "20260101120000",
+              relationship_type: "CONTAINS"
+            )
+          ]
+        )
+
+      data_set = build_document(root)
+      {:ok, parsed} = round_trip(data_set)
+      {:ok, tree} = ContentTree.from_data_set(parsed)
+
+      [dt_item] = tree.children
+      assert dt_item.value == "20260101120000"
+    end
+  end
+
   # -- Round-trip: PNAME ------------------------------------------------------
 
   describe "PNAME round-trip" do
@@ -646,6 +914,9 @@ defmodule Dicom.SR.ContentTreeTest do
 
       region = Scoord2D.new(reference, "POINT", [50.0, 50.0])
 
+      region3d =
+        Scoord3D.new("POINT", [10.0, 20.0, 30.0], "1.2.826.0.1.3680043.10.1137.860")
+
       root =
         ContentItem.container(Codes.imaging_measurement_report(),
           children: [
@@ -669,6 +940,26 @@ defmodule Dicom.SR.ContentTreeTest do
             ContentItem.image(Codes.source(), reference, relationship_type: "CONTAINS"),
             ContentItem.composite(Codes.source(), reference, relationship_type: "CONTAINS"),
             ContentItem.scoord(Codes.image_region(), region, relationship_type: "INFERRED FROM"),
+            ContentItem.scoord3d(
+              Code.new("111030", "DCM", "Image Region"),
+              region3d,
+              relationship_type: "INFERRED FROM"
+            ),
+            ContentItem.date(
+              Code.new("82688-0", "LN", "Date of measurement"),
+              ~D[2026-03-20],
+              relationship_type: "CONTAINS"
+            ),
+            ContentItem.time(
+              Code.new("82689-8", "LN", "Time of measurement"),
+              ~T[14:30:22],
+              relationship_type: "CONTAINS"
+            ),
+            ContentItem.datetime(
+              Code.new("82690-6", "LN", "DateTime of measurement"),
+              ~N[2026-03-20 14:30:22],
+              relationship_type: "CONTAINS"
+            ),
             ContentItem.pname(Codes.person_observer_name(), "DOE^JOHN",
               relationship_type: "HAS OBS CONTEXT"
             )
@@ -679,7 +970,7 @@ defmodule Dicom.SR.ContentTreeTest do
       {:ok, parsed} = round_trip(data_set)
       {:ok, tree} = ContentTree.from_data_set(parsed)
 
-      assert length(tree.children) == 8
+      assert length(tree.children) == 12
 
       types = Enum.map(tree.children, & &1.value_type)
 
@@ -690,6 +981,10 @@ defmodule Dicom.SR.ContentTreeTest do
       assert :image in types
       assert :composite in types
       assert :scoord in types
+      assert :scoord3d in types
+      assert :date in types
+      assert :time in types
+      assert :datetime in types
       assert :pname in types
     end
   end
@@ -1195,6 +1490,106 @@ defmodule Dicom.SR.ContentTreeTest do
       [child] = item.children
       assert child.value_type == :text
       assert child.value == "Child finding"
+    end
+
+    test "from_sequence_item works for manually constructed SCOORD3D items" do
+      scoord3d_item = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "SCOORD3D"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "111030"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+              Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Image Region")
+            }
+          ]),
+        Tag.relationship_type() =>
+          Dicom.DataElement.new(Tag.relationship_type(), :CS, "INFERRED FROM"),
+        Tag.graphic_type() => Dicom.DataElement.new(Tag.graphic_type(), :CS, "POINT"),
+        Tag.graphic_data() => Dicom.DataElement.new(Tag.graphic_data(), :FD, [10.0, 20.0, 30.0]),
+        Tag.referenced_frame_of_reference_uid() =>
+          Dicom.DataElement.new(
+            Tag.referenced_frame_of_reference_uid(),
+            :UI,
+            "1.2.826.0.1.3680043.10.1137.860"
+          )
+      }
+
+      {:ok, item} = ContentTree.from_sequence_item(scoord3d_item)
+      assert item.value_type == :scoord3d
+      assert item.value.graphic_type == "POINT"
+      assert item.value.graphic_data == [10.0, 20.0, 30.0]
+      assert item.value.frame_of_reference_uid == "1.2.826.0.1.3680043.10.1137.860"
+    end
+
+    test "from_sequence_item works for manually constructed DATE items" do
+      date_item = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "DATE"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "82688-0"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "LN"),
+              Tag.code_meaning() =>
+                Dicom.DataElement.new(Tag.code_meaning(), :LO, "Date of measurement")
+            }
+          ]),
+        Tag.relationship_type() =>
+          Dicom.DataElement.new(Tag.relationship_type(), :CS, "CONTAINS"),
+        Tag.sr_date() => Dicom.DataElement.new(Tag.sr_date(), :DA, "20260320")
+      }
+
+      {:ok, item} = ContentTree.from_sequence_item(date_item)
+      assert item.value_type == :date
+      assert item.value == "20260320"
+    end
+
+    test "from_sequence_item works for manually constructed TIME items" do
+      time_item = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "TIME"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "82689-8"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "LN"),
+              Tag.code_meaning() =>
+                Dicom.DataElement.new(Tag.code_meaning(), :LO, "Time of measurement")
+            }
+          ]),
+        Tag.relationship_type() =>
+          Dicom.DataElement.new(Tag.relationship_type(), :CS, "CONTAINS"),
+        Tag.sr_time() => Dicom.DataElement.new(Tag.sr_time(), :TM, "143022")
+      }
+
+      {:ok, item} = ContentTree.from_sequence_item(time_item)
+      assert item.value_type == :time
+      assert item.value == "143022"
+    end
+
+    test "from_sequence_item works for manually constructed DATETIME items" do
+      datetime_item = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "DATETIME"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "82690-6"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "LN"),
+              Tag.code_meaning() =>
+                Dicom.DataElement.new(Tag.code_meaning(), :LO, "DateTime of measurement")
+            }
+          ]),
+        Tag.relationship_type() =>
+          Dicom.DataElement.new(Tag.relationship_type(), :CS, "CONTAINS"),
+        Tag.sr_datetime() => Dicom.DataElement.new(Tag.sr_datetime(), :DT, "20260320143022+0000")
+      }
+
+      {:ok, item} = ContentTree.from_sequence_item(datetime_item)
+      assert item.value_type == :datetime
+      assert item.value == "20260320143022+0000"
     end
   end
 
