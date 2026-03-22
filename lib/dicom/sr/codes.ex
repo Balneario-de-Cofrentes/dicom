@@ -1381,4 +1381,23 @@ defmodule Dicom.SR.Codes do
   @spec specimen_container_identifier() :: Code.t()
   def specimen_container_identifier,
     do: Code.new("111700", "DCM", "Specimen Container Identifier")
+
+  # -- TID 1200-1211 Language Sub-Template codes ----------------------------
+
+  @spec language() :: Code.t()
+  def language, do: Code.new("121046", "DCM", "Language")
+
+  @spec country_of_language() :: Code.t()
+  def country_of_language, do: Code.new("121047", "DCM", "Country of Language")
+
+  @spec language_of_value() :: Code.t()
+  def language_of_value, do: Code.new("121048", "DCM", "Language of Value")
+
+  @spec equivalent_meaning_of_concept_name() :: Code.t()
+  def equivalent_meaning_of_concept_name,
+    do: Code.new("121050", "DCM", "Equivalent Meaning of Concept Name")
+
+  @spec equivalent_meaning_of_value() :: Code.t()
+  def equivalent_meaning_of_value,
+    do: Code.new("121051", "DCM", "Equivalent Meaning of Value")
 end
