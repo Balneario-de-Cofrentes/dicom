@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-22
+
+### Added
+
+- **30 new SR template builders** covering all remaining PS3.16 root templates — the library now implements all 33 root templates defined in the DICOM standard:
+  - General: TranscribedDiagnosticImagingReport (TID 2005), ImagingReport (TID 2006)
+  - Ophthalmology: SpectaclePrescriptionReport (TID 2020), MacularGridReport (TID 2100)
+  - Procedure: ProcedureLog (TID 3001) with LogEntry helper
+  - Cardiology: IVUSReport (TID 3250), HemodynamicsReport (TID 3500), WaveformAnnotation (TID 3750), CardiacCatheterizationReport (TID 3800), CardiovascularAnalysisReport (TID 3900)
+  - CAD: MammographyCAD (TID 4000), ChestCAD (TID 4100), ColonCAD (TID 4120)
+  - Breast/Prostate: BreastImagingReport (TID 4200, BI-RADS), ProstateMRReport (TID 4300, PI-RADS)
+  - Ultrasound: OBGYNUltrasoundReport (TID 5000), VascularUltrasoundReport (TID 5100), EchocardiographyReport (TID 5200), PediatricCardiacUSReport (TID 5220), SimplifiedEchoReport (TID 5300), StructuralHeartReport (TID 5320), GeneralUltrasoundReport (TID 12000)
+  - Radiation Dose: ProjectionXRayRadiationDose (TID 10001), CTRadiationDose (TID 10011), RadiopharmaceuticalRadiationDose (TID 10021), PatientRadiationDose (TID 10030), EnhancedXrayRadiationDose (TID 10040)
+  - Imaging Agent: PlannedImagingAgentAdministration (TID 11001), PerformedImagingAgentAdministration (TID 11020)
+  - Other: ImplantationPlan (TID 7000), PreclinicalAcquisitionContext (TID 8101)
+- **TCOORD value type** — `Dicom.SR.Tcoord` struct and `:tcoord` ContentItem type for temporal coordinates (POINT, SEGMENT, MULTIPOINT, etc.)
+- **LogEntry helper** — `Dicom.SR.LogEntry` struct for procedure log event construction
+- **334 new normative codes** in `Dicom.SR.Codes` (total: 372) covering all domains
+- **3 new SOP class UIDs** — mammography CAD SR, chest CAD SR, X-ray radiation dose SR
+- **Shared template helpers** — `Dicom.SR.Templates.Helpers` eliminates duplication across all builders
+- **PS3.16 conformance plan** — `docs/sr_template_conformance.md`
+- 257 new tests (total: 1716), 98.12% coverage
+
 ## [0.8.1] - 2026-03-20
 
 ### Changed

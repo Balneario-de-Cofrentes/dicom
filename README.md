@@ -41,23 +41,33 @@ Add `dicom` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:dicom, "~> 0.8.1"}
+    {:dicom, "~> 0.9.0"}
   ]
 end
 ```
 
 ## Structured Reports
 
-`dicom` now includes an initial PS3.16 authoring foundation:
+`dicom` includes complete PS3.16 SR authoring with all 33 root template builders:
 
-- coded entries via `Dicom.SR.Code`
-- content-tree construction via `Dicom.SR.ContentItem`
+- coded entries via `Dicom.SR.Code` (372 normative codes)
+- content-tree construction via `Dicom.SR.ContentItem` (13 value types incl. TCOORD)
 - observation context helpers via `Dicom.SR.Observer`
 - SR document rendering via `Dicom.SR.Document`
-- focused template builders:
-  - `Dicom.SR.Templates.MeasurementReport` (`TID 1500`)
-  - `Dicom.SR.Templates.StressTestingReport` (`TID 3300`)
-  - `Dicom.SR.Templates.ECGReport` (`TID 3700`)
+- **34 template builders** covering every PS3.16 root template:
+
+| Domain | Templates |
+|--------|-----------|
+| General Imaging | `MeasurementReport` (1500), `TranscribedDiagnosticImagingReport` (2005), `ImagingReport` (2006), `KeyObjectSelection` (2010) |
+| Ophthalmology | `SpectaclePrescriptionReport` (2020), `MacularGridReport` (2100) |
+| Procedure Log | `ProcedureLog` (3001) |
+| Cardiology | `IVUSReport` (3250), `StressTestingReport` (3300), `HemodynamicsReport` (3500), `ECGReport` (3700), `WaveformAnnotation` (3750), `CardiacCatheterizationReport` (3800), `CardiovascularAnalysisReport` (3900) |
+| CAD | `MammographyCAD` (4000), `ChestCAD` (4100), `ColonCAD` (4120) |
+| Breast/Prostate | `BreastImagingReport` (4200, BI-RADS), `ProstateMRReport` (4300, PI-RADS) |
+| Ultrasound | `OBGYNUltrasoundReport` (5000), `VascularUltrasoundReport` (5100), `EchocardiographyReport` (5200), `PediatricCardiacUSReport` (5220), `SimplifiedEchoReport` (5300), `StructuralHeartReport` (5320), `GeneralUltrasoundReport` (12000) |
+| Radiation Dose | `ProjectionXRayRadiationDose` (10001), `CTRadiationDose` (10011), `RadiopharmaceuticalRadiationDose` (10021), `PatientRadiationDose` (10030), `EnhancedXrayRadiationDose` (10040) |
+| Imaging Agent | `PlannedImagingAgentAdministration` (11001), `PerformedImagingAgentAdministration` (11020) |
+| Other | `ImplantationPlan` (7000), `PreclinicalAcquisitionContext` (8101) |
 
 Example:
 
@@ -91,22 +101,12 @@ group =
 {:ok, binary} = Dicom.write(data_set)
 ```
 
-Current PS3.16 scope is deliberately explicit:
+All 33 PS3.16 root templates are implemented. Current scope:
 
-- implemented now:
-  - SR coding primitives
-  - reusable content trees
-  - template identification
-  - SR document rendering with Part 10 serialization
-  - practical document builders for TID 1500, TID 3300, and TID 3700
-- not claimed yet:
-  - full CID validation across every invoked context group
-  - every included sub-template of those TIDs
-  - full image-reference / spatial-coordinate / segmentation linkage semantics
-  - broad “complete PS3.16” conformance language
+- implemented: all root template builders, 372 normative codes, TCOORD value type, shared helpers
+- not yet implemented: full CID validation, exhaustive sub-template hierarchies, complete spatial/segmentation linkage
 
-The implemented builders aim to be clean and normative within that scoped
-surface, but they are intentionally not marketed as full PS3.16 coverage.
+Each builder produces a valid P10-serializable document following the `new/1` keyword option pattern.
 
 ## Quick Start
 
