@@ -1472,4 +1472,110 @@ defmodule Dicom.SR.Codes do
 
   @spec temporal_event() :: Code.t()
   def temporal_event, do: Code.new("128741", "DCM", "Temporal Event")
+
+  # -- TID 1602-1608 Image Library Descriptor codes -------------------------
+
+  @spec modality() :: Code.t()
+  def modality, do: Code.new("121139", "DCM", "Modality")
+
+  @spec frame_of_reference_uid() :: Code.t()
+  def frame_of_reference_uid, do: Code.new("112227", "DCM", "Frame of Reference UID")
+
+  @spec pixel_data_rows() :: Code.t()
+  def pixel_data_rows, do: Code.new("110910", "DCM", "Pixel Data Rows")
+
+  @spec slice_thickness() :: Code.t()
+  def slice_thickness, do: Code.new("112225", "DCM", "Slice Thickness")
+
+  @spec image_laterality() :: Code.t()
+  def image_laterality, do: Code.new("111027", "DCM", "Image Laterality")
+
+  @spec patient_orientation_row() :: Code.t()
+  def patient_orientation_row,
+    do: Code.new("110921", "DCM", "Patient Orientation Row")
+
+  @spec patient_orientation_column() :: Code.t()
+  def patient_orientation_column,
+    do: Code.new("110922", "DCM", "Patient Orientation Column")
+
+  @spec positioner_primary_angle() :: Code.t()
+  def positioner_primary_angle,
+    do: Code.new("112011", "DCM", "Positioner Primary Angle")
+
+  @spec positioner_secondary_angle() :: Code.t()
+  def positioner_secondary_angle,
+    do: Code.new("112012", "DCM", "Positioner Secondary Angle")
+
+  @spec radiographic_view() :: Code.t()
+  def radiographic_view, do: Code.new("111031", "DCM", "Radiographic View")
+
+  @spec image_position_patient() :: Code.t()
+  def image_position_patient, do: Code.new("110902", "DCM", "Image Position (Patient)")
+
+  @spec image_orientation_patient() :: Code.t()
+  def image_orientation_patient,
+    do: Code.new("110903", "DCM", "Image Orientation (Patient)")
+
+  @spec pixel_spacing() :: Code.t()
+  def pixel_spacing, do: Code.new("110911", "DCM", "Pixel Spacing")
+
+  @spec spacing_between_slices() :: Code.t()
+  def spacing_between_slices, do: Code.new("112226", "DCM", "Spacing Between Slices")
+
+  @spec reconstruction_algorithm() :: Code.t()
+  def reconstruction_algorithm,
+    do: Code.new("113962", "DCM", "Reconstruction Algorithm")
+
+  @spec convolution_kernel() :: Code.t()
+  def convolution_kernel, do: Code.new("113951", "DCM", "Convolution Kernel")
+
+  @spec spiral_pitch_factor() :: Code.t()
+  def spiral_pitch_factor, do: Code.new("113828", "DCM", "Spiral Pitch Factor")
+
+  @spec echo_time() :: Code.t()
+  def echo_time, do: Code.new("110831", "DCM", "Echo Time")
+
+  @spec repetition_time() :: Code.t()
+  def repetition_time, do: Code.new("110832", "DCM", "Repetition Time")
+
+  @spec flip_angle() :: Code.t()
+  def flip_angle, do: Code.new("110833", "DCM", "Flip Angle")
+
+  @spec inversion_time() :: Code.t()
+  def inversion_time, do: Code.new("110834", "DCM", "Inversion Time")
+
+  @spec pulse_sequence_name() :: Code.t()
+  def pulse_sequence_name, do: Code.new("110835", "DCM", "Pulse Sequence Name")
+
+  @spec mr_acquisition_type() :: Code.t()
+  def mr_acquisition_type, do: Code.new("110836", "DCM", "MR Acquisition Type")
+
+  @spec radiopharmaceutical_volume() :: Code.t()
+  def radiopharmaceutical_volume,
+    do: Code.new("123005", "DCM", "Radiopharmaceutical Volume")
+
+  @spec radiopharmaceutical_start_datetime() :: Code.t()
+  def radiopharmaceutical_start_datetime,
+    do: Code.new("123004", "DCM", "Radiopharmaceutical Start DateTime")
+
+  @spec diffusion_b_value() :: Code.t()
+  def diffusion_b_value, do: Code.new("113043", "DCM", "Diffusion b-value")
+
+  @spec adc_map_indicator() :: Code.t()
+  def adc_map_indicator, do: Code.new("113041", "DCM", "Apparent Diffusion Coefficient")
+
+  @spec dynamic_contrast_enhanced() :: Code.t()
+  def dynamic_contrast_enhanced,
+    do: Code.new("113054", "DCM", "Dynamic Contrast Enhanced")
+
+  # -- UCUM unit codes for Image Library Descriptors ------------------------
+
+  @spec degrees() :: Code.t()
+  def degrees, do: Code.new("deg", "UCUM", "degree")
+
+  @spec kv() :: Code.t()
+  def kv, do: Code.new("kV", "UCUM", "kilovolt")
+
+  @spec millisecond() :: Code.t()
+  def millisecond, do: Code.new("ms", "UCUM", "millisecond")
 end
