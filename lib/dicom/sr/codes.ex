@@ -1400,4 +1400,15 @@ defmodule Dicom.SR.Codes do
   @spec equivalent_meaning_of_value() :: Code.t()
   def equivalent_meaning_of_value,
     do: Code.new("121051", "DCM", "Equivalent Meaning of Value")
+
+  # -- TID 1400-1420 Measurement Type Sub-Template codes --------------------
+
+  @spec derivation() :: Code.t()
+  def derivation, do: Code.new("121401", "DCM", "Derivation")
+
+  @spec measurement_method() :: Code.t()
+  def measurement_method, do: Code.new("370129005", "SCT", "Measurement Method")
+
+  @spec equation_or_table() :: Code.t()
+  def equation_or_table, do: Code.new("121424", "DCM", "Equation or Table")
 end
