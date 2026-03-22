@@ -1581,541 +1581,337 @@ defmodule Dicom.SR.Codes do
 
   # Domain sub-template codes (iterations 11-15)
 
-
-
   @spec a_wave_velocity() :: Code.t()
   def a_wave_velocity, do: Code.new("122304", "DCM", "A-wave velocity")
-
-
 
   @spec adequate_quality() :: Code.t()
   def adequate_quality, do: Code.new("111052", "DCM", "Adequate")
 
-
+  @spec agatston_unit() :: Code.t()
+  def agatston_unit, do: Code.new("1", "UCUM", "Agatston unit")
 
   @spec akinesis() :: Code.t()
   def akinesis, do: Code.new("122311", "DCM", "Akinesis")
 
-
-
   @spec algorithm_parameters() :: Code.t()
   def algorithm_parameters, do: Code.new("111002", "DCM", "Algorithm Parameters")
-
-
 
   @spec almost_entirely_fat() :: Code.t()
   def almost_entirely_fat, do: Code.new("111044", "DCM", "Almost entirely fat")
 
-
-
   @spec area_stenosis() :: Code.t()
   def area_stenosis, do: Code.new("122410", "DCM", "Area Stenosis")
-
-
 
   @spec beats_per_minute() :: Code.t()
   def beats_per_minute, do: Code.new("/min", "UCUM", "beats per minute")
 
-
-
   @spec breast_density() :: Code.t()
   def breast_density, do: Code.new("111043", "DCM", "Breast Density")
 
-
-
   @spec cad_operating_point() :: Code.t()
   def cad_operating_point, do: Code.new("111055", "DCM", "CAD Operating Point")
-
-
 
   @spec cad_processing_unsuccessful() :: Code.t()
   def cad_processing_unsuccessful,
     do: Code.new("111054", "DCM", "CAD Processing and Findings Summary")
 
-
-
   @spec calcified_plaque() :: Code.t()
   def calcified_plaque, do: Code.new("122213", "DCM", "Calcified")
-
-
 
   @spec cm() :: Code.t()
   def cm, do: Code.new("cm", "UCUM", "cm")
 
-
-
   @spec cm_per_s() :: Code.t()
   def cm_per_s, do: Code.new("cm/s", "UCUM", "cm/s")
-
-
 
   @spec common_carotid_artery() :: Code.t()
   def common_carotid_artery, do: Code.new("32062004", "SCT", "Common carotid artery")
 
-
-
   @spec comparison_to_prior() :: Code.t()
   def comparison_to_prior, do: Code.new("122161", "DCM", "Comparison to Prior Study")
-
-
 
   @spec cubic_mm() :: Code.t()
   def cubic_mm, do: Code.new("mm3", "UCUM", "mm3")
 
-
-
   @spec deceleration_time() :: Code.t()
   def deceleration_time, do: Code.new("122306", "DCM", "Deceleration time")
-
-
 
   @spec detection_sensitivity() :: Code.t()
   def detection_sensitivity, do: Code.new("111048", "DCM", "Detection Sensitivity")
 
-
-
   @spec detection_specificity() :: Code.t()
   def detection_specificity, do: Code.new("111049", "DCM", "Detection Specificity")
-
-
 
   @spec diameter_stenosis() :: Code.t()
   def diameter_stenosis, do: Code.new("122409", "DCM", "Diameter Stenosis")
 
-
-
   @spec dyskinesis() :: Code.t()
   def dyskinesis, do: Code.new("122312", "DCM", "Dyskinesis")
-
-
 
   @spec e_a_ratio() :: Code.t()
   def e_a_ratio, do: Code.new("122305", "DCM", "E/A ratio")
 
-
-
   @spec e_wave_velocity() :: Code.t()
   def e_wave_velocity, do: Code.new("122303", "DCM", "E-wave velocity")
-
-
 
   @spec ecg_summary() :: Code.t()
   def ecg_summary, do: Code.new("122164", "DCM", "ECG Summary")
 
-
-
   @spec echo_measurement() :: Code.t()
   def echo_measurement, do: Code.new("122302", "DCM", "Echo Measurement")
-
-
 
   @spec echo_section() :: Code.t()
   def echo_section, do: Code.new("122301", "DCM", "Echo Section")
 
-
-
   @spec equivocal_stress_test() :: Code.t()
   def equivocal_stress_test, do: Code.new("122160", "DCM", "Equivocal")
-
-
 
   @spec exercise_duration() :: Code.t()
   def exercise_duration, do: Code.new("122144", "DCM", "Exercise Duration")
 
-
-
   @spec exercise_mets() :: Code.t()
   def exercise_mets, do: Code.new("122146", "DCM", "Metabolic Equivalents")
-
-
 
   @spec exercise_stress_test() :: Code.t()
   def exercise_stress_test, do: Code.new("40701008", "SCT", "Echocardiography stress test")
 
-
-
   @spec external_carotid_artery() :: Code.t()
   def external_carotid_artery, do: Code.new("22286001", "SCT", "External carotid artery")
-
-
 
   @spec extremely_dense() :: Code.t()
   def extremely_dense, do: Code.new("111047", "DCM", "Extremely dense")
 
-
-
   @spec false_positive_rate() :: Code.t()
   def false_positive_rate, do: Code.new("111050", "DCM", "False Positive Rate")
-
-
 
   @spec femoral_artery() :: Code.t()
   def femoral_artery, do: Code.new("7657000", "SCT", "Femoral artery")
 
-
-
   @spec fibrous_plaque() :: Code.t()
   def fibrous_plaque, do: Code.new("122214", "DCM", "Fibrous")
-
-
 
   @spec global_longitudinal_strain() :: Code.t()
   def global_longitudinal_strain, do: Code.new("122313", "DCM", "Global Longitudinal Strain")
 
-
-
   @spec graft_destination() :: Code.t()
   def graft_destination, do: Code.new("122415", "DCM", "Graft Destination")
-
-
 
   @spec graft_origin() :: Code.t()
   def graft_origin, do: Code.new("122414", "DCM", "Graft Origin")
 
-
-
   @spec graft_patency() :: Code.t()
   def graft_patency, do: Code.new("122416", "DCM", "Graft Patency")
-
-
 
   @spec graft_type() :: Code.t()
   def graft_type, do: Code.new("122411", "DCM", "Graft Type")
 
-
-
   @spec grams() :: Code.t()
   def grams, do: Code.new("g", "UCUM", "g")
-
-
 
   @spec heterogeneously_dense() :: Code.t()
   def heterogeneously_dense, do: Code.new("111046", "DCM", "Heterogeneously dense")
 
-
-
   @spec hypokinesis() :: Code.t()
   def hypokinesis, do: Code.new("122310", "DCM", "Hypokinesis")
-
-
 
   @spec image_quality() :: Code.t()
   def image_quality, do: Code.new("111051", "DCM", "Image Quality")
 
-
-
   @spec imaging_summary() :: Code.t()
   def imaging_summary, do: Code.new("122163", "DCM", "Imaging Summary")
-
-
 
   @spec inadequate_quality() :: Code.t()
   def inadequate_quality, do: Code.new("111053", "DCM", "Inadequate")
 
-
-
   @spec individual_impression() :: Code.t()
   def individual_impression, do: Code.new("111038", "DCM", "Individual Impression")
-
-
 
   @spec internal_carotid_artery() :: Code.t()
   def internal_carotid_artery, do: Code.new("86117002", "SCT", "Internal carotid artery")
 
-
-
   @spec intima_media_thickness() :: Code.t()
   def intima_media_thickness, do: Code.new("122408", "DCM", "Intima-Media Thickness")
-
-
 
   @spec ivus_lesion() :: Code.t()
   def ivus_lesion, do: Code.new("122202", "DCM", "IVUS Lesion")
 
-
-
   @spec ivus_vessel() :: Code.t()
   def ivus_vessel, do: Code.new("122201", "DCM", "IVUS Vessel")
-
-
 
   @spec ivus_volume() :: Code.t()
   def ivus_volume, do: Code.new("122217", "DCM", "IVUS Volume Measurement")
 
-
-
   @spec kg() :: Code.t()
   def kg, do: Code.new("kg", "UCUM", "kg")
-
-
 
   @spec left_atrium() :: Code.t()
   def left_atrium, do: Code.new("82471001", "SCT", "Left atrium")
 
-
-
   @spec left_breast() :: Code.t()
   def left_breast, do: Code.new("80248007", "SCT", "Left breast")
-
-
 
   @spec lipid_rich_plaque() :: Code.t()
   def lipid_rich_plaque, do: Code.new("122215", "DCM", "Lipid Rich")
 
-
-
   @spec lumen_volume() :: Code.t()
   def lumen_volume, do: Code.new("122218", "DCM", "Lumen Volume")
-
-
 
   @spec lv_end_diastolic_dimension() :: Code.t()
   def lv_end_diastolic_dimension,
     do: Code.new("29468-6", "LN", "LV internal end-diastolic dimension")
 
-
-
   @spec lv_end_systolic_dimension() :: Code.t()
   def lv_end_systolic_dimension,
     do: Code.new("29469-4", "LN", "LV internal end-systolic dimension")
 
-
-
   @spec lv_mass() :: Code.t()
   def lv_mass, do: Code.new("10231-9", "LN", "LV mass")
-
-
 
   @spec lvef() :: Code.t()
   def lvef, do: Code.new("10230-1", "LN", "Left ventricular ejection fraction")
 
-
-
   @spec m_sq() :: Code.t()
   def m_sq, do: Code.new("m2", "UCUM", "m2")
-
-
 
   @spec maximum_lumen_diameter() :: Code.t()
   def maximum_lumen_diameter, do: Code.new("122209", "DCM", "Maximum Lumen Diameter")
 
-
-
   @spec minimum_lumen_diameter() :: Code.t()
   def minimum_lumen_diameter, do: Code.new("122208", "DCM", "Minimum Lumen Diameter")
 
+  @spec milligram() :: Code.t()
+  def milligram, do: Code.new("mg", "UCUM", "milligram")
 
+  @spec milliliter() :: Code.t()
+  def milliliter, do: Code.new("mL", "UCUM", "milliliter")
 
   @spec minutes() :: Code.t()
   def minutes, do: Code.new("min", "UCUM", "minutes")
 
-
-
   @spec mixed_plaque() :: Code.t()
   def mixed_plaque, do: Code.new("122216", "DCM", "Mixed")
-
-
 
   @spec mm() :: Code.t()
   def mm, do: Code.new("mm", "UCUM", "mm")
 
-
-
   @spec ms() :: Code.t()
   def ms, do: Code.new("ms", "UCUM", "ms")
-
-
 
   @spec negative_stress_test() :: Code.t()
   def negative_stress_test, do: Code.new("122157", "DCM", "Negative")
 
-
-
   @spec normal_wall_motion() :: Code.t()
   def normal_wall_motion, do: Code.new("122309", "DCM", "Normal")
-
-
 
   @spec occluded() :: Code.t()
   def occluded, do: Code.new("122418", "DCM", "Occluded")
 
-
-
   @spec patent() :: Code.t()
   def patent, do: Code.new("122417", "DCM", "Patent")
-
-
 
   @spec peak_heart_rate() :: Code.t()
   def peak_heart_rate, do: Code.new("8867-4", "LN", "Heart rate")
 
-
-
   @spec peak_phase() :: Code.t()
   def peak_phase, do: Code.new("122151", "DCM", "Peak")
-
-
 
   @spec percent_max_predicted_hr() :: Code.t()
   def percent_max_predicted_hr,
     do: Code.new("122147", "DCM", "Percent Max Predicted Heart Rate")
 
-
-
   @spec perfusion_finding() :: Code.t()
   def perfusion_finding, do: Code.new("122165", "DCM", "Perfusion Finding")
-
-
 
   @spec pharmacological_stress_test() :: Code.t()
   def pharmacological_stress_test,
     do: Code.new("76746007", "SCT", "Cardiovascular stress testing")
 
-
-
   @spec phase_of_exercise() :: Code.t()
   def phase_of_exercise, do: Code.new("122149", "DCM", "Phase of Exercise")
-
-
 
   @spec physiological_summary() :: Code.t()
   def physiological_summary, do: Code.new("122162", "DCM", "Physiological Summary")
 
-
-
   @spec plaque_area() :: Code.t()
   def plaque_area, do: Code.new("122205", "DCM", "Plaque Area")
-
-
 
   @spec plaque_eccentricity_index() :: Code.t()
   def plaque_eccentricity_index, do: Code.new("122211", "DCM", "Plaque Eccentricity Index")
 
-
-
   @spec plaque_morphology() :: Code.t()
   def plaque_morphology, do: Code.new("122212", "DCM", "Plaque Morphology")
-
-
 
   @spec plaque_volume() :: Code.t()
   def plaque_volume, do: Code.new("122220", "DCM", "Plaque Volume")
 
-
-
   @spec positive_stress_test() :: Code.t()
   def positive_stress_test, do: Code.new("122156", "DCM", "Positive")
-
-
 
   @spec probability_of_cancer() :: Code.t()
   def probability_of_cancer, do: Code.new("111056", "DCM", "Probability of Cancer")
 
-
-
   @spec recovery_phase() :: Code.t()
   def recovery_phase, do: Code.new("122152", "DCM", "Recovery")
-
-
 
   @spec remodeling_index() :: Code.t()
   def remodeling_index, do: Code.new("122210", "DCM", "Remodeling Index")
 
-
-
   @spec rest_phase() :: Code.t()
   def rest_phase, do: Code.new("122150", "DCM", "Rest")
-
-
 
   @spec resting_heart_rate() :: Code.t()
   def resting_heart_rate, do: Code.new("122148", "DCM", "Resting Heart Rate")
 
-
-
   @spec right_breast() :: Code.t()
   def right_breast, do: Code.new("73056007", "SCT", "Right breast")
-
-
 
   @spec scattered_fibroglandular() :: Code.t()
   def scattered_fibroglandular,
     do: Code.new("111045", "DCM", "Scattered fibroglandular densities")
 
-
-
   @spec sq_mm() :: Code.t()
   def sq_mm, do: Code.new("mm2", "UCUM", "mm2")
-
-
 
   @spec st_segment_finding() :: Code.t()
   def st_segment_finding, do: Code.new("122153", "DCM", "ST Segment Finding")
 
-
-
   @spec stress_mode() :: Code.t()
   def stress_mode, do: Code.new("122143", "DCM", "Stress Mode")
-
-
 
   @spec stress_protocol() :: Code.t()
   def stress_protocol, do: Code.new("122142", "DCM", "Protocol")
 
-
-
   @spec synthetic_graft() :: Code.t()
   def synthetic_graft, do: Code.new("122412", "DCM", "Synthetic")
-
-
 
   @spec target_heart_rate() :: Code.t()
   def target_heart_rate, do: Code.new("122145", "DCM", "Target Heart Rate")
 
-
-
   @spec test_result() :: Code.t()
   def test_result, do: Code.new("122155", "DCM", "Test Result")
 
-
-
   @spec vascular_measurement_group() :: Code.t()
   def vascular_measurement_group, do: Code.new("122404", "DCM", "Measurement Group")
-
-
 
   @spec vascular_patient_characteristics() :: Code.t()
   def vascular_patient_characteristics,
     do: Code.new("122401", "DCM", "Patient Characteristics")
 
-
-
   @spec vascular_procedure_summary() :: Code.t()
   def vascular_procedure_summary, do: Code.new("122402", "DCM", "Procedure Summary")
-
-
 
   @spec vein_graft() :: Code.t()
   def vein_graft, do: Code.new("122413", "DCM", "Vein")
 
-
-
   @spec vertebral_artery() :: Code.t()
   def vertebral_artery, do: Code.new("85234005", "SCT", "Vertebral artery")
-
-
 
   @spec vessel_lumen_area() :: Code.t()
   def vessel_lumen_area, do: Code.new("122203", "DCM", "Vessel Lumen Area")
 
-
-
   @spec vessel_volume() :: Code.t()
   def vessel_volume, do: Code.new("122219", "DCM", "Vessel Volume")
 
-
-
   @spec wall_motion_score() :: Code.t()
   def wall_motion_score, do: Code.new("122307", "DCM", "Wall Motion Score")
-
 end
