@@ -708,6 +708,31 @@ defmodule Dicom.SRTest do
                  series_instance_uid: "1.2.826.0.1.3680043.10.1137.204",
                  sop_instance_uid: "1.2.826.0.1.3680043.10.1137.205"
                )
+
+      # Non-binary UID values (nil, integer, empty string) hit the {:ok, _uid} catch-all
+      assert {:error, {:invalid_uid, :study_instance_uid}} =
+               Document.new(
+                 root,
+                 study_instance_uid: nil,
+                 series_instance_uid: "1.2.826.0.1.3680043.10.1137.204",
+                 sop_instance_uid: "1.2.826.0.1.3680043.10.1137.205"
+               )
+
+      assert {:error, {:invalid_uid, :study_instance_uid}} =
+               Document.new(
+                 root,
+                 study_instance_uid: 12345,
+                 series_instance_uid: "1.2.826.0.1.3680043.10.1137.204",
+                 sop_instance_uid: "1.2.826.0.1.3680043.10.1137.205"
+               )
+
+      assert {:error, {:invalid_uid, :study_instance_uid}} =
+               Document.new(
+                 root,
+                 study_instance_uid: "",
+                 series_instance_uid: "1.2.826.0.1.3680043.10.1137.204",
+                 sop_instance_uid: "1.2.826.0.1.3680043.10.1137.205"
+               )
     end
 
     test "supports DateTime content and verification timestamps" do
@@ -1881,6 +1906,43 @@ defmodule Dicom.SRTest do
       assert vessel_item != nil
     end
 
+    test "PCI procedure without stent omits stent item" do
+      {:ok, document} =
+        CardiacCatheterizationReport.new(
+          cath_opts(
+            procedure: %{
+              pci: %{
+                vessel: Codes.left_anterior_descending_artery()
+              }
+            }
+          )
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      procedure_section =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.find(fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121064"
+        end)
+
+      pci_item =
+        procedure_section[Tag.content_sequence()].value
+        |> Enum.find(fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "122152"
+        end)
+
+      assert pci_item != nil
+
+      pci_children = pci_item[Tag.content_sequence()].value
+      pci_codes = Enum.map(pci_children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Has vessel but NOT stent (122154)
+      assert "363698007" in pci_codes
+      refute "122154" in pci_codes
+    end
+
     test "builds a report with LV findings" do
       {:ok, document} =
         CardiacCatheterizationReport.new(
@@ -2347,6 +2409,38 @@ defmodule Dicom.SRTest do
       assert "10232-7" in measurement_codes
       assert "90096-0" in measurement_codes
       assert "10236-8" in measurement_codes
+    end
+
+    test "ventricular analysis with partial metrics omits nil values" do
+      opts =
+        Keyword.merge(@cardio_base_opts,
+          ventricular_analysis: %{
+            ejection_fraction: 55.2,
+            edv: nil,
+            esv: nil
+          }
+        )
+
+      {:ok, document} = CardiovascularAnalysisReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      ventricular_section =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.find(fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "113693"
+        end)
+
+      assert ventricular_section != nil
+
+      measurement_codes =
+        ventricular_section[Tag.content_sequence()].value
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Only EF present, not EDV or ESV
+      assert "10230-1" in measurement_codes
+      refute "10231-9" in measurement_codes
+      refute "10232-7" in measurement_codes
     end
 
     test "includes vascular analysis with vessel segments and stenosis" do
@@ -4199,6 +4293,31 @@ defmodule Dicom.SRTest do
       refute "121073" in concept_codes
       refute "121058" in concept_codes
     end
+
+    test "clinical context with nil patient_state and empty medications yields no context items" do
+      {:ok, document} =
+        HemodynamicsReport.new(
+          @hemo_uids ++
+            [
+              observer_name: "HEMODYNAMICS^ALICE",
+              clinical_context: [
+                patient_state: nil,
+                medications: []
+              ]
+            ]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # No patient state or medication items should appear
+      refute "11323-3" in concept_codes
+      refute "18610-6" in concept_codes
+    end
   end
 
   describe "IVUSReport" do
@@ -4639,6 +4758,18 @@ defmodule Dicom.SRTest do
       assert DataSet.get(parsed, Tag.series_description()) |> String.trim() ==
                "Macular Grid Thickness and Volume Report"
     end
+
+    test "raises ArgumentError for unknown grid sector" do
+      assert_raise ArgumentError, ~r/unknown grid sector/, fn ->
+        MacularGridReport.new(
+          study_instance_uid: "#{@uid_base}.140",
+          series_instance_uid: "#{@uid_base}.141",
+          sop_instance_uid: "#{@uid_base}.142",
+          observer_name: "OPHTHALMOLOGIST^EVE",
+          grid_measurements: [%{sector: :bogus_sector, thickness: 260}]
+        )
+      end
+    end
   end
 
   describe "OBGYNUltrasoundReport" do
@@ -4962,6 +5093,185 @@ defmodule Dicom.SRTest do
       child_codes = Enum.map(children, &code_value(&1, Tag.concept_name_code_sequence()))
 
       assert "11957-8" in child_codes
+    end
+
+    test "builds a fetus without biometry (optional_biometry nil branch)" do
+      opts =
+        @obgyn_base_opts ++
+          [
+            fetuses: [
+              %{
+                number: 1,
+                presentation: Code.new("70028003", "SCT", "Vertex presentation")
+              }
+            ]
+          ]
+
+      {:ok, document} = OBGYNUltrasoundReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      fetus =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121070" &&
+            item[Tag.relationship_type()] &&
+            item[Tag.relationship_type()].value == "CONTAINS"
+        end)
+
+      assert fetus != nil
+      fetus_children = fetus[Tag.content_sequence()].value
+      fetus_codes = Enum.map(fetus_children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Has number and presentation but no biometry container
+      assert "11878-6" in fetus_codes
+      assert "11876-0" in fetus_codes
+      refute "121069" in fetus_codes
+    end
+
+    test "placenta map with nil location returns nil (optional_placenta nil branch)" do
+      opts =
+        @obgyn_base_opts ++
+          [placenta: %{location: nil}]
+
+      {:ok, document} = OBGYNUltrasoundReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+      concept_codes = Enum.map(content, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Placenta location should not appear
+      refute "11969-3" in concept_codes
+    end
+
+    test "findings/impressions/recommendations accept Code structs (map_items code branch)" do
+      opts =
+        @obgyn_base_opts ++
+          [
+            findings: [Code.new("168594001", "SCT", "Live fetus")],
+            impressions: [Code.new("17621005", "SCT", "Normal")],
+            recommendations: [Code.new("310634005", "SCT", "Follow-up")]
+          ]
+
+      {:ok, document} = OBGYNUltrasoundReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+      concept_codes = Enum.map(content, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121071" in concept_codes
+      assert "121073" in concept_codes
+      assert "121075" in concept_codes
+
+      # Verify finding is CODE type, not TEXT
+      finding_item =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121071"
+        end)
+
+      assert String.trim(finding_item[Tag.value_type()].value) == "CODE"
+    end
+
+    test "patient characteristics with nil date fields (optional_date_item nil branch)" do
+      opts =
+        @obgyn_base_opts ++
+          [
+            patient_characteristics: %{
+              gravidity: 2,
+              parity: 1
+            }
+          ]
+
+      {:ok, document} = OBGYNUltrasoundReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      patient_chars =
+        Enum.find(content, fn item ->
+          item[Tag.relationship_type()] &&
+            item[Tag.relationship_type()].value == "HAS OBS CONTEXT" &&
+            code_value(item, Tag.concept_name_code_sequence()) == "121070"
+        end)
+
+      assert patient_chars != nil
+      children = patient_chars[Tag.content_sequence()].value
+      child_codes = Enum.map(children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Gravidity and parity present, LMP and EDD absent
+      assert "11996-6" in child_codes
+      assert "11977-6" in child_codes
+      refute "11955-2" in child_codes
+      refute "11778-8" in child_codes
+    end
+
+    test "fetus with explicit :g weight unit" do
+      opts =
+        @obgyn_base_opts ++
+          [
+            fetuses: [
+              %{
+                number: 1,
+                estimated_weight: 2500,
+                weight_unit: :g
+              }
+            ]
+          ]
+
+      {:ok, document} = OBGYNUltrasoundReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      fetus =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121070" &&
+            item[Tag.relationship_type()] &&
+            item[Tag.relationship_type()].value == "CONTAINS"
+        end)
+
+      fetus_children = fetus[Tag.content_sequence()].value
+      fetus_codes = Enum.map(fetus_children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "11727-5" in fetus_codes
+    end
+
+    test "fetus with :kg weight unit" do
+      opts =
+        @obgyn_base_opts ++
+          [
+            fetuses: [
+              %{
+                number: 1,
+                estimated_weight: 3,
+                weight_unit: :kg
+              }
+            ]
+          ]
+
+      {:ok, document} = OBGYNUltrasoundReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      fetus =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121070" &&
+            item[Tag.relationship_type()] &&
+            item[Tag.relationship_type()].value == "CONTAINS"
+        end)
+
+      fetus_children = fetus[Tag.content_sequence()].value
+
+      efw_item =
+        Enum.find(fetus_children, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "11727-5"
+        end)
+
+      assert efw_item != nil
+      [measured] = efw_item[Tag.measured_value_sequence()].value
+      [unit] = measured[Tag.measurement_units_code_sequence()].value
+      assert unit[Tag.code_value()].value == "kg"
     end
   end
 
@@ -6328,6 +6638,44 @@ defmodule Dicom.SRTest do
              end)
     end
 
+    test "lesion without pirads_category omits assessment" do
+      opts =
+        prostate_base_opts("95")
+        |> Keyword.merge(
+          localized_findings: [
+            %{
+              location: Codes.peripheral_zone(),
+              size: 10,
+              t2w_score: 3
+            }
+          ]
+        )
+
+      {:ok, document} = ProstateMRReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      findings =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "126200"
+        end)
+
+      localized =
+        findings[Tag.content_sequence()].value
+        |> Enum.find(fn item ->
+          item[Tag.value_type()].value == "CONTAINER" and
+            code_value(item, Tag.concept_name_code_sequence()) == "126403"
+        end)
+
+      assert localized != nil
+
+      # Should NOT have PI-RADS assessment code (126400)
+      refute Enum.any?(localized[Tag.content_sequence()].value, fn item ->
+               code_value(item, Tag.concept_name_code_sequence()) == "126400"
+             end)
+    end
+
     test "document metadata includes template_identifier 4300" do
       {:ok, document} = ProstateMRReport.new(prostate_base_opts("70"))
 
@@ -7403,6 +7751,45 @@ defmodule Dicom.SRTest do
       assert document.series_description == "X-Ray Radiation Dose Report"
       assert document.template_identifier == "10001"
     end
+
+    test "builds event without irradiation_event_uid" do
+      events = [
+        %{
+          dose_rp: 0.8,
+          dap: 0.3,
+          kvp: 75.0
+        }
+      ]
+
+      {:ok, document} =
+        ProjectionXRayRadiationDose.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.5060",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.5061",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.5062",
+          observer_name: "RADTECH^CHARLIE",
+          accumulated_dose: %{total_dap: 0.3},
+          irradiation_events: events
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content_items = DataSet.get(data_set, Tag.content_sequence())
+
+      event_containers =
+        Enum.filter(content_items, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "113706"
+        end)
+
+      assert length(event_containers) == 1
+
+      event_children = hd(event_containers)[Tag.content_sequence()].value
+      event_codes = Enum.map(event_children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Should have dose_rp, dap, kvp but NOT irradiation_event_uid
+      assert "113738" in event_codes
+      assert "113725" in event_codes
+      assert "113733" in event_codes
+      refute "113769" in event_codes
+    end
   end
 
   describe "CTRadiationDose (TID 10011)" do
@@ -7575,6 +7962,63 @@ defmodule Dicom.SRTest do
       assert document.sop_class_uid == Dicom.UID.xray_radiation_dose_sr_storage()
       assert document.series_description == "CT Radiation Dose Report"
       assert document.template_identifier == "10011"
+    end
+
+    test "irradiation event without uid and acquisition type (nil branches)" do
+      events = [
+        %{
+          ctdi_vol: 12.0,
+          dlp: 200.0
+        }
+      ]
+
+      {:ok, document} =
+        CTRadiationDose.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.6060",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.6061",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.6062",
+          observer_name: "RADTECH^BOB",
+          accumulated_dose: %{total_dlp: 200.0},
+          irradiation_events: events
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content_items = DataSet.get(data_set, Tag.content_sequence())
+
+      event_containers =
+        Enum.filter(content_items, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "113819"
+        end)
+
+      assert length(event_containers) == 1
+
+      event_children = hd(event_containers)[Tag.content_sequence()].value
+      event_codes = Enum.map(event_children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # CTDIvol and DLP present
+      assert "113830" in event_codes
+      assert "113838" in event_codes
+      # No event UID or acquisition type
+      refute "113769" in event_codes
+      refute "113820" in event_codes
+    end
+
+    test "includes procedure reported when provided" do
+      {:ok, document} =
+        CTRadiationDose.new(
+          study_instance_uid: "1.2.826.0.1.3680043.10.1137.6070",
+          series_instance_uid: "1.2.826.0.1.3680043.10.1137.6071",
+          sop_instance_uid: "1.2.826.0.1.3680043.10.1137.6072",
+          observer_name: "RADTECH^BOB",
+          accumulated_dose: %{total_dlp: 100.0},
+          procedure_reported: Code.new("25045-6", "LN", "CT Abdomen")
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content_items = DataSet.get(data_set, Tag.content_sequence())
+      concept_codes = Enum.map(content_items, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121058" in concept_codes
     end
   end
 

@@ -3578,6 +3578,87 @@ defmodule Dicom.P10.StreamTest do
     end
   end
 
+  # ── Coverage: implicit VR nested SQ and encapsulated pixel data ─────────
+
+  describe "implicit VR: nested SQ inside sequence item (L612-616)" do
+    test "implicit VR nested SQ is parsed via read_single_element eager path" do
+      # Build an outer SQ with undefined length containing an item that itself
+      # contains a nested SQ (also with undefined length). This exercises the
+      # read_single_element implicit VR path where vr == :SQ (lines 612-616).
+      #
+      # Inner nested SQ: tag (0008,1115) + length 0xFFFFFFFF + empty item + seq_delim
+      nested_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      nested_sq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      nested_sq =
+        <<0x08, 0x00, 0x15, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          nested_item <> nested_sq_delim
+
+      # Outer item contains the nested SQ
+      outer_item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      outer_item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          nested_sq <> outer_item_delim
+
+      outer_sq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      # Outer SQ: tag (0008,1140) + undefined length
+      outer_sq =
+        <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          outer_item <> outer_sq_delim
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", outer_sq)
+      events = collect_events(binary)
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      outer_val = DataSet.get(ds, {0x0008, 0x1140})
+      assert is_list(outer_val) and length(outer_val) == 1
+      [item] = outer_val
+      # The nested SQ should be present in the item
+      assert Map.has_key?(item, {0x0008, 0x1115})
+      nested_val = item[{0x0008, 0x1115}].value
+      assert is_list(nested_val) and length(nested_val) == 1
+    end
+
+    test "implicit VR defined-length nested SQ inside item" do
+      # Nested SQ with defined length (exercises the if raw_length != 0xFFFFFFFF branch)
+      nested_item = <<0xFE, 0xFF, 0x00, 0xE0, 0::little-32>>
+      nested_sq_body = nested_item
+
+      nested_sq =
+        <<0x08, 0x00, 0x15, 0x11, byte_size(nested_sq_body)::little-32>> <> nested_sq_body
+
+      outer_item_delim = <<0xFE, 0xFF, 0x0D, 0xE0, 0::little-32>>
+
+      outer_item =
+        <<0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          nested_sq <> outer_item_delim
+
+      outer_sq_delim = <<0xFE, 0xFF, 0xDD, 0xE0, 0::little-32>>
+
+      outer_sq =
+        <<0x08, 0x00, 0x40, 0x11, 0xFF, 0xFF, 0xFF, 0xFF>> <>
+          outer_item <> outer_sq_delim
+
+      binary = build_p10_with_ts("1.2.840.10008.1.2", outer_sq)
+      events = collect_events(binary)
+
+      {:ok, ds} = Dicom.P10.Stream.to_data_set(events)
+      outer_val = DataSet.get(ds, {0x0008, 0x1140})
+      assert is_list(outer_val) and length(outer_val) == 1
+    end
+  end
+
+  # NOTE: Parser L612-616 (implicit VR SQ in read_single_element) and L631
+  # (implicit VR encapsulated pixel data in read_value_for_element) are
+  # unreachable dead code. read_single_element is only called from eager item
+  # parsing (via read_sequence_header) and skip_trailing_padding_in_item.
+  # read_sequence_header is only reachable from read_element_explicit (explicit VR),
+  # so state.vr_encoding is always :explicit in the eager path. The trailing
+  # padding path always uses tag {0xFFFC,0xFFFC} (VR :OB, not :SQ). These clauses
+  # are defensive code for a configuration that never occurs.
+
   # ── Coverage: read_item_eager error from read_uint32 ────────────────────
 
   describe "eager item parsing: truncated item length" do

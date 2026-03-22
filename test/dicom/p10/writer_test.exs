@@ -612,4 +612,28 @@ defmodule Dicom.P10.WriterTest do
       assert {:encapsulated, [^bot, ^frag1, ^frag2]} = pixel.value
     end
   end
+
+  describe "serialize_data_set/2" do
+    test "serializes a data set body with deflated explicit VR little endian" do
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0010, 0x0010}, :PN, "DOE^JOHN")
+        |> DataSet.put({0x0008, 0x0060}, :CS, "CT")
+
+      ts_uid = Dicom.UID.deflated_explicit_vr_little_endian()
+      assert {:ok, binary} = Dicom.P10.Writer.serialize_data_set(ds, ts_uid)
+      assert is_binary(binary)
+
+      # The output should be deflated (zlib-compressed), verify round-trip
+      assert {:ok, parsed} = Dicom.P10.Reader.parse_data_set(binary, ts_uid)
+      assert DataSet.get(parsed, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+    end
+
+    test "returns error for unknown transfer syntax" do
+      ds = DataSet.new()
+
+      assert {:error, {:unknown_transfer_syntax, "9.9.9.9.9"}} =
+               Dicom.P10.Writer.serialize_data_set(ds, "9.9.9.9.9")
+    end
+  end
 end

@@ -51,7 +51,7 @@ defmodule Dicom.SR.SubTemplates.CardiacCatheterizationTest do
       assert child[Tag.value_type()].value == "TEXT"
     end
 
-    test "includes catheters" do
+    test "includes catheters as text" do
       item =
         CardiacCatheterization.procedure_section(catheters: ["JL4", "JR4"])
         |> render()
@@ -59,6 +59,20 @@ defmodule Dicom.SR.SubTemplates.CardiacCatheterizationTest do
       codes = children_codes(item)
       # Codes.catheter_type() => "111026"
       assert Enum.count(codes, &(&1 == "111026")) == 2
+    end
+
+    test "includes catheters as Code structs" do
+      catheter_code = Code.new("111026", "DCM", "Pigtail catheter")
+
+      item =
+        CardiacCatheterization.procedure_section(catheters: [catheter_code])
+        |> render()
+
+      codes = children_codes(item)
+      assert "111026" in codes
+
+      [child] = item[Tag.content_sequence()].value
+      assert child[Tag.value_type()].value == "CODE"
     end
 
     test "includes PCI sub-container" do

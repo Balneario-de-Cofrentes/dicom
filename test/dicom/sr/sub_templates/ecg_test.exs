@@ -84,6 +84,13 @@ defmodule Dicom.SR.SubTemplates.ECGTest do
 
       assert length(item.children) == 2
     end
+
+    test "age with nil units uses no-units fallback" do
+      [item] = ECG.patient_characteristics(age: 65)
+      assert length(item.children) == 1
+      [age_child] = item.children
+      assert age_child.value.units == Code.new("1", "UCUM", "no units")
+    end
   end
 
   # -- TID 3708 Waveform Information -----------------------------------------

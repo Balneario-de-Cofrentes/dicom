@@ -2012,4 +2012,47 @@ defmodule Dicom.DeIdentificationTest do
       assert Map.has_key?(result_item, {0x0009, 0x0010})
     end
   end
+
+  # ── Coverage: dummy_value(:DT) for VerificationDateTime ─────────────
+
+  describe "dummy_value(:DT) via :D action on DT-typed tag" do
+    test "VerificationDateTime (0040,A030) with VR :DT gets DT dummy value" do
+      # Tag (0040,A030) has action :D. When VR is :DT, dummy_value(:DT) returns
+      # "19000101000000.000000"
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+        |> DataSet.put({0x0040, 0xA030}, :DT, "20260315143022.000000")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+      assert DataSet.get(result, {0x0040, 0xA030}) == "19000101000000.000000"
+    end
+  end
+
+  # ── Coverage: modify_temporal_value with non-binary value ───────────
+
+  describe "modify_temporal_value with non-binary element value" do
+    test "non-binary value on temporal tag with :M action returns empty string" do
+      # When a temporal tag has a non-binary value (e.g., integer or nil stored
+      # in the element), the `other -> other` branch in modify_temporal_value
+      # is taken, then the catch-all `_ -> ""` matches.
+      ds =
+        DataSet.new()
+        |> DataSet.put({0x0002, 0x0002}, :UI, "1.2.840.10008.5.1.4.1.1.2")
+        |> DataSet.put({0x0002, 0x0003}, :UI, "1.2.3.4.5.6.7.8.9")
+        |> DataSet.put({0x0002, 0x0010}, :UI, UID.explicit_vr_little_endian())
+        |> DataSet.put(Tag.modality(), :CS, "CT")
+
+      # Manually insert element with non-binary value on a temporal tag
+      elem = DataElement.new({0x0008, 0x0020}, :DA, 12345)
+      ds = %{ds | elements: Map.put(ds.elements, {0x0008, 0x0020}, elem)}
+
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
+      assert DataSet.get(result, {0x0008, 0x0020}) == ""
+    end
+  end
 end

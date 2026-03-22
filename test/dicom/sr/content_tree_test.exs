@@ -2275,4 +2275,77 @@ defmodule Dicom.SR.ContentTreeTest do
       assert num.value.numeric_value == "62"
     end
   end
+
+  # -- SCOORD3D edge cases: nil graphic_data and single FD value -----------
+
+  describe "SCOORD3D extract_graphic_data_fd edge cases" do
+    @frame_of_ref "1.2.826.0.1.3680043.10.1137.870"
+
+    test "SCOORD3D with nil graphic_data returns empty list" do
+      # When graphic_data tag is missing, extract_graphic_data_fd returns [].
+      # Scoord3D.new with "POINT" requires exactly 3 coords, so this should
+      # raise, but the nil -> [] path in extract_graphic_data_fd is exercised.
+      scoord3d_item = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "SCOORD3D"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "111030"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+              Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Image Region")
+            }
+          ]),
+        Tag.relationship_type() =>
+          Dicom.DataElement.new(Tag.relationship_type(), :CS, "INFERRED FROM"),
+        Tag.graphic_type() => Dicom.DataElement.new(Tag.graphic_type(), :CS, "MULTIPOINT"),
+        # No graphic_data tag — nil from get_value
+        Tag.referenced_frame_of_reference_uid() =>
+          Dicom.DataElement.new(
+            Tag.referenced_frame_of_reference_uid(),
+            :UI,
+            @frame_of_ref
+          )
+      }
+
+      assert_raise ArgumentError, fn ->
+        ContentTree.from_sequence_item(scoord3d_item)
+      end
+    end
+
+    test "SCOORD3D with single 8-byte FD binary decodes to single-element list" do
+      # A single 8-byte FD binary decodes to a number (not a list).
+      # decode_fd wraps it in [value] via the `value when is_number(value)` guard.
+      single_fd = Dicom.Value.encode(42.5, :FD)
+
+      scoord3d_item = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "SCOORD3D"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "111030"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+              Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Image Region")
+            }
+          ]),
+        Tag.relationship_type() =>
+          Dicom.DataElement.new(Tag.relationship_type(), :CS, "INFERRED FROM"),
+        Tag.graphic_type() => Dicom.DataElement.new(Tag.graphic_type(), :CS, "MULTIPOINT"),
+        Tag.graphic_data() => Dicom.DataElement.new(Tag.graphic_data(), :FD, single_fd),
+        Tag.referenced_frame_of_reference_uid() =>
+          Dicom.DataElement.new(
+            Tag.referenced_frame_of_reference_uid(),
+            :UI,
+            @frame_of_ref
+          )
+      }
+
+      # MULTIPOINT requires at least 6 coords (2 points x 3 dims), so this
+      # will raise, but the decode_fd single-value path is exercised first.
+      assert_raise ArgumentError, fn ->
+        ContentTree.from_sequence_item(scoord3d_item)
+      end
+    end
+  end
 end

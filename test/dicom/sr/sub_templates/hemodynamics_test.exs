@@ -254,6 +254,13 @@ defmodule Dicom.SR.SubTemplates.HemodynamicsTest do
       assert length(items) == 2
     end
 
+    test "vital signs with value but nil units uses no-units fallback" do
+      items = Hemodynamics.vital_signs(heart_rate: 72)
+      assert length(items) == 1
+      [item] = items
+      assert item.value.units == Code.new("1", "UCUM", "no units")
+    end
+
     test "empty returns empty list" do
       assert Hemodynamics.vital_signs() == []
     end
@@ -292,6 +299,14 @@ defmodule Dicom.SR.SubTemplates.HemodynamicsTest do
       [item] = items
       assert item.concept_name == Codes.ejection_fraction()
       assert item.value.units == Codes.percent()
+    end
+
+    test "cardiac output with value but nil units uses no-units fallback" do
+      items = Hemodynamics.cardiac_output(cardiac_output: 5.0)
+      assert length(items) == 1
+      [co_item] = items
+      assert co_item.concept_name == Codes.cardiac_output()
+      assert co_item.value.units == Code.new("1", "UCUM", "no units")
     end
 
     test "empty returns empty list" do

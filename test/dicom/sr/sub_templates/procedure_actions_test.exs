@@ -156,6 +156,13 @@ defmodule Dicom.SR.SubTemplates.ProcedureActionsTest do
       [item] = ProcedureActions.consumables()
       assert item.children == []
     end
+
+    test "quantity with nil units uses no-units fallback" do
+      [item] = ProcedureActions.consumables(consumable: @heparin, quantity: 100)
+      quantity_child = Enum.find(item.children, &(&1.concept_name == Codes.actual_volume()))
+      assert quantity_child != nil
+      assert quantity_child.value.units == Code.new("1", "UCUM", "no units")
+    end
   end
 
   # -- TID 3105 Lesion Properties -------------------------------------------

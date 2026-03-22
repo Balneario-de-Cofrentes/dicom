@@ -1039,6 +1039,29 @@ defmodule Dicom.P10.ReaderTest do
     end
   end
 
+  describe "parse_data_set/2" do
+    test "parses a valid explicit VR little-endian data set body" do
+      patient_name = elem_explicit({0x0010, 0x0010}, :PN, "DOE^JOHN")
+      body = IO.iodata_to_binary([patient_name])
+
+      assert {:ok, ds} = Dicom.P10.Reader.parse_data_set(body, "1.2.840.10008.1.2.1")
+      assert DataSet.get(ds, {0x0010, 0x0010}) |> String.trim() == "DOE^JOHN"
+    end
+
+    test "returns error for unknown transfer syntax" do
+      assert {:error, {:unknown_transfer_syntax, "9.9.9.9.9"}} =
+               Dicom.P10.Reader.parse_data_set(<<>>, "9.9.9.9.9")
+    end
+
+    test "returns error for truncated data set body" do
+      # Element header claiming 100 bytes but only 4 available
+      truncated = <<0x10, 0x00, 0x10, 0x00, "PN", 100::little-16, "DOE^">>
+
+      assert {:error, :unexpected_end} =
+               Dicom.P10.Reader.parse_data_set(truncated, "1.2.840.10008.1.2.1")
+    end
+  end
+
   # Helpers for building test DICOM binaries
 
   defp build_p10_binary(file_meta_elements) do

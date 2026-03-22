@@ -72,6 +72,23 @@ defmodule Dicom.SR.SubTemplates.PediatricCardiacUSTest do
       assert code_value(rendered, Tag.concept_name_code_sequence()) == "125007"
     end
 
+    test "handles code findings in measurement sections" do
+      finding_code = Code.new("414025005", "SCT", "Disorder of heart")
+
+      items =
+        PediatricCardiacUS.cardiac_measurement_sections([
+          %{
+            name: "Left Ventricle",
+            tracking_uid: "1.2.3.4.7",
+            findings: [finding_code]
+          }
+        ])
+
+      assert length(items) == 1
+      rendered = hd(items) |> render()
+      assert rendered[Tag.value_type()].value == "CONTAINER"
+    end
+
     test "handles sections without findings" do
       items =
         PediatricCardiacUS.cardiac_measurement_sections([

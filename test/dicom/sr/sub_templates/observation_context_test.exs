@@ -106,6 +106,33 @@ defmodule Dicom.SR.SubTemplates.ObservationContextTest do
     end
   end
 
+  describe "observer_context/1 fallback" do
+    test "returns empty list when neither :name nor :uid is provided" do
+      assert ObservationContext.observer_context(some_other_key: "value") == []
+    end
+  end
+
+  describe "observer_context/1 role without identifier" do
+    test "person with role_in_procedure but no identifier_within_role" do
+      items =
+        ObservationContext.observer_context(
+          name: "DOC^BOB",
+          role_in_procedure: Code.new("121025", "DCM", "Performing")
+        )
+
+      role_item = Enum.find(items, &match?(%{value_type: :code, children: _}, &1))
+
+      assert role_item != nil
+      # role_children(nil) returns [], so the role item should have no children
+      matching =
+        Enum.find(items, fn item ->
+          item.value_type == :code and item.children == []
+        end)
+
+      assert matching != nil
+    end
+  end
+
   # -- TID 1005 Procedure Study Context ------------------------------------
 
   describe "procedure_context/1" do
@@ -216,6 +243,29 @@ defmodule Dicom.SR.SubTemplates.ObservationContextTest do
       assert :date in types
       assert :code in types
       assert :num in types
+    end
+
+    test "patient context without name (add_pname nil branch)" do
+      items =
+        ObservationContext.patient_context(
+          id: "PAT-002",
+          sex: Code.new("F", "DCM", "Female")
+        )
+
+      assert length(items) == 2
+      refute Enum.any?(items, &(&1.value_type == :pname))
+    end
+
+    test "patient context with string birth_date" do
+      items =
+        ObservationContext.patient_context(
+          name: "DOE^JANE",
+          birth_date: "19900515"
+        )
+
+      assert length(items) == 2
+      date_item = Enum.find(items, &(&1.value_type == :date))
+      assert date_item != nil
     end
   end
 

@@ -215,6 +215,12 @@ defmodule Dicom.SR.SubTemplates.OBGYNTest do
       assert item.value_type == :num
     end
 
+    test "weight with nil units uses no-units fallback" do
+      [item] = OBGYN.estimated_fetal_weight(weight: 400)
+      assert item.value_type == :num
+      assert item.value.units == Code.new("1", "UCUM", "no units")
+    end
+
     test "empty returns empty list" do
       assert OBGYN.estimated_fetal_weight() == []
     end
@@ -455,8 +461,13 @@ defmodule Dicom.SR.SubTemplates.OBGYNTest do
       assert length(item.children) == 2
     end
 
-    test "builds minimal fetal vascular" do
+    test "builds minimal fetal vascular with explicit empty opts" do
       [item] = OBGYN.fetal_vascular([])
+      assert item.children == []
+    end
+
+    test "builds minimal fetal vascular with default args" do
+      [item] = OBGYN.fetal_vascular()
       assert item.children == []
     end
   end

@@ -256,6 +256,102 @@ defmodule Dicom.SR.CADTest do
       end
     end
 
+    test "with analyses_performed (successful_analyses_performed branch)" do
+      {:ok, document} =
+        MammographyCAD.new(
+          base_uids(409) ++
+            [
+              device_observer: base_device_opts(),
+              analyses_performed: [
+                Code.new("111058", "DCM", "Density Analysis")
+              ]
+            ]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      summary =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "111017"
+        end)
+
+      assert summary != nil
+      summary_children = summary[Tag.content_sequence()].value
+
+      summary_codes =
+        Enum.map(summary_children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Successful Analyses Performed
+      assert "111034" in summary_codes
+    end
+
+    test "finding without finding type, probability, or rendering intent (nil branches)" do
+      {:ok, document} =
+        MammographyCAD.new(
+          base_uids(420) ++
+            [
+              device_observer: base_device_opts(),
+              findings: [
+                %{type: :single}
+              ]
+            ]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      finding_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "111059"
+        end)
+
+      assert length(finding_items) == 1
+      [finding] = finding_items
+
+      # Finding should have no children (all optional fields nil)
+      assert finding[Tag.content_sequence()] == nil
+    end
+
+    test "finding with rendering_intent :not_for_presentation" do
+      {:ok, document} =
+        MammographyCAD.new(
+          base_uids(421) ++
+            [
+              device_observer: base_device_opts(),
+              findings: [
+                %{
+                  finding: Codes.calcification_cluster(),
+                  rendering_intent: :not_for_presentation
+                }
+              ]
+            ]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      finding_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "111059"
+        end)
+
+      [finding] = finding_items
+      children = finding[Tag.content_sequence()].value
+      child_codes = Enum.map(children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Rendering Intent present
+      assert "111056" in child_codes
+
+      # Verify it's "not for presentation"
+      rendering_item =
+        Enum.find(children, fn child ->
+          code_value(child, Tag.concept_name_code_sequence()) == "111056"
+        end)
+
+      assert code_value(rendering_item, Tag.concept_code_sequence()) == "111151"
+    end
+
     test "round-trip: create -> write -> parse -> verify" do
       ref = make_reference(4050)
       scoord = Scoord2D.new(ref, "CIRCLE", [100.0, 100.0, 120.0, 100.0])
@@ -508,6 +604,72 @@ defmodule Dicom.SR.CADTest do
 
       assert "121012" in codes
       assert "121013" in codes
+    end
+
+    test "finding without finding type, probability, or rendering intent (nil branches)" do
+      {:ok, document} =
+        ChestCAD.new(
+          base_uids(418) ++
+            [
+              device_observer: base_device_opts(),
+              findings: [
+                %{type: :single}
+              ]
+            ]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      finding_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "111059"
+        end)
+
+      assert length(finding_items) == 1
+      [finding] = finding_items
+
+      # All optional fields nil -> no content sequence
+      assert finding[Tag.content_sequence()] == nil
+    end
+
+    test "finding with rendering_intent :not_for_presentation" do
+      {:ok, document} =
+        ChestCAD.new(
+          base_uids(419) ++
+            [
+              device_observer: base_device_opts(),
+              findings: [
+                %{
+                  finding: Codes.nodule(),
+                  rendering_intent: :not_for_presentation
+                }
+              ]
+            ]
+        )
+
+      {:ok, data_set} = Document.to_data_set(document)
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      finding_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "111059"
+        end)
+
+      [finding] = finding_items
+      children = finding[Tag.content_sequence()].value
+      child_codes = Enum.map(children, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Rendering Intent present
+      assert "111056" in child_codes
+
+      # Verify it's "not for presentation" (code 111150)
+      rendering_item =
+        Enum.find(children, fn child ->
+          code_value(child, Tag.concept_name_code_sequence()) == "111056"
+        end)
+
+      assert code_value(rendering_item, Tag.concept_code_sequence()) == "111151"
     end
   end
 end
