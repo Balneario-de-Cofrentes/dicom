@@ -13,10 +13,11 @@ defmodule Dicom.SRTest do
     Observer,
     Reference,
     Scoord2D,
-    Scoord3D
+    Scoord3D,
+    Tcoord
   }
 
-  alias Dicom.SR.Templates.{ECGReport, MeasurementReport, StressTestingReport}
+  alias Dicom.SR.Templates.{ECGReport, MeasurementReport, StressTestingReport, WaveformAnnotation}
 
   describe "Code" do
     test "encodes a coded entry as a code sequence item" do
@@ -1004,6 +1005,410 @@ defmodule Dicom.SRTest do
       assert "121075" in concept_codes
       refute "121065" in concept_codes
       refute "121058" in concept_codes
+    end
+  end
+
+  describe "Tcoord" do
+    test "creates POINT with sample positions" do
+      tcoord = Tcoord.new("POINT", sample_positions: [100])
+      assert tcoord.temporal_range_type == "POINT"
+      assert tcoord.sample_positions == [100]
+    end
+
+    test "creates SEGMENT with time offsets" do
+      tcoord = Tcoord.new("SEGMENT", time_offsets: [0.5, 1.5])
+      assert tcoord.temporal_range_type == "SEGMENT"
+      assert tcoord.time_offsets == [0.5, 1.5]
+    end
+
+    test "creates BEGIN with datetime values" do
+      tcoord = Tcoord.new("BEGIN", datetime_values: ["20260320143022"])
+      assert tcoord.temporal_range_type == "BEGIN"
+      assert tcoord.datetime_values == ["20260320143022"]
+    end
+
+    test "normalizes case" do
+      tcoord = Tcoord.new("point", sample_positions: [42])
+      assert tcoord.temporal_range_type == "POINT"
+    end
+
+    test "rejects unsupported temporal range types" do
+      assert_raise ArgumentError, ~r/unsupported temporal_range_type/, fn ->
+        Tcoord.new("INVALID", sample_positions: [1])
+      end
+    end
+
+    test "rejects when no reference is provided" do
+      assert_raise ArgumentError, ~r/exactly one/, fn ->
+        Tcoord.new("POINT")
+      end
+    end
+
+    test "rejects when multiple references are provided" do
+      assert_raise ArgumentError, ~r/exactly one/, fn ->
+        Tcoord.new("POINT", sample_positions: [1], time_offsets: [0.5])
+      end
+    end
+
+    test "supports all temporal range types" do
+      for type <- ~w(POINT MULTIPOINT SEGMENT MULTISEGMENT BEGIN END) do
+        tcoord = Tcoord.new(type, sample_positions: [1])
+        assert tcoord.temporal_range_type == type
+      end
+    end
+  end
+
+  describe "ContentItem TCOORD" do
+    test "renders TCOORD with sample positions" do
+      tcoord = Tcoord.new("POINT", sample_positions: [100, 200])
+
+      item =
+        ContentItem.tcoord(
+          Codes.finding(),
+          tcoord,
+          relationship_type: "INFERRED FROM"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.value_type()].value == "TCOORD"
+      assert item[Tag.relationship_type()].value == "INFERRED FROM"
+      assert item[Tag.temporal_range_type()].value == "POINT"
+      assert item[Tag.referenced_sample_positions()].value == [100, 200]
+      assert item[Tag.referenced_sample_positions()].vr == :UL
+    end
+
+    test "renders TCOORD with time offsets" do
+      tcoord = Tcoord.new("SEGMENT", time_offsets: [0.5, 1.5])
+
+      item =
+        ContentItem.tcoord(
+          Codes.finding(),
+          tcoord,
+          relationship_type: "INFERRED FROM"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.temporal_range_type()].value == "SEGMENT"
+      assert item[Tag.referenced_time_offsets()].value == "0.5\\1.5"
+      assert item[Tag.referenced_time_offsets()].vr == :DS
+    end
+
+    test "renders TCOORD with datetime values" do
+      tcoord = Tcoord.new("BEGIN", datetime_values: ["20260320143022"])
+
+      item =
+        ContentItem.tcoord(
+          Codes.finding(),
+          tcoord,
+          relationship_type: "INFERRED FROM"
+        )
+        |> ContentItem.to_item()
+
+      assert item[Tag.temporal_range_type()].value == "BEGIN"
+      assert item[Tag.referenced_datetime()].value == "20260320143022"
+      assert item[Tag.referenced_datetime()].vr == :DT
+    end
+
+    test "requires relationship_type" do
+      tcoord = Tcoord.new("POINT", sample_positions: [1])
+
+      assert_raise KeyError, fn ->
+        ContentItem.tcoord(Codes.finding(), tcoord)
+      end
+    end
+  end
+
+  describe "WaveformAnnotation" do
+    @waveform_sop_class "1.2.840.10008.5.1.4.1.1.9.1.1"
+
+    defp waveform_base_opts do
+      [
+        study_instance_uid: "1.2.826.0.1.3680043.10.1137.3750.1",
+        series_instance_uid: "1.2.826.0.1.3680043.10.1137.3750.2",
+        sop_instance_uid: "1.2.826.0.1.3680043.10.1137.3750.3",
+        observer_name: "ANNOTATOR^ALICE",
+        waveform_reference:
+          Reference.new(@waveform_sop_class, "1.2.826.0.1.3680043.10.1137.3750.100")
+      ]
+    end
+
+    test "builds a basic TID 3750 document with waveform reference only" do
+      {:ok, document} = WaveformAnnotation.new(waveform_base_opts())
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "122172"
+      assert template_identifier(data_set) == "3750"
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      concept_codes = Enum.map(content, &code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Language + Observer Type + Observer Name + Waveform Reference
+      assert "121049" in concept_codes
+      assert "121005" in concept_codes
+      assert "121008" in concept_codes
+      assert "122175" in concept_codes
+
+      waveform_item =
+        Enum.find(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "122175"
+        end)
+
+      assert waveform_item[Tag.value_type()].value == "COMPOSITE"
+    end
+
+    test "builds a document with pattern annotations" do
+      tcoord = Tcoord.new("POINT", sample_positions: [500])
+
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          patterns: [
+            %{
+              code: Code.new("164873001", "SCT", "Sinus rhythm"),
+              tcoord: tcoord
+            }
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      finding_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121071" and
+            item[Tag.value_type()].value == "CODE"
+        end)
+
+      assert length(finding_items) == 1
+      [finding] = finding_items
+
+      # Check the TCOORD child
+      [tcoord_child] = finding[Tag.content_sequence()].value
+      assert tcoord_child[Tag.value_type()].value == "TCOORD"
+      assert tcoord_child[Tag.temporal_range_type()].value == "POINT"
+      assert tcoord_child[Tag.referenced_sample_positions()].value == [500]
+    end
+
+    test "builds a document with measurement annotations" do
+      tcoord = Tcoord.new("SEGMENT", time_offsets: [0.1, 0.5])
+
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          measurements: [
+            %{
+              name: Code.new("8867-4", "LN", "Heart rate"),
+              value: 72,
+              units: Code.new("/min", "UCUM", "beats per minute"),
+              tcoord: tcoord
+            }
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      num_items =
+        Enum.filter(content, fn item ->
+          String.trim(item[Tag.value_type()].value) == "NUM"
+        end)
+
+      assert length(num_items) == 1
+      [num_item] = num_items
+
+      # Check that measurement has TCOORD child
+      children = num_item[Tag.content_sequence()].value
+
+      tcoord_children =
+        Enum.filter(children, fn child ->
+          child[Tag.value_type()].value == "TCOORD"
+        end)
+
+      assert length(tcoord_children) == 1
+      [tcoord_child] = tcoord_children
+      assert tcoord_child[Tag.temporal_range_type()].value == "SEGMENT"
+    end
+
+    test "builds a document with text notes" do
+      tcoord = Tcoord.new("BEGIN", datetime_values: ["20260320143022"])
+
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          notes: [
+            %{
+              text: "Possible artifact at lead V1",
+              tcoord: tcoord
+            }
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      comment_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121106"
+        end)
+
+      assert length(comment_items) == 1
+      [comment] = comment_items
+      assert comment[Tag.text_value()].value == "Possible artifact at lead V1"
+
+      # Check that note has TCOORD child
+      [tcoord_child] = comment[Tag.content_sequence()].value
+      assert tcoord_child[Tag.value_type()].value == "TCOORD"
+    end
+
+    test "builds a document with text notes without temporal coordinates" do
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          notes: [
+            %{text: "General observation about waveform quality"}
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      comment_items =
+        Enum.filter(content, fn item ->
+          code_value(item, Tag.concept_name_code_sequence()) == "121106"
+        end)
+
+      assert length(comment_items) == 1
+      [comment] = comment_items
+      assert comment[Tag.text_value()].value == "General observation about waveform quality"
+      refute Map.has_key?(comment, Tag.content_sequence())
+    end
+
+    test "builds a document with mixed annotation types" do
+      point_tcoord = Tcoord.new("POINT", sample_positions: [250])
+      segment_tcoord = Tcoord.new("SEGMENT", time_offsets: [0.1, 0.5])
+
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          annotations: [
+            %{
+              type: :pattern,
+              code: Code.new("164873001", "SCT", "Sinus rhythm"),
+              tcoord: point_tcoord
+            },
+            %{
+              type: :measurement,
+              name: Code.new("8867-4", "LN", "Heart rate"),
+              value: 72,
+              units: Code.new("/min", "UCUM", "beats per minute"),
+              tcoord: segment_tcoord
+            },
+            %{
+              type: :note,
+              text: "Artifact detected"
+            }
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      # Should have: language + observer_type + observer_name + waveform_ref + 3 annotations
+      value_types = Enum.map(content, &String.trim(&1[Tag.value_type()].value))
+
+      assert "CODE" in value_types
+      assert "NUM" in value_types
+      assert "TEXT" in value_types
+      assert "COMPOSITE" in value_types
+    end
+
+    test "builds a document with measurements without temporal coordinates" do
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          measurements: [
+            %{
+              name: Code.new("8867-4", "LN", "Heart rate"),
+              value: 60,
+              units: Code.new("/min", "UCUM", "beats per minute")
+            }
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      content = DataSet.get(data_set, Tag.content_sequence())
+
+      num_items =
+        Enum.filter(content, fn item ->
+          String.trim(item[Tag.value_type()].value) == "NUM"
+        end)
+
+      assert length(num_items) == 1
+      [num_item] = num_items
+
+      # No TCOORD children expected -- content_sequence absent or has no TCOORD
+      case num_item[Tag.content_sequence()] do
+        nil -> assert true
+        seq -> refute Enum.any?(seq.value, &(&1[Tag.value_type()].value == "TCOORD"))
+      end
+    end
+
+    test "includes device observer context when provided" do
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          observer_device: [
+            uid: "1.2.826.0.1.3680043.10.1137.3750.200",
+            name: "ECG-CART-01"
+          ]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121012" in concept_codes
+      assert "121013" in concept_codes
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      tcoord = Tcoord.new("POINT", sample_positions: [100])
+
+      opts =
+        Keyword.merge(waveform_base_opts(),
+          patterns: [
+            %{
+              code: Code.new("164873001", "SCT", "Sinus rhythm"),
+              tcoord: tcoord
+            }
+          ],
+          notes: [%{text: "Normal sinus rhythm throughout"}]
+        )
+
+      {:ok, document} = WaveformAnnotation.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "122172"
+      assert template_identifier(parsed) == "3750"
     end
   end
 

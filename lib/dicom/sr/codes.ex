@@ -116,4 +116,15 @@ defmodule Dicom.SR.Codes do
 
   @spec best_in_set() :: Code.t()
   def best_in_set, do: Code.new("113018", "DCM", "Best In Set")
+
+  # Waveform Annotation codes (TID 3750)
+
+  @spec waveform_annotation() :: Code.t()
+  def waveform_annotation, do: Code.new("122172", "DCM", "Waveform Annotation")
+
+  @spec comment() :: Code.t()
+  def comment, do: Code.new("121106", "DCM", "Comment")
+
+  @spec waveform_reference() :: Code.t()
+  def waveform_reference, do: Code.new("122175", "DCM", "Waveform Reference")
 end

@@ -111,6 +111,11 @@ defmodule Dicom.Tag do
   def graphic_data, do: {0x0070, 0x0022}
   def graphic_type, do: {0x0070, 0x0023}
   def referenced_frame_of_reference_uid, do: {0x3006, 0x0024}
+  def temporal_range_type, do: {0x0040, 0xA130}
+  def referenced_sample_positions, do: {0x0040, 0xA132}
+  def referenced_time_offsets, do: {0x0040, 0xA138}
+  def referenced_datetime, do: {0x0040, 0xA13A}
+  def referenced_waveform_channels, do: {0x0040, 0xA0B0}
 
   # Image
   def rows, do: {0x0028, 0x0010}

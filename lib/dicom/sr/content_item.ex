@@ -4,7 +4,7 @@ defmodule Dicom.SR.ContentItem do
   """
 
   alias Dicom.{DataElement, Tag, Value}
-  alias Dicom.SR.{Code, Reference, Scoord2D, Scoord3D}
+  alias Dicom.SR.{Code, Reference, Scoord2D, Scoord3D, Tcoord}
 
   @type value_type ::
           :container
@@ -16,6 +16,7 @@ defmodule Dicom.SR.ContentItem do
           | :composite
           | :scoord
           | :scoord3d
+          | :tcoord
           | :date
           | :time
           | :datetime
@@ -138,6 +139,17 @@ defmodule Dicom.SR.ContentItem do
   def scoord3d(%Code{} = concept_name, %Scoord3D{} = value, opts \\ []) do
     %__MODULE__{
       value_type: :scoord3d,
+      concept_name: concept_name,
+      relationship_type: Keyword.fetch!(opts, :relationship_type),
+      value: value,
+      children: Keyword.get(opts, :children, [])
+    }
+  end
+
+  @spec tcoord(Code.t(), Tcoord.t(), keyword()) :: t()
+  def tcoord(%Code{} = concept_name, %Tcoord{} = value, opts \\ []) do
+    %__MODULE__{
+      value_type: :tcoord,
       concept_name: concept_name,
       relationship_type: Keyword.fetch!(opts, :relationship_type),
       value: value,
@@ -307,6 +319,15 @@ defmodule Dicom.SR.ContentItem do
     )
   end
 
+  defp put_value(base, %__MODULE__{value_type: :tcoord, value: %Tcoord{} = tcoord}) do
+    base
+    |> Map.put(
+      Tag.temporal_range_type(),
+      DataElement.new(Tag.temporal_range_type(), :CS, tcoord.temporal_range_type)
+    )
+    |> put_tcoord_reference(tcoord)
+  end
+
   defp put_value(base, %__MODULE__{value_type: :date, value: date_str}) do
     Map.put(base, Tag.sr_date(), DataElement.new(Tag.sr_date(), :DA, date_str))
   end
@@ -370,6 +391,7 @@ defmodule Dicom.SR.ContentItem do
   defp encode_value_type(:composite), do: "COMPOSITE"
   defp encode_value_type(:scoord), do: "SCOORD"
   defp encode_value_type(:scoord3d), do: "SCOORD3D"
+  defp encode_value_type(:tcoord), do: "TCOORD"
   defp encode_value_type(:date), do: "DATE"
   defp encode_value_type(:time), do: "TIME"
   defp encode_value_type(:datetime), do: "DATETIME"
@@ -429,6 +451,37 @@ defmodule Dicom.SR.ContentItem do
   end
 
   defp normalize_numeric_value(value) when is_binary(value), do: value
+
+  defp put_tcoord_reference(base, %Tcoord{sample_positions: positions})
+       when positions != [] do
+    Map.put(
+      base,
+      Tag.referenced_sample_positions(),
+      DataElement.new(Tag.referenced_sample_positions(), :UL, positions)
+    )
+  end
+
+  defp put_tcoord_reference(base, %Tcoord{time_offsets: offsets})
+       when offsets != [] do
+    Map.put(
+      base,
+      Tag.referenced_time_offsets(),
+      DataElement.new(
+        Tag.referenced_time_offsets(),
+        :DS,
+        Enum.map_join(offsets, "\\", &to_string/1)
+      )
+    )
+  end
+
+  defp put_tcoord_reference(base, %Tcoord{datetime_values: datetimes})
+       when datetimes != [] do
+    Map.put(
+      base,
+      Tag.referenced_datetime(),
+      DataElement.new(Tag.referenced_datetime(), :DT, Enum.join(datetimes, "\\"))
+    )
+  end
 
   defp normalize_date(%Date{} = date), do: Value.from_date(date)
   defp normalize_date(value) when is_binary(value), do: value
