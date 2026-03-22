@@ -1,7 +1,7 @@
 defmodule Dicom.SR.Templates.Helpers do
   @moduledoc false
 
-  alias Dicom.SR.{Code, Codes, ContentItem, Observer}
+  alias Dicom.SR.{Code, Codes, ContentItem, ContextGroup, Observer}
 
   def add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 
@@ -45,5 +45,30 @@ defmodule Dicom.SR.Templates.Helpers do
 
   def procedure_item(%Code{} = code) do
     ContentItem.code(Codes.procedure_reported(), code, relationship_type: "HAS CONCEPT MOD")
+  end
+
+  @doc """
+  Validates a code against a context group, raising on non-extensible rejection.
+
+  Returns the code unchanged if valid. Raises `ArgumentError` if the code is not
+  a member of a non-extensible CID. Unknown CIDs are silently passed through.
+  """
+  @spec validate_code!(Code.t(), non_neg_integer(), String.t()) :: Code.t()
+  def validate_code!(%Code{} = code, cid, field_name) when is_integer(cid) do
+    case ContextGroup.validate(code, cid) do
+      :ok ->
+        code
+
+      {:ok, :extensible} ->
+        code
+
+      {:error, :not_in_cid} ->
+        raise ArgumentError,
+              "#{field_name}: code #{code.scheme_designator}:#{code.value} " <>
+                "is not a member of CID #{cid}"
+
+      {:error, :unknown_cid} ->
+        code
+    end
   end
 end

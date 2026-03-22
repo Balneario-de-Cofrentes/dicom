@@ -20,7 +20,8 @@ defmodule Dicom.MixProject do
       test_coverage: [
         ignore_modules: [
           Mix.Tasks.Dicom.GenSopClasses,
-          Mix.Tasks.Dicom.GenDictionary
+          Mix.Tasks.Dicom.GenDictionary,
+          Mix.Tasks.Dicom.GenContextGroups
         ]
       ],
       preferred_cli_env: [
