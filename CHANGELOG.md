@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-03-22
+
+### Added
+
+- **CID (Context Group) validation** — `Dicom.SR.ContextGroup` module with compile-time registry of all 1223 PS3.16 Context Groups (23,646 resolved codes). Supports BCID (extensible/advisory) and DCID (non-extensible/strict) validation semantics.
+- `Dicom.SR.ContextGroup.Registry` — generated O(1) lookup for CID membership, extensibility, and metadata
+- `validate_code!/3` helper in `Dicom.SR.Templates.Helpers` for optional CID enforcement in template builders
+- `mix dicom.gen_context_groups` task for regenerating the CID registry from `priv/context_groups.json`
+- `scripts/scrape_context_groups.py` scraper for PS3.16 CID data
+
 ## [0.9.0] - 2026-03-22
 
 ### Added
