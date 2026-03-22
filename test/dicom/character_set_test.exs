@@ -191,14 +191,39 @@ defmodule Dicom.CharacterSetTest do
     end
   end
 
-  describe "decode/2 — ISO 2022 charsets with multi-byte tables not yet implemented" do
-    test "returns not_yet_implemented for JIS X 0208 with data" do
-      # "ISO 2022 IR 87" as default charset, with non-empty data
-      # The default encoding is :jis_x0208, and any data triggers not_yet_implemented
-      assert {:error, :not_yet_implemented} =
-               CharacterSet.decode(<<0x30, 0x21>>, "ISO 2022 IR 87")
+  describe "decode/2 — ISO 2022 IR 87 (JIS X 0208)" do
+    test "decodes kanji characters" do
+      # {0x30, 0x21} = 亜 (U+4E9C)
+      assert {:ok, "亜"} = CharacterSet.decode(<<0x30, 0x21>>, "ISO 2022 IR 87")
     end
 
+    test "decodes hiragana" do
+      # {0x24, 0x22} = あ (U+3042)
+      assert {:ok, "あ"} = CharacterSet.decode(<<0x24, 0x22>>, "ISO 2022 IR 87")
+    end
+
+    test "decodes katakana" do
+      # {0x25, 0x22} = ア (U+30A2)
+      assert {:ok, "ア"} = CharacterSet.decode(<<0x25, 0x22>>, "ISO 2022 IR 87")
+    end
+
+    test "decodes empty binary" do
+      assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 87")
+    end
+
+    test "returns error for odd-length binary" do
+      assert {:error, {:decode_failed, :jis_x0208}} =
+               CharacterSet.decode(<<0x30>>, "ISO 2022 IR 87")
+    end
+
+    test "returns error for unmapped byte pair" do
+      # {0x7E, 0x7E} is not in the table
+      assert {:error, {:decode_failed, :jis_x0208}} =
+               CharacterSet.decode(<<0x7E, 0x7E>>, "ISO 2022 IR 87")
+    end
+  end
+
+  describe "decode/2 — multi-byte charsets not yet implemented" do
     test "returns not_yet_implemented for Korean charset with data" do
       assert {:error, :not_yet_implemented} =
                CharacterSet.decode(<<0xB0, 0xA1>>, "ISO 2022 IR 149")
@@ -210,7 +235,6 @@ defmodule Dicom.CharacterSetTest do
     end
 
     test "decodes empty binary for multi-byte charset labels" do
-      assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 87")
       assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 149")
       assert {:ok, ""} = CharacterSet.decode(<<>>, "GB18030")
     end
@@ -221,8 +245,9 @@ defmodule Dicom.CharacterSetTest do
       assert "ÄÖÜ" = CharacterSet.decode_lossy(<<0xC4, 0xD6, 0xDC>>, "ISO_IR 100")
     end
 
-    test "returns raw binary when decode fails (multi-byte not yet implemented)" do
-      binary = <<0xAB, 0xCD>>
+    test "returns raw binary when decode fails (unmapped JIS pair)" do
+      # {0x7E, 0x7E} is not in the JIS X 0208 table
+      binary = <<0x7E, 0x7E>>
       assert ^binary = CharacterSet.decode_lossy(binary, "ISO 2022 IR 87")
     end
 
@@ -536,11 +561,10 @@ defmodule Dicom.CharacterSetTest do
   end
 
   describe "decode_iso2022/2 — multi-byte escape sequences" do
-    test "ESC $ B (JIS X 0208) returns not_yet_implemented" do
+    test "ESC $ B (JIS X 0208) decodes kanji" do
+      # ESC $ B switches to JIS X 0208, then {0x30, 0x21} = 亜 (U+4E9C)
       binary = <<0x1B, 0x24, 0x42, 0x30, 0x21>>
-
-      assert {:error, :not_yet_implemented} =
-               CharacterSet.decode_iso2022(binary, :ascii)
+      assert {:ok, "亜"} = CharacterSet.decode_iso2022(binary, :ascii)
     end
 
     test "ESC $ ( D (JIS X 0212) returns not_yet_implemented" do
@@ -617,10 +641,9 @@ defmodule Dicom.CharacterSetTest do
       assert {:ok, "ｱA"} = CharacterSet.decode(binary, "ISO 2022 IR 13")
     end
 
-    test "ISO 2022 IR 87 with ASCII-only text returns not_yet_implemented" do
-      # Default encoding is :jis_x0208, any non-empty data triggers it
-      assert {:error, :not_yet_implemented} =
-               CharacterSet.decode(<<0x30, 0x21>>, "ISO 2022 IR 87")
+    test "ISO 2022 IR 87 decodes JIS X 0208 kanji" do
+      # {0x30, 0x21} = 亜 (U+4E9C) via default :jis_x0208 encoding
+      assert {:ok, "亜"} = CharacterSet.decode(<<0x30, 0x21>>, "ISO 2022 IR 87")
     end
 
     test "ISO 2022 IR 101 decodes Latin-2 without escapes" do
@@ -631,6 +654,184 @@ defmodule Dicom.CharacterSetTest do
     test "ISO 2022 IR 126 decodes Greek without escapes" do
       # 0xC1 in ISO 8859-7 = Alpha (U+0391)
       assert {:ok, "Α"} = CharacterSet.decode(<<0xC1>>, "ISO 2022 IR 126")
+    end
+  end
+
+  # ----------------------------------------------------------------
+  # JIS X 0208 comprehensive tests
+  # ----------------------------------------------------------------
+
+  describe "JIS X 0208 — Hiragana decoding" do
+    test "decodes individual hiragana characters" do
+      # あ = {0x24, 0x22} -> U+3042
+      assert {:ok, "あ"} = CharacterSet.decode(<<0x24, 0x22>>, "ISO 2022 IR 87")
+      # い = {0x24, 0x24} -> U+3044
+      assert {:ok, "い"} = CharacterSet.decode(<<0x24, 0x24>>, "ISO 2022 IR 87")
+      # う = {0x24, 0x26} -> U+3046
+      assert {:ok, "う"} = CharacterSet.decode(<<0x24, 0x26>>, "ISO 2022 IR 87")
+    end
+
+    test "decodes hiragana string" do
+      # あいう = {0x24,0x22}{0x24,0x24}{0x24,0x26}
+      binary = <<0x24, 0x22, 0x24, 0x24, 0x24, 0x26>>
+      assert {:ok, "あいう"} = CharacterSet.decode(binary, "ISO 2022 IR 87")
+    end
+  end
+
+  describe "JIS X 0208 — Katakana decoding" do
+    test "decodes individual katakana characters" do
+      # ア = {0x25, 0x22} -> U+30A2
+      assert {:ok, "ア"} = CharacterSet.decode(<<0x25, 0x22>>, "ISO 2022 IR 87")
+      # カ = {0x25, 0x2B} -> check
+      assert {:ok, "イ"} = CharacterSet.decode(<<0x25, 0x24>>, "ISO 2022 IR 87")
+    end
+
+    test "decodes katakana patient name: ヤマダ^タロウ" do
+      # ヤ={0x25,0x64} マ={0x25,0x5E} ダ={0x25,0x40}
+      # ^=0x5E (ASCII, needs escape switching)
+      # タ={0x25,0x3F} ロ={0x25,0x6D} ウ={0x25,0x26}
+      #
+      # In DICOM, this is encoded with ISO 2022 escape sequences:
+      # ESC $ B (switch to JIS X 0208) + katakana bytes + ESC ( B (back to ASCII) + ^ + ESC $ B + more katakana
+      yamada = <<0x25, 0x64, 0x25, 0x5E, 0x25, 0x40>>
+      tarou = <<0x25, 0x3F, 0x25, 0x6D, 0x25, 0x26>>
+
+      binary =
+        <<0x1B, 0x24, 0x42>> <>
+          yamada <>
+          <<0x1B, 0x28, 0x42>> <>
+          "^" <>
+          <<0x1B, 0x24, 0x42>> <>
+          tarou <>
+          <<0x1B, 0x28, 0x42>>
+
+      assert {:ok, "ヤマダ^タロウ"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "JIS X 0208 — Kanji decoding" do
+    test "decodes common kanji characters" do
+      # 山 = {0x3B, 0x33} -> U+5C71
+      assert {:ok, "山"} = CharacterSet.decode(<<0x3B, 0x33>>, "ISO 2022 IR 87")
+      # 田 = {0x45, 0x44} -> U+7530
+      assert {:ok, "田"} = CharacterSet.decode(<<0x45, 0x44>>, "ISO 2022 IR 87")
+      # 太 = {0x42, 0x40} -> U+592A
+      assert {:ok, "太"} = CharacterSet.decode(<<0x42, 0x40>>, "ISO 2022 IR 87")
+      # 郎 = {0x4F, 0x3A} -> U+90CE
+      assert {:ok, "郎"} = CharacterSet.decode(<<0x4F, 0x3A>>, "ISO 2022 IR 87")
+    end
+
+    test "decodes kanji string: 山田太郎" do
+      binary = <<0x3B, 0x33, 0x45, 0x44, 0x42, 0x40, 0x4F, 0x3A>>
+      assert {:ok, "山田太郎"} = CharacterSet.decode(binary, "ISO 2022 IR 87")
+    end
+  end
+
+  describe "JIS X 0208 — symbols and fullwidth forms" do
+    test "decodes ideographic space" do
+      # {0x21, 0x21} = ideographic space U+3000
+      assert {:ok, <<0x3000::utf8>>} = CharacterSet.decode(<<0x21, 0x21>>, "ISO 2022 IR 87")
+    end
+
+    test "decodes ideographic punctuation" do
+      # {0x21, 0x22} = ideographic comma U+3001
+      assert {:ok, "、"} = CharacterSet.decode(<<0x21, 0x22>>, "ISO 2022 IR 87")
+      # {0x21, 0x23} = ideographic full stop U+3002
+      assert {:ok, "。"} = CharacterSet.decode(<<0x21, 0x23>>, "ISO 2022 IR 87")
+    end
+  end
+
+  describe "JIS X 0208 — mixed ASCII + Japanese with escape switching" do
+    test "ASCII then JIS X 0208 then back to ASCII" do
+      # "AB" + ESC $ B + {0x24,0x22}(あ) + ESC ( B + "CD"
+      binary =
+        "AB" <>
+          <<0x1B, 0x24, 0x42, 0x24, 0x22, 0x1B, 0x28, 0x42>> <>
+          "CD"
+
+      assert {:ok, "ABあCD"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "realistic DICOM patient name with JIS X 0208 kanji and ASCII" do
+      # DICOM PN format: family^given=ideographic^ideographic
+      # "YAMADA^TAROU" in ASCII, then "=" separator, then kanji
+      # 山田={0x3B,0x33}{0x45,0x44} 太郎={0x42,0x40}{0x4F,0x3A}
+      kanji_family = <<0x3B, 0x33, 0x45, 0x44>>
+      kanji_given = <<0x42, 0x40, 0x4F, 0x3A>>
+
+      binary =
+        "YAMADA^TAROU=" <>
+          <<0x1B, 0x24, 0x42>> <>
+          kanji_family <>
+          <<0x1B, 0x28, 0x42>> <>
+          "^" <>
+          <<0x1B, 0x24, 0x42>> <>
+          kanji_given <>
+          <<0x1B, 0x28, 0x42>>
+
+      assert {:ok, "YAMADA^TAROU=山田^太郎"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "JIS X 0201 katakana then JIS X 0208 kanji switching" do
+      # Start in JIS X 0201, half-width katakana, then switch to JIS X 0208
+      # ｱ (0xB1) in JIS X 0201, then ESC $ B, then 山 ({0x3B, 0x33})
+      binary =
+        <<0xB1, 0x1B, 0x24, 0x42, 0x3B, 0x33>>
+
+      assert {:ok, "ｱ山"} = CharacterSet.decode_iso2022(binary, :jis_x0201)
+    end
+
+    test "multiple JIS X 0208 segments" do
+      # kanji + ASCII + kanji
+      binary =
+        <<0x1B, 0x24, 0x42, 0x24, 0x22>> <>
+          <<0x1B, 0x28, 0x42>> <>
+          "+" <>
+          <<0x1B, 0x24, 0x42, 0x25, 0x22>> <>
+          <<0x1B, 0x28, 0x42>>
+
+      assert {:ok, "あ+ア"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "JisX0208 module — decode_pair/2" do
+    test "returns {:ok, codepoint} for valid pair" do
+      assert {:ok, 0x3042} = Dicom.CharacterSet.JisX0208.decode_pair(0x24, 0x22)
+    end
+
+    test "returns :error for unmapped pair" do
+      assert :error = Dicom.CharacterSet.JisX0208.decode_pair(0x7E, 0x7E)
+    end
+
+    test "returns :error for out-of-range bytes" do
+      assert :error = Dicom.CharacterSet.JisX0208.decode_pair(0x20, 0x21)
+      assert :error = Dicom.CharacterSet.JisX0208.decode_pair(0x21, 0x7F)
+      assert :error = Dicom.CharacterSet.JisX0208.decode_pair(0x80, 0x21)
+    end
+  end
+
+  describe "JisX0208 module — decode_binary/1" do
+    test "decodes empty binary" do
+      assert {:ok, ""} = Dicom.CharacterSet.JisX0208.decode_binary(<<>>)
+    end
+
+    test "decodes single character" do
+      assert {:ok, "あ"} = Dicom.CharacterSet.JisX0208.decode_binary(<<0x24, 0x22>>)
+    end
+
+    test "decodes multiple characters" do
+      binary = <<0x3B, 0x33, 0x45, 0x44>>
+      assert {:ok, "山田"} = Dicom.CharacterSet.JisX0208.decode_binary(binary)
+    end
+
+    test "returns error for odd-length binary" do
+      assert {:error, {:decode_failed, :jis_x0208}} =
+               Dicom.CharacterSet.JisX0208.decode_binary(<<0x24>>)
+    end
+
+    test "returns error for unmapped pair in binary" do
+      assert {:error, {:decode_failed, :jis_x0208}} =
+               Dicom.CharacterSet.JisX0208.decode_binary(<<0x7E, 0x7E>>)
     end
   end
 end

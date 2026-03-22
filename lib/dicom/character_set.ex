@@ -32,17 +32,18 @@ defmodule Dicom.CharacterSet do
 
   - `ISO 2022 IR 6` (ASCII, G0)
   - `ISO 2022 IR 13` (JIS X 0201 — Roman G0 + Katakana G1)
-  - `ISO 2022 IR 87` (JIS X 0208 — multi-byte, not yet decodable)
+  - `ISO 2022 IR 87` (JIS X 0208 — multi-byte Kanji/Kana)
   - `ISO 2022 IR 100` through `ISO 2022 IR 148` (ISO 8859 variants, G1)
   - `ISO 2022 IR 149` (KS X 1001 — multi-byte, not yet decodable)
   - `ISO 2022 IR 159` (JIS X 0212 — multi-byte, not yet decodable)
   - `ISO 2022 IR 58` (GB2312-80 — multi-byte, not yet decodable)
   - `GB18030` (Chinese national standard — not yet decodable)
 
-  Multi-byte charsets (JIS X 0208, JIS X 0212, KS X 1001, GB2312) are parsed
-  at the escape-sequence level but return `{:error, :not_yet_implemented}` when
-  actual decoding of their code points is needed. Lookup tables for these will
-  be added in future iterations.
+  JIS X 0208 (ISO 2022 IR 87) is fully decodable with a 6879-entry lookup
+  table from the Unicode consortium's JIS0208.TXT mapping. The remaining
+  multi-byte charsets (JIS X 0212, KS X 1001, GB2312) are parsed at the
+  escape-sequence level but return `{:error, :not_yet_implemented}` when
+  actual decoding of their code points is needed.
 
   All other character sets return `{:error, {:unsupported_charset, term}}`.
   """
@@ -211,7 +212,7 @@ defmodule Dicom.CharacterSet do
     end
   end
 
-  alias Dicom.CharacterSet.Tables
+  alias Dicom.CharacterSet.{JisX0208, Tables}
 
   @doc """
   Decodes a binary containing ISO 2022 escape sequences.
@@ -269,7 +270,7 @@ defmodule Dicom.CharacterSet do
   @esc_g1_ks_x1001 <<0x24, 0x29, 0x43>>
   @esc_g1_gb2312 <<0x24, 0x29, 0x41>>
 
-  @multibyte_encodings [:jis_x0208, :jis_x0212, :ks_x1001, :gb2312, :gb18030]
+  @multibyte_encodings [:jis_x0212, :ks_x1001, :gb2312, :gb18030]
 
   # --- ISO 2022 segment decoding ---
 
@@ -300,6 +301,10 @@ defmodule Dicom.CharacterSet do
 
   defp decode_segment({:iso8859, n}, bytes) do
     decode_bytewise(bytes, &iso8859_to_unicode(&1, n), {:iso8859, n})
+  end
+
+  defp decode_segment(:jis_x0208, bytes) do
+    JisX0208.decode_binary(bytes)
   end
 
   defp decode_segment(encoding, _bytes) when encoding in @multibyte_encodings do
