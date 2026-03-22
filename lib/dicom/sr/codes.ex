@@ -341,6 +341,26 @@ defmodule Dicom.SR.Codes do
   @spec colonic_segment() :: Code.t()
   def colonic_segment, do: Code.new("T-59300", "SRT", "Colon")
 
+  # Colonic segment values (CID 6201)
+
+  @spec cecum() :: Code.t()
+  def cecum, do: Code.new("32713005", "SCT", "Cecum")
+
+  @spec ascending_colon() :: Code.t()
+  def ascending_colon, do: Code.new("9040008", "SCT", "Ascending colon")
+
+  @spec transverse_colon() :: Code.t()
+  def transverse_colon, do: Code.new("485005", "SCT", "Transverse colon")
+
+  @spec descending_colon() :: Code.t()
+  def descending_colon, do: Code.new("32622004", "SCT", "Descending colon")
+
+  @spec sigmoid_colon() :: Code.t()
+  def sigmoid_colon, do: Code.new("60184004", "SCT", "Sigmoid colon")
+
+  @spec rectum() :: Code.t()
+  def rectum, do: Code.new("34402009", "SCT", "Rectum")
+
   @spec composite_feature() :: Code.t()
   def composite_feature, do: Code.new("111058", "DCM", "Composite Feature")
 
@@ -411,7 +431,7 @@ defmodule Dicom.SR.Codes do
     do: Code.new("122102", "DCM", "Derived Hemodynamic Measurements")
 
   @spec detection_confidence() :: Code.t()
-  def detection_confidence, do: Code.new("111058", "DCM", "Detection confidence")
+  def detection_confidence, do: Code.new("111057", "DCM", "Detection confidence")
 
   @spec device_measurements() :: Code.t()
   def device_measurements, do: Code.new("125322", "DCM", "Device Measurements")
@@ -732,6 +752,9 @@ defmodule Dicom.SR.Codes do
 
   @spec lumen_area() :: Code.t()
   def lumen_area, do: Code.new("122151", "DCM", "Lumen Area")
+
+  @spec lung_opacity() :: Code.t()
+  def lung_opacity, do: Code.new("128477000", "SCT", "Lung opacity")
 
   @spec lv_ejection_fraction() :: Code.t()
   def lv_ejection_fraction, do: Code.new("10230-1", "LN", "Left ventricular Ejection fraction")
@@ -1096,6 +1119,9 @@ defmodule Dicom.SR.Codes do
 
   @spec seconds() :: Code.t()
   def seconds, do: Code.new("s", "UCUM", "s")
+
+  @spec score_unit() :: Code.t()
+  def score_unit, do: Code.new("{score}", "UCUM", "score")
 
   @spec seminal_vesicle_invasion() :: Code.t()
   def seminal_vesicle_invasion, do: Code.new("126430", "DCM", "Seminal Vesicle Invasion")
@@ -1796,6 +1822,12 @@ defmodule Dicom.SR.Codes do
 
   @spec ms() :: Code.t()
   def ms, do: Code.new("ms", "UCUM", "ms")
+
+  @spec ng_per_ml() :: Code.t()
+  def ng_per_ml, do: Code.new("ng/mL", "UCUM", "ng/mL")
+
+  @spec ng_per_ml_per_ml() :: Code.t()
+  def ng_per_ml_per_ml, do: Code.new("ng/mL/mL", "UCUM", "ng/mL/mL")
 
   @spec negative_stress_test() :: Code.t()
   def negative_stress_test, do: Code.new("122157", "DCM", "Negative")
