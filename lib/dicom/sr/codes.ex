@@ -1411,4 +1411,65 @@ defmodule Dicom.SR.Codes do
 
   @spec equation_or_table() :: Code.t()
   def equation_or_table, do: Code.new("121424", "DCM", "Equation or Table")
+
+  # -- TID 300-315 Measurement Properties codes -----------------------------
+
+  @spec selection_status() :: Code.t()
+  def selection_status, do: Code.new("121402", "DCM", "Selection Status")
+
+  @spec population_description() :: Code.t()
+  def population_description, do: Code.new("121405", "DCM", "Population Description")
+
+  @spec measurement_authority() :: Code.t()
+  def measurement_authority, do: Code.new("121406", "DCM", "Measurement Authority")
+
+  @spec statistical_description() :: Code.t()
+  def statistical_description, do: Code.new("121404", "DCM", "Statistical Description")
+
+  @spec value_for_n() :: Code.t()
+  def value_for_n, do: Code.new("121403", "DCM", "Value for N")
+
+  @spec normal_range_upper() :: Code.t()
+  def normal_range_upper, do: Code.new("121410", "DCM", "Normal Range Upper Value")
+
+  @spec normal_range_lower() :: Code.t()
+  def normal_range_lower, do: Code.new("121411", "DCM", "Normal Range Lower Value")
+
+  @spec normal_range_description() :: Code.t()
+  def normal_range_description, do: Code.new("121412", "DCM", "Normal Range Description")
+
+  @spec numerator() :: Code.t()
+  def numerator, do: Code.new("121420", "DCM", "Numerator")
+
+  @spec denominator() :: Code.t()
+  def denominator, do: Code.new("121421", "DCM", "Denominator")
+
+  @spec table() :: Code.t()
+  def table, do: Code.new("121425", "DCM", "Table")
+
+  # -- TID 1501-1502 Measurement Group and Time Point codes -----------------
+
+  @spec time_point() :: Code.t()
+  def time_point, do: Code.new("C2348792", "UMLS", "Time Point")
+
+  @spec time_point_type() :: Code.t()
+  def time_point_type, do: Code.new("126072", "DCM", "Time Point Type")
+
+  @spec time_point_order() :: Code.t()
+  def time_point_order, do: Code.new("126073", "DCM", "Time Point Order")
+
+  @spec subject_time_point_identifier() :: Code.t()
+  def subject_time_point_identifier,
+    do: Code.new("126070", "DCM", "Subject Time Point Identifier")
+
+  @spec protocol_time_point_identifier() :: Code.t()
+  def protocol_time_point_identifier,
+    do: Code.new("126071", "DCM", "Protocol Time Point Identifier")
+
+  @spec temporal_offset_from_event() :: Code.t()
+  def temporal_offset_from_event,
+    do: Code.new("128740", "DCM", "Temporal Offset From Event")
+
+  @spec temporal_event() :: Code.t()
+  def temporal_event, do: Code.new("128741", "DCM", "Temporal Event")
 end
