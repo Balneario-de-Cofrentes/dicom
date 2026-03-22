@@ -368,6 +368,28 @@ defmodule Dicom.CharacterSetTest do
     end
   end
 
+  describe "decode_bytewise/3 — rescue branch when lookup raises" do
+    test "returns decode_failed error when lookup function raises" do
+      # Pass a lookup function that always raises, exercising the rescue on line 214
+      raising_fn = fn _byte -> raise "boom" end
+
+      assert {:error, {:decode_failed, :test_encoding}} =
+               CharacterSet.decode_bytewise(<<0x41>>, raising_fn, :test_encoding)
+    end
+
+    test "returns decode_failed error with the provided encoding label" do
+      raising_fn = fn _byte -> raise ArgumentError, "invalid codepoint" end
+
+      assert {:error, {:decode_failed, {:iso8859, 99}}} =
+               CharacterSet.decode_bytewise(<<0xFF>>, raising_fn, {:iso8859, 99})
+    end
+
+    test "succeeds when lookup function returns valid codepoints" do
+      identity_fn = fn byte -> byte end
+      assert {:ok, "A"} = CharacterSet.decode_bytewise(<<0x41>>, identity_fn, :test)
+    end
+  end
+
   describe "textual VR padding/whitespace behavior" do
     test "PN with Latin-1 charset: padding preserved until Value.decode trims" do
       binary = <<0x4D, 0xDC, 0x4C, 0x4C, 0x45, 0x52, 0x20>>

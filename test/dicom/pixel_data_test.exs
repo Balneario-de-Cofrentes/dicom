@@ -703,6 +703,150 @@ defmodule Dicom.PixelDataTest do
     end
   end
 
+  # ── frames/1 with {:encapsulated, _} tuple ─────────────────
+  # Covers line 65: the {:encapsulated, fragments} branch in frames/1
+
+  describe "frames/1 with {:encapsulated, _} tuple" do
+    test "extracts single frame from {:encapsulated, fragments} tuple" do
+      fragment = :crypto.strong_rand_bytes(100)
+      ds = image_ds(10, 10, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: {:encapsulated, [<<>>, fragment]},
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:ok, [frame]} = PixelData.frames(ds)
+      assert frame == fragment
+    end
+
+    test "extracts multiple frames from {:encapsulated, fragments} tuple" do
+      frag1 = :crypto.strong_rand_bytes(50)
+      frag2 = :crypto.strong_rand_bytes(50)
+
+      ds = image_ds(10, 5, 8, 1, frames: 2)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: {:encapsulated, [<<>>, frag1, frag2]},
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:ok, frames} = PixelData.frames(ds)
+      assert length(frames) == 2
+      assert Enum.at(frames, 0) == frag1
+      assert Enum.at(frames, 1) == frag2
+    end
+  end
+
+  # ── catch-all extract_encapsulated_frames (line 199) ──────
+  # Covers line 199: empty fragment list hitting the catch-all clause
+
+  describe "encapsulated pixel data with empty fragments" do
+    test "returns error for {:encapsulated, []} with no fragments via frames/1" do
+      ds = image_ds(10, 10, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: {:encapsulated, []},
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_pixel_data} = PixelData.frames(ds)
+    end
+
+    test "returns error for bare empty list [] via frames/1" do
+      ds = image_ds(10, 10, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_pixel_data} = PixelData.frames(ds)
+    end
+  end
+
+  # ── error propagation in extract_encapsulated_frame (line 210) ─
+
+  describe "frame/2 error propagation from encapsulated extraction" do
+    test "propagates error when extract_encapsulated_frames fails via frame/2" do
+      ds = image_ds(10, 10, 8, 1)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: {:encapsulated, []},
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_pixel_data} = PixelData.frame(ds, 0)
+    end
+
+    test "propagates error from invalid multi-frame encapsulated data via frame/2" do
+      # 3 fragments but NumberOfFrames=2 and no BOT -> invalid_pixel_data
+      frag1 = :crypto.strong_rand_bytes(30)
+      frag2 = :crypto.strong_rand_bytes(20)
+      frag3 = :crypto.strong_rand_bytes(40)
+
+      ds = image_ds(10, 5, 8, 1, frames: 2)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: {:encapsulated, [<<>>, frag1, frag2, frag3]},
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_pixel_data} = PixelData.frame(ds, 0)
+    end
+  end
+
+  # ── do_group_fragments_by_bot error pipeline (line 286) ────
+  # Covers line 286: error from reduce_while flowing through the case pipeline
+
+  describe "BOT grouping error propagation in do_group_fragments_by_bot" do
+    test "duplicate BOT offsets cause empty matching range and propagate error" do
+      # Two fragments, BOT has duplicate offset [0, 0].
+      # validate_bot_offsets passes (sorted, starts at 0, valid offsets).
+      # But do_group_fragments_by_bot fails: first range {0, 0} matches nothing.
+      frag1 = :crypto.strong_rand_bytes(10)
+      frag2 = :crypto.strong_rand_bytes(10)
+      bot = <<0::little-32, 0::little-32>>
+
+      ds = image_ds(5, 2, 8, 1, frames: 2)
+
+      elem = %DataElement{
+        tag: Tag.pixel_data(),
+        vr: :OB,
+        value: [bot, frag1, frag2],
+        length: :undefined
+      }
+
+      ds = %{ds | elements: Map.put(ds.elements, Tag.pixel_data(), elem)}
+
+      assert {:error, :invalid_basic_offset_table} = PixelData.frames(ds)
+    end
+  end
+
   describe "multi-frame fragment grouping with 3+ frames" do
     test "groups fragments by BOT for 3 frames" do
       frag1 = :crypto.strong_rand_bytes(20)

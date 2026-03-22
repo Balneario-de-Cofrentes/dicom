@@ -205,8 +205,9 @@ defmodule Dicom.CharacterSet do
     decode_bytewise(binary, &Tables.jis_x0201/1, :jis_x0201)
   end
 
-  # Shared byte-by-byte decoder: maps each byte through a lookup function
-  defp decode_bytewise(binary, lookup_fn, encoding_label) do
+  # Exposed for testing the rescue branch (lookup functions that raise)
+  @doc false
+  def decode_bytewise(binary, lookup_fn, encoding_label) do
     try do
       result = for <<byte <- binary>>, into: <<>>, do: <<lookup_fn.(byte)::utf8>>
       {:ok, result}

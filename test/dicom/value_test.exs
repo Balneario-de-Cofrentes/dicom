@@ -267,6 +267,88 @@ defmodule Dicom.ValueTest do
     end
   end
 
+  describe "encode/2 multi-valued SS list" do
+    test "encodes list of SS values" do
+      expected =
+        <<-1::little-signed-16, 0::little-signed-16, 32767::little-signed-16>>
+
+      assert Value.encode([-1, 0, 32767], :SS) == expected
+    end
+
+    test "encodes list of SS values in big-endian" do
+      expected =
+        <<-1::big-signed-16, 0::big-signed-16, -32768::big-signed-16>>
+
+      assert Value.encode([-1, 0, -32768], :SS, :big) == expected
+    end
+  end
+
+  describe "encode/2 multi-valued SL list" do
+    test "encodes list of SL values" do
+      expected =
+        <<-100_000::little-signed-32, 0::little-signed-32, 100_000::little-signed-32>>
+
+      assert Value.encode([-100_000, 0, 100_000], :SL) == expected
+    end
+
+    test "encodes list of SL values in big-endian" do
+      expected =
+        <<-2_147_483_648::big-signed-32, 0::big-signed-32, 2_147_483_647::big-signed-32>>
+
+      assert Value.encode([-2_147_483_648, 0, 2_147_483_647], :SL, :big) == expected
+    end
+  end
+
+  describe "encode/2 multi-valued UV list" do
+    test "encodes list of UV values" do
+      max_uv = 18_446_744_073_709_551_615
+
+      expected =
+        <<0::little-unsigned-64, max_uv::little-unsigned-64>>
+
+      assert Value.encode([0, max_uv], :UV) == expected
+    end
+
+    test "encodes list of UV values in big-endian" do
+      assert Value.encode([1, 2, 3], :UV, :big) ==
+               <<1::big-unsigned-64, 2::big-unsigned-64, 3::big-unsigned-64>>
+    end
+  end
+
+  describe "encode/2 multi-valued SV list" do
+    test "encodes list of SV values" do
+      min_sv = -9_223_372_036_854_775_808
+
+      expected =
+        <<min_sv::little-signed-64, 0::little-signed-64>>
+
+      assert Value.encode([min_sv, 0], :SV) == expected
+    end
+
+    test "encodes list of SV values in big-endian" do
+      max_sv = 9_223_372_036_854_775_807
+
+      expected =
+        <<-1::big-signed-64, 0::big-signed-64, max_sv::big-signed-64>>
+
+      assert Value.encode([-1, 0, max_sv], :SV, :big) == expected
+    end
+  end
+
+  describe "encode/3 unsupported VR error" do
+    test "raises ArgumentError for non-binary value with unknown VR" do
+      assert_raise ArgumentError, ~r/unsupported value for VR/, fn ->
+        Value.encode(42, :ZZ)
+      end
+    end
+
+    test "raises ArgumentError for non-binary value with binary VR like OB" do
+      assert_raise ArgumentError, ~r/unsupported value for VR/, fn ->
+        Value.encode(42, :OB)
+      end
+    end
+  end
+
   describe "decode/3 endianness-aware numeric decoding" do
     test "US decodes big-endian values" do
       assert Value.decode(<<512::big-16>>, :US, :big) == 512

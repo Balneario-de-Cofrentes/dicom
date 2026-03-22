@@ -97,4 +97,22 @@ defmodule Dicom.TagTest do
       refute Dicom.Tag.private?({0x0010, 0x0010})
     end
   end
+
+  describe "SR tag constants" do
+    test "observation_date_time returns correct tag" do
+      assert Dicom.Tag.observation_date_time() == {0x0040, 0xA032}
+    end
+
+    test "referenced_frame_numbers returns correct tag" do
+      assert Dicom.Tag.referenced_frame_numbers() == {0x0040, 0xA136}
+    end
+
+    test "observation_uid returns correct tag" do
+      assert Dicom.Tag.observation_uid() == {0x0040, 0xA171}
+    end
+
+    test "referenced_waveform_channels returns correct tag" do
+      assert Dicom.Tag.referenced_waveform_channels() == {0x0040, 0xA0B0}
+    end
+  end
 end
