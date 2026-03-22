@@ -25,6 +25,8 @@ defmodule Dicom.SR.Templates.ColonCAD do
 
   alias Dicom.SR.{Code, Codes, ContentItem, Document, ImageLibrary, Observer}
 
+  import Dicom.SR.Templates.Helpers
+
   @spec new(keyword()) :: {:ok, Document.t()} | {:error, term()}
   def new(opts) when is_list(opts) do
     device_opts = Keyword.fetch!(opts, :observer_device)
@@ -110,16 +112,4 @@ defmodule Dicom.SR.Templates.ColonCAD do
 
   defp mm_unit, do: Code.new("mm", "UCUM", "mm")
   defp percent_unit, do: Code.new("%", "UCUM", "%")
-
-  defp map_findings(values) do
-    Enum.map(values, fn
-      %Code{} = code ->
-        ContentItem.code(Codes.finding(), code, relationship_type: "CONTAINS")
-
-      text when is_binary(text) ->
-        ContentItem.text(Codes.finding(), text, relationship_type: "CONTAINS")
-    end)
-  end
-
-  defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 end

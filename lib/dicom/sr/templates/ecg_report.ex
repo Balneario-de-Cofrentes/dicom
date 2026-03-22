@@ -9,6 +9,8 @@ defmodule Dicom.SR.Templates.ECGReport do
 
   alias Dicom.SR.{Code, Codes, ContentItem, Document, Measurement, MeasurementGroup, Observer}
 
+  import Dicom.SR.Templates.Helpers
+
   @spec new(keyword()) :: {:ok, Document.t()} | {:error, term()}
   def new(opts) when is_list(opts) do
     observer_name = Keyword.fetch!(opts, :observer_name)
@@ -73,26 +75,6 @@ defmodule Dicom.SR.Templates.ECGReport do
     )
   end
 
-  defp map_findings(values) do
-    Enum.map(values, fn
-      %Code{} = code ->
-        ContentItem.code(Codes.finding(), code, relationship_type: "CONTAINS")
-
-      text when is_binary(text) ->
-        ContentItem.text(Codes.finding(), text, relationship_type: "CONTAINS")
-    end)
-  end
-
-  defp map_impressions(values) do
-    Enum.map(values, fn
-      %Code{} = code ->
-        ContentItem.code(Codes.impression(), code, relationship_type: "CONTAINS")
-
-      text when is_binary(text) ->
-        ContentItem.text(Codes.impression(), text, relationship_type: "CONTAINS")
-    end)
-  end
-
   defp map_text_or_code_items(values, relationship_type) do
     Enum.map(values, fn
       %Code{} = code ->
@@ -102,14 +84,4 @@ defmodule Dicom.SR.Templates.ECGReport do
         ContentItem.text(Codes.finding(), text, relationship_type: relationship_type)
     end)
   end
-
-  defp observer_items(opts, observer_name) do
-    Observer.person(observer_name) ++
-      case opts[:observer_device] do
-        nil -> []
-        device_opts -> Observer.device(device_opts)
-      end
-  end
-
-  defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 end

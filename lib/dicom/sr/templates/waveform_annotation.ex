@@ -22,6 +22,8 @@ defmodule Dicom.SR.Templates.WaveformAnnotation do
 
   alias Dicom.SR.{Code, Codes, ContentItem, Document, Measurement, Observer, Reference, Tcoord}
 
+  import Dicom.SR.Templates.Helpers
+
   @spec new(keyword()) :: {:ok, Document.t()} | {:error, term()}
   def new(opts) when is_list(opts) do
     observer_name = Keyword.fetch!(opts, :observer_name)
@@ -117,14 +119,4 @@ defmodule Dicom.SR.Templates.WaveformAnnotation do
   defp tcoord_item(%Tcoord{} = tcoord) do
     ContentItem.tcoord(Codes.finding(), tcoord, relationship_type: "INFERRED FROM")
   end
-
-  defp observer_items(opts, observer_name) do
-    Observer.person(observer_name) ++
-      case opts[:observer_device] do
-        nil -> []
-        device_opts -> Observer.device(device_opts)
-      end
-  end
-
-  defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 end

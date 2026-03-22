@@ -23,6 +23,8 @@ defmodule Dicom.SR.Templates.ImplantationPlan do
 
   alias Dicom.SR.{Code, Codes, ContentItem, Document, Observer, Reference}
 
+  import Dicom.SR.Templates.Helpers
+
   @spec new(keyword()) :: {:ok, Document.t()} | {:error, term()}
   def new(opts) when is_list(opts) do
     observer_name = Keyword.fetch!(opts, :observer_name)
@@ -95,14 +97,4 @@ defmodule Dicom.SR.Templates.ImplantationPlan do
         ContentItem.text(concept_code, text, relationship_type: "CONTAINS")
     end)
   end
-
-  defp observer_items(opts, observer_name) do
-    Observer.person(observer_name) ++
-      case opts[:observer_device] do
-        nil -> []
-        device_opts -> Observer.device(device_opts)
-      end
-  end
-
-  defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 end

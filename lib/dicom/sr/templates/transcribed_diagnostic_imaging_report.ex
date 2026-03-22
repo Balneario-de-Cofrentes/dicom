@@ -22,6 +22,8 @@ defmodule Dicom.SR.Templates.TranscribedDiagnosticImagingReport do
 
   alias Dicom.SR.{Code, Codes, ContentItem, Document, Observer}
 
+  import Dicom.SR.Templates.Helpers
+
   @spec new(keyword()) :: {:ok, Document.t()} | {:error, term()}
   def new(opts) when is_list(opts) do
     observer_name = Keyword.fetch!(opts, :observer_name)
@@ -78,6 +80,4 @@ defmodule Dicom.SR.Templates.TranscribedDiagnosticImagingReport do
   defp optional_clinical_information(text) when is_binary(text) do
     ContentItem.text(Codes.clinical_information(), text, relationship_type: "CONTAINS")
   end
-
-  defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 end

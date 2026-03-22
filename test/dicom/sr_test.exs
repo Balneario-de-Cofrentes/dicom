@@ -23,24 +23,31 @@ defmodule Dicom.SRTest do
     CTRadiationDose,
     CardiacCatheterizationReport,
     CardiovascularAnalysisReport,
+    ColonCAD,
     ECGReport,
     EchocardiographyReport,
     EnhancedXrayRadiationDose,
     GeneralUltrasoundReport,
     HemodynamicsReport,
     IVUSReport,
+    ImagingReport,
+    ImplantationPlan,
     MacularGridReport,
     MeasurementReport,
     OBGYNUltrasoundReport,
     PatientRadiationDose,
+    PediatricCardiacUSReport,
     PerformedImagingAgentAdministration,
     PlannedImagingAgentAdministration,
+    PreclinicalAcquisitionContext,
     ProcedureLog,
     ProjectionXRayRadiationDose,
     ProstateMRReport,
     RadiopharmaceuticalRadiationDose,
+    SimplifiedEchoReport,
     SpectaclePrescriptionReport,
     StressTestingReport,
+    StructuralHeartReport,
     TranscribedDiagnosticImagingReport,
     VascularUltrasoundReport,
     WaveformAnnotation
@@ -7568,6 +7575,995 @@ defmodule Dicom.SRTest do
       assert document.sop_class_uid == Dicom.UID.xray_radiation_dose_sr_storage()
       assert document.series_description == "CT Radiation Dose Report"
       assert document.template_identifier == "10011"
+    end
+  end
+
+  describe "ColonCAD" do
+    @colon_cad_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7100",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7101",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7102",
+      observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7103", name: "CAD_ENGINE"]
+    ]
+
+    test "builds a minimal report with device observer only" do
+      {:ok, document} = ColonCAD.new(@colon_cad_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "111060"
+      assert template_identifier(data_set) == "4120"
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Language
+      assert "121049" in concept_codes
+      # Observer type (device)
+      assert "121005" in concept_codes
+    end
+
+    test "builds a full report with polyp findings, summary, and person observer" do
+      ascending_colon = Code.new("T-59200", "SRT", "Ascending colon")
+
+      opts =
+        Keyword.merge(@colon_cad_base_opts,
+          observer_name: "RADIOLOGIST^JANE",
+          findings_summary: ["Two polyp candidates detected"],
+          polyp_findings: [
+            %{
+              size_mm: 8.5,
+              segment: ascending_colon,
+              confidence: 92.0
+            },
+            %{
+              size_mm: 4.2,
+              segment: Code.new("T-59470", "SRT", "Sigmoid colon"),
+              confidence: 75.0
+            }
+          ]
+        )
+
+      {:ok, document} = ColonCAD.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # CAD Processing and Findings Summary
+      assert "111017" in concept_codes
+      # Single Image Findings (2 polyps)
+      finding_count = Enum.count(concept_codes, &(&1 == "111059"))
+      assert finding_count == 2
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = ColonCAD.new(@colon_cad_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+      assert document.series_description == "Colon CAD Report"
+      assert document.template_identifier == "4120"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      opts =
+        Keyword.merge(@colon_cad_base_opts,
+          polyp_findings: [
+            %{size_mm: 6.0, segment: Code.new("T-59200", "SRT", "Ascending colon")}
+          ]
+        )
+
+      {:ok, document} = ColonCAD.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "111060"
+      assert template_identifier(parsed) == "4120"
+    end
+
+    test "supports image library references" do
+      ref =
+        Reference.new(
+          Dicom.UID.ct_image_storage(),
+          "1.2.826.0.1.3680043.10.1137.7120"
+        )
+
+      opts = Keyword.merge(@colon_cad_base_opts, image_library: [ref])
+
+      {:ok, document} = ColonCAD.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Image Library container
+      assert "111028" in concept_codes
+    end
+
+    test "supports Code-based findings summary and polyp with minimal fields" do
+      opts =
+        Keyword.merge(@colon_cad_base_opts,
+          findings_summary: [Code.new("112172", "DCM", "Polyp")],
+          polyp_findings: [%{}]
+        )
+
+      {:ok, document} = ColonCAD.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "111017" in concept_codes
+      assert "111059" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = ColonCAD.new(@colon_cad_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # No findings summary
+      refute "111017" in concept_codes
+      # No single image findings
+      refute "111059" in concept_codes
+    end
+  end
+
+  describe "ImagingReport" do
+    @imaging_report_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7200",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7201",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7202",
+      observer_name: "RADIOLOGIST^SMITH"
+    ]
+
+    test "builds a minimal report with observer only" do
+      {:ok, document} = ImagingReport.new(@imaging_report_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "18748-4"
+      assert template_identifier(data_set) == "2006"
+    end
+
+    test "builds a full report with narrative, impressions, recommendations, and radiation exposure" do
+      opts =
+        Keyword.merge(@imaging_report_base_opts,
+          procedure_reported: [Code.new("P5-09051", "SRT", "Chest CT")],
+          procedure_description: "CT scan of the chest without contrast",
+          narrative: "No acute cardiopulmonary findings.",
+          impressions: ["Normal chest CT"],
+          recommendations: ["Routine follow-up in 12 months"],
+          radiation_exposure: [ctdivol: 12.5, dlp: 450.0]
+        )
+
+      {:ok, document} = ImagingReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Procedure reported
+      assert "121058" in concept_codes
+      # Procedure description
+      assert "121065" in concept_codes
+      # Narrative summary
+      assert "111412" in concept_codes
+      # Impression
+      assert "121073" in concept_codes
+      # Recommendation
+      assert "121075" in concept_codes
+      # CT Radiation Dose container
+      assert "113507" in concept_codes
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = ImagingReport.new(@imaging_report_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+      assert document.series_description == "Imaging Report"
+      assert document.template_identifier == "2006"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      opts =
+        Keyword.merge(@imaging_report_base_opts,
+          narrative: "Unremarkable exam.",
+          impressions: ["No acute findings"]
+        )
+
+      {:ok, document} = ImagingReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) |> String.trim() == "18748-4"
+      assert template_identifier(parsed) == "2006"
+    end
+
+    test "supports partial radiation exposure with only CTDIvol" do
+      opts =
+        Keyword.merge(@imaging_report_base_opts,
+          radiation_exposure: [ctdivol: 15.0]
+        )
+
+      {:ok, document} = ImagingReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "113507" in concept_codes
+    end
+
+    test "supports Code-based impressions, recommendations, and device observer" do
+      opts =
+        Keyword.merge(@imaging_report_base_opts,
+          observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7210", name: "CT_SCANNER"],
+          impressions: [Code.new("399067008", "SCT", "Normal study")],
+          recommendations: [Code.new("399013003", "SCT", "Follow-up")]
+        )
+
+      {:ok, document} = ImagingReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121073" in concept_codes
+      assert "121075" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = ImagingReport.new(@imaging_report_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # No procedure reported
+      refute "121058" in concept_codes
+      # No procedure description
+      refute "121065" in concept_codes
+      # No narrative
+      refute "111412" in concept_codes
+      # No impressions
+      refute "121073" in concept_codes
+      # No recommendations
+      refute "121075" in concept_codes
+      # No radiation exposure
+      refute "113507" in concept_codes
+    end
+  end
+
+  describe "ImplantationPlan" do
+    @implant_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7300",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7301",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7302",
+      observer_name: "SURGEON^JONES"
+    ]
+
+    test "builds a minimal report with observer only" do
+      {:ok, document} = ImplantationPlan.new(@implant_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "122361"
+      assert template_identifier(data_set) == "7000"
+    end
+
+    test "builds a full report with templates, measurements, site, findings, and impressions" do
+      mm_unit = Code.new("mm", "UCUM", "mm")
+
+      opts =
+        Keyword.merge(@implant_base_opts,
+          procedure_reported: Code.new("27687-1", "LN", "Total hip replacement"),
+          implant_templates: ["Acme Hip Stem Size 12"],
+          planning_measurements: [
+            %{
+              concept: Code.new("122346", "DCM", "Planning measurement"),
+              value: 45.0,
+              units: mm_unit
+            }
+          ],
+          implantation_site: Code.new("71341001", "SCT", "Left hip"),
+          findings: ["Adequate bone stock"],
+          impressions: ["Suitable for total hip arthroplasty"],
+          recommendations: [Code.new("306807008", "SCT", "Proceed with surgery")]
+        )
+
+      {:ok, document} = ImplantationPlan.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Procedure reported
+      assert "121058" in concept_codes
+      # Implant template
+      assert "122349" in concept_codes
+      # Implantation site
+      assert "111176" in concept_codes
+      # Finding
+      assert "121071" in concept_codes
+      # Impression
+      assert "121073" in concept_codes
+      # Recommendation
+      assert "121075" in concept_codes
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = ImplantationPlan.new(@implant_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+      assert document.series_description == "Implantation Plan"
+      assert document.template_identifier == "7000"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      opts =
+        Keyword.merge(@implant_base_opts,
+          findings: ["Normal bone density"],
+          impressions: ["Plan approved"]
+        )
+
+      {:ok, document} = ImplantationPlan.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "122361"
+      assert template_identifier(parsed) == "7000"
+    end
+
+    test "supports Reference-based implant templates and device observer" do
+      ref =
+        Reference.new(
+          "1.2.840.10008.5.1.4.43.1",
+          "1.2.826.0.1.3680043.10.1137.7310"
+        )
+
+      opts =
+        Keyword.merge(@implant_base_opts,
+          observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7320", name: "PLANNER"],
+          implant_templates: [ref]
+        )
+
+      {:ok, document} = ImplantationPlan.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "122349" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = ImplantationPlan.new(@implant_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "121058" in concept_codes
+      refute "122349" in concept_codes
+      refute "111176" in concept_codes
+      refute "121071" in concept_codes
+      refute "121073" in concept_codes
+      refute "121075" in concept_codes
+    end
+  end
+
+  describe "PediatricCardiacUSReport" do
+    @peds_cardiac_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7400",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7401",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7402",
+      observer_name: "CARDIOLOGIST^PATEL"
+    ]
+
+    test "builds a minimal report with observer only" do
+      {:ok, document} = PediatricCardiacUSReport.new(@peds_cardiac_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "125200"
+      assert template_identifier(data_set) == "5220"
+    end
+
+    test "builds a full report with procedure, characteristics, summary, findings, and impressions" do
+      opts =
+        Keyword.merge(@peds_cardiac_base_opts,
+          procedure_reported: Code.new("40701008", "SCT", "Echocardiography"),
+          patient_characteristics: ["Neonate, 3.2 kg"],
+          summary: ["Normal cardiac anatomy"],
+          findings: [
+            "Normal biventricular function",
+            Code.new("27550009", "SCT", "Patent foramen ovale")
+          ],
+          impressions: ["Structurally normal heart"]
+        )
+
+      {:ok, document} = PediatricCardiacUSReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Procedure reported
+      assert "121058" in concept_codes
+      # Patient characteristics container
+      assert "121070" in concept_codes
+      # Summary container
+      assert "121077" in concept_codes
+      # Finding
+      assert "121071" in concept_codes
+      # Impression
+      assert "121073" in concept_codes
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = PediatricCardiacUSReport.new(@peds_cardiac_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+      assert document.series_description == "Pediatric Cardiac Ultrasound Report"
+      assert document.template_identifier == "5220"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      opts =
+        Keyword.merge(@peds_cardiac_base_opts,
+          findings: ["Normal study"],
+          impressions: ["No abnormality detected"]
+        )
+
+      {:ok, document} = PediatricCardiacUSReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "125200"
+      assert template_identifier(parsed) == "5220"
+    end
+
+    test "supports Code-based items, cardiac sections, and device observer" do
+      measurement =
+        Measurement.new(
+          Code.new("18083-2", "LN", "LV Internal Diastolic Dimension"),
+          42.0,
+          Code.new("mm", "UCUM", "mm")
+        )
+
+      opts =
+        Keyword.merge(@peds_cardiac_base_opts,
+          observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7410", name: "US_MACHINE"],
+          patient_characteristics: [Code.new("133931009", "SCT", "Neonate")],
+          cardiac_sections: [
+            %{name: "Left Ventricle", measurements: [measurement], findings: ["Normal"]}
+          ],
+          summary: [Code.new("17621005", "SCT", "Normal")],
+          findings: [Code.new("27550009", "SCT", "Patent foramen ovale")],
+          impressions: [Code.new("399067008", "SCT", "Normal study")]
+        )
+
+      {:ok, document} = PediatricCardiacUSReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121070" in concept_codes
+      assert "121077" in concept_codes
+      assert "121071" in concept_codes
+      assert "121073" in concept_codes
+      # Cardiac measurement group
+      assert "125007" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = PediatricCardiacUSReport.new(@peds_cardiac_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "121058" in concept_codes
+      refute "121070" in concept_codes
+      refute "121077" in concept_codes
+      refute "121071" in concept_codes
+      refute "121073" in concept_codes
+    end
+  end
+
+  describe "PreclinicalAcquisitionContext" do
+    @preclinical_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7500",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7501",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7502",
+      observer_name: "RESEARCHER^CHEN"
+    ]
+
+    test "builds a minimal report with observer only" do
+      {:ok, document} = PreclinicalAcquisitionContext.new(@preclinical_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "128101"
+      assert template_identifier(data_set) == "8101"
+    end
+
+    test "builds a full report with biosafety, housing, anesthesia, and monitoring" do
+      heart_rate =
+        Measurement.new(
+          Code.new("8867-4", "LN", "Heart rate"),
+          350,
+          Code.new("/min", "UCUM", "beats per minute")
+        )
+
+      opts =
+        Keyword.merge(@preclinical_base_opts,
+          biosafety: [Code.new("BSL-1", "99LOCAL", "Biosafety Level 1")],
+          animal_housing: ["Standard cage with bedding"],
+          anesthesia: [Code.new("387260003", "SCT", "Isoflurane")],
+          physiological_monitoring: [heart_rate]
+        )
+
+      {:ok, document} = PreclinicalAcquisitionContext.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Biosafety conditions container
+      assert "128110" in concept_codes
+      # Animal housing container
+      assert "128121" in concept_codes
+      # Anesthesia container
+      assert "128130" in concept_codes
+      # Physiological monitoring container
+      assert "128170" in concept_codes
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = PreclinicalAcquisitionContext.new(@preclinical_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+
+      assert document.series_description ==
+               "Preclinical Small Animal Acquisition Context"
+
+      assert document.template_identifier == "8101"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      opts =
+        Keyword.merge(@preclinical_base_opts,
+          biosafety: ["BSL-2 containment"],
+          anesthesia: ["Ketamine/Xylazine"]
+        )
+
+      {:ok, document} = PreclinicalAcquisitionContext.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "128101"
+      assert template_identifier(parsed) == "8101"
+    end
+
+    test "supports Code-based housing, Measurement anesthesia, and mixed monitoring" do
+      anesthesia_dose =
+        Measurement.new(
+          Code.new("128131", "DCM", "Anesthesia Agent"),
+          2.0,
+          Code.new("%", "UCUM", "%")
+        )
+
+      heart_rate =
+        Measurement.new(
+          Code.new("8867-4", "LN", "Heart rate"),
+          380,
+          Code.new("/min", "UCUM", "beats per minute")
+        )
+
+      opts =
+        Keyword.merge(@preclinical_base_opts,
+          observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7510", name: "SCANNER"],
+          animal_housing: [Code.new("128123", "DCM", "Single housing")],
+          anesthesia: [anesthesia_dose],
+          physiological_monitoring: [
+            heart_rate,
+            Code.new("128172", "DCM", "Body temperature"),
+            "Respiration monitored"
+          ]
+        )
+
+      {:ok, document} = PreclinicalAcquisitionContext.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "128121" in concept_codes
+      assert "128130" in concept_codes
+      assert "128170" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = PreclinicalAcquisitionContext.new(@preclinical_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "128110" in concept_codes
+      refute "128121" in concept_codes
+      refute "128130" in concept_codes
+      refute "128170" in concept_codes
+    end
+  end
+
+  describe "SimplifiedEchoReport" do
+    @echo_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7600",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7601",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7602",
+      observer_name: "SONOG^MARIA"
+    ]
+
+    test "builds a minimal report with observer only" do
+      {:ok, document} = SimplifiedEchoReport.new(@echo_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "125300"
+      assert template_identifier(data_set) == "5300"
+    end
+
+    test "builds a full report with measurement sections, findings, and impressions" do
+      lv_edd =
+        Measurement.new(
+          Code.new("18083-2", "LN", "LV Internal Diastolic Dimension"),
+          48.0,
+          Code.new("mm", "UCUM", "mm")
+        )
+
+      ef =
+        Measurement.new(
+          Code.new("10230-1", "LN", "Ejection Fraction"),
+          62.0,
+          Code.new("%", "UCUM", "%")
+        )
+
+      opts =
+        Keyword.merge(@echo_base_opts,
+          pre_coordinated_measurements: [lv_edd],
+          post_coordinated_measurements: [ef],
+          findings: ["Normal LV size and function"],
+          impressions: [
+            "Normal echocardiogram",
+            Code.new("399067008", "SCT", "Normal study")
+          ]
+        )
+
+      {:ok, document} = SimplifiedEchoReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Pre-coordinated measurements container
+      assert "125301" in concept_codes
+      # Post-coordinated measurements container
+      assert "125302" in concept_codes
+      # Finding
+      assert "121071" in concept_codes
+      # Impression
+      assert "121073" in concept_codes
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = SimplifiedEchoReport.new(@echo_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+      assert document.series_description == "Simplified Echo Procedure Report"
+      assert document.template_identifier == "5300"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      lv_edd =
+        Measurement.new(
+          Code.new("18083-2", "LN", "LV Internal Diastolic Dimension"),
+          50.0,
+          Code.new("mm", "UCUM", "mm")
+        )
+
+      opts =
+        Keyword.merge(@echo_base_opts,
+          pre_coordinated_measurements: [lv_edd],
+          findings: ["Normal study"]
+        )
+
+      {:ok, document} = SimplifiedEchoReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "125300"
+      assert template_identifier(parsed) == "5300"
+    end
+
+    test "supports Code-based findings and device observer" do
+      opts =
+        Keyword.merge(@echo_base_opts,
+          observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7610", name: "ECHO_MACHINE"],
+          findings: [Code.new("399067008", "SCT", "Normal study")]
+        )
+
+      {:ok, document} = SimplifiedEchoReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121071" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = SimplifiedEchoReport.new(@echo_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "125301" in concept_codes
+      refute "125302" in concept_codes
+      refute "125303" in concept_codes
+      refute "121071" in concept_codes
+      refute "121073" in concept_codes
+    end
+  end
+
+  describe "StructuralHeartReport" do
+    @structural_heart_base_opts [
+      study_instance_uid: "1.2.826.0.1.3680043.10.1137.7700",
+      series_instance_uid: "1.2.826.0.1.3680043.10.1137.7701",
+      sop_instance_uid: "1.2.826.0.1.3680043.10.1137.7702",
+      observer_name: "INTERVENTIONAL^WONG"
+    ]
+
+    test "builds a minimal report with observer only" do
+      {:ok, document} = StructuralHeartReport.new(@structural_heart_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      assert DataSet.get(data_set, Tag.modality()) == "SR"
+      assert code_value(data_set, Tag.concept_name_code_sequence()) == "125320"
+      assert template_identifier(data_set) == "5320"
+    end
+
+    test "builds a full report with procedure, measurements, findings, and impressions" do
+      annulus_diameter =
+        Measurement.new(
+          Code.new("M-02550", "SRT", "Annulus diameter"),
+          23.5,
+          Code.new("mm", "UCUM", "mm")
+        )
+
+      device_size =
+        Measurement.new(
+          Code.new("122350", "DCM", "Device size"),
+          26.0,
+          Code.new("mm", "UCUM", "mm")
+        )
+
+      opts =
+        Keyword.merge(@structural_heart_base_opts,
+          procedure_reported: Code.new("64915003", "SCT", "TAVR"),
+          annular_measurements: [annulus_diameter],
+          device_measurements: [device_size],
+          findings: [
+            "Severe aortic stenosis",
+            Code.new("60573004", "SCT", "Aortic valve stenosis")
+          ],
+          impressions: ["Suitable for TAVR with 26mm prosthesis"]
+        )
+
+      {:ok, document} = StructuralHeartReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      # Procedure reported
+      assert "121058" in concept_codes
+      # Annular measurements container
+      assert "125321" in concept_codes
+      # Device measurements container
+      assert "125322" in concept_codes
+      # Finding
+      assert "121071" in concept_codes
+      # Impression
+      assert "121073" in concept_codes
+    end
+
+    test "document metadata uses correct template and series description" do
+      {:ok, document} = StructuralHeartReport.new(@structural_heart_base_opts)
+
+      assert document.sop_class_uid == Dicom.UID.comprehensive_sr_storage()
+      assert document.series_description == "Structural Heart Measurement Report"
+      assert document.template_identifier == "5320"
+    end
+
+    test "serializes to valid P10 binary and round-trips" do
+      annulus =
+        Measurement.new(
+          Code.new("M-02550", "SRT", "Annulus diameter"),
+          24.0,
+          Code.new("mm", "UCUM", "mm")
+        )
+
+      opts =
+        Keyword.merge(@structural_heart_base_opts,
+          annular_measurements: [annulus],
+          findings: ["Severe aortic stenosis"]
+        )
+
+      {:ok, document} = StructuralHeartReport.new(opts)
+      {:ok, data_set} = Document.to_data_set(document)
+      {:ok, binary} = Dicom.write(data_set)
+      {:ok, parsed} = Dicom.parse(binary)
+
+      assert DataSet.decoded_value(parsed, Tag.sop_class_uid()) ==
+               Dicom.UID.comprehensive_sr_storage()
+
+      assert DataSet.get(parsed, Tag.modality()) == "SR"
+      assert DataSet.decoded_value(parsed, Tag.value_type()) == "CONTAINER"
+      assert code_value(parsed, Tag.concept_name_code_sequence()) == "125320"
+      assert template_identifier(parsed) == "5320"
+    end
+
+    test "supports Code-based findings, impressions, and device observer" do
+      opts =
+        Keyword.merge(@structural_heart_base_opts,
+          observer_device: [uid: "1.2.826.0.1.3680043.10.1137.7710", name: "CT_SCANNER"],
+          findings: [Code.new("60573004", "SCT", "Aortic valve stenosis")],
+          impressions: [Code.new("399067008", "SCT", "Normal study")]
+        )
+
+      {:ok, document} = StructuralHeartReport.new(opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      assert "121071" in concept_codes
+      assert "121073" in concept_codes
+    end
+
+    test "omits optional sections when not provided" do
+      {:ok, document} = StructuralHeartReport.new(@structural_heart_base_opts)
+
+      {:ok, data_set} = Document.to_data_set(document)
+
+      concept_codes =
+        data_set
+        |> DataSet.get(Tag.content_sequence())
+        |> Enum.map(&code_value(&1, Tag.concept_name_code_sequence()))
+
+      refute "121058" in concept_codes
+      refute "125321" in concept_codes
+      refute "125322" in concept_codes
+      refute "121071" in concept_codes
+      refute "121073" in concept_codes
     end
   end
 end

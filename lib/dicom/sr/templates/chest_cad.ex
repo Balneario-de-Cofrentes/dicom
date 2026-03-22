@@ -25,6 +25,8 @@ defmodule Dicom.SR.Templates.ChestCAD do
 
   alias Dicom.SR.{Code, Codes, ContentItem, Document, ImageLibrary, Observer}
 
+  import Dicom.SR.Templates.Helpers
+
   @spec new(keyword()) :: {:ok, Document.t()} | {:error, term()}
   def new(opts) when is_list(opts) do
     device_observer = Keyword.fetch!(opts, :device_observer)
@@ -159,6 +161,4 @@ defmodule Dicom.SR.Templates.ChestCAD do
 
   defp optional_wrap(nil), do: nil
   defp optional_wrap(item), do: [item]
-
-  defp add_optional(items, more), do: items ++ Enum.reject(List.wrap(more), &is_nil/1)
 end
