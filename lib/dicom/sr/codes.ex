@@ -1264,4 +1264,121 @@ defmodule Dicom.SR.Codes do
   @spec xray_radiation_dose_report() :: Code.t()
   def xray_radiation_dose_report,
     do: Code.new("113701", "DCM", "X-Ray Radiation Dose Report")
+
+  # Observation Context codes (TID 1001-1009)
+
+  @spec person_observer_login_name() :: Code.t()
+  def person_observer_login_name, do: Code.new("128774", "DCM", "Person Observer's Login Name")
+
+  @spec person_observer_organization_name() :: Code.t()
+  def person_observer_organization_name,
+    do: Code.new("121009", "DCM", "Person Observer's Organization Name")
+
+  @spec person_observer_role_in_organization() :: Code.t()
+  def person_observer_role_in_organization,
+    do: Code.new("121010", "DCM", "Person Observer's Role in the Organization")
+
+  @spec person_observer_role_in_procedure() :: Code.t()
+  def person_observer_role_in_procedure,
+    do: Code.new("121011", "DCM", "Person Observer's Role in this Procedure")
+
+  @spec identifier_within_role() :: Code.t()
+  def identifier_within_role,
+    do: Code.new("128775", "DCM", "Identifier within Person Observer's Role")
+
+  @spec device_physical_location() :: Code.t()
+  def device_physical_location,
+    do: Code.new("121017", "DCM", "Device Physical Location During Observation")
+
+  @spec device_role_in_procedure() :: Code.t()
+  def device_role_in_procedure, do: Code.new("113876", "DCM", "Device Role in Procedure")
+
+  @spec station_ae_title() :: Code.t()
+  def station_ae_title, do: Code.new("110119", "DCM", "Station AE Title")
+
+  @spec device_manufacturer_class_uid() :: Code.t()
+  def device_manufacturer_class_uid,
+    do: Code.new("121061", "DCM", "Device Manufacturer Class UID")
+
+  # TID 1005 Procedure Study Context codes
+
+  @spec procedure_study_instance_uid() :: Code.t()
+  def procedure_study_instance_uid, do: Code.new("121018", "DCM", "Procedure Study Instance UID")
+
+  @spec procedure_study_component_uid() :: Code.t()
+  def procedure_study_component_uid,
+    do: Code.new("121019", "DCM", "Procedure Study Component UID")
+
+  @spec placer_number() :: Code.t()
+  def placer_number, do: Code.new("121020", "DCM", "Placer Number")
+
+  @spec filler_number() :: Code.t()
+  def filler_number, do: Code.new("121021", "DCM", "Filler Number")
+
+  @spec accession_number() :: Code.t()
+  def accession_number, do: Code.new("121022", "DCM", "Accession Number")
+
+  @spec procedure_code() :: Code.t()
+  def procedure_code, do: Code.new("121023", "DCM", "Procedure Code")
+
+  @spec issuer_of_identifier() :: Code.t()
+  def issuer_of_identifier, do: Code.new("110190", "DCM", "Issuer of Identifier")
+
+  # TID 1006-1009 Subject Context codes
+
+  @spec subject_class() :: Code.t()
+  def subject_class, do: Code.new("121024", "DCM", "Subject Class")
+
+  @spec subject_uid() :: Code.t()
+  def subject_uid, do: Code.new("121028", "DCM", "Subject UID")
+
+  @spec subject_name() :: Code.t()
+  def subject_name, do: Code.new("121029", "DCM", "Subject Name")
+
+  @spec subject_id() :: Code.t()
+  def subject_id, do: Code.new("121030", "DCM", "Subject ID")
+
+  @spec subject_birth_date() :: Code.t()
+  def subject_birth_date, do: Code.new("121031", "DCM", "Subject Birth Date")
+
+  @spec subject_sex() :: Code.t()
+  def subject_sex, do: Code.new("121032", "DCM", "Subject Sex")
+
+  @spec subject_age() :: Code.t()
+  def subject_age, do: Code.new("121033", "DCM", "Subject Age")
+
+  @spec subject_species() :: Code.t()
+  def subject_species, do: Code.new("121034", "DCM", "Subject Species")
+
+  @spec subject_breed() :: Code.t()
+  def subject_breed, do: Code.new("121035", "DCM", "Subject Breed")
+
+  @spec mother_of_fetus() :: Code.t()
+  def mother_of_fetus, do: Code.new("121036", "DCM", "Mother of fetus")
+
+  @spec fetus_id() :: Code.t()
+  def fetus_id, do: Code.new("11951-1", "LN", "Fetus ID")
+
+  @spec number_of_fetuses_by_us() :: Code.t()
+  def number_of_fetuses_by_us, do: Code.new("11878-6", "LN", "Number of fetuses by US")
+
+  @spec number_of_fetuses() :: Code.t()
+  def number_of_fetuses, do: Code.new("55281-0", "LN", "Number of fetuses")
+
+  @spec specimen_uid() :: Code.t()
+  def specimen_uid, do: Code.new("121039", "DCM", "Specimen UID")
+
+  @spec specimen_identifier() :: Code.t()
+  def specimen_identifier, do: Code.new("121041", "DCM", "Specimen Identifier")
+
+  @spec issuer_of_specimen_identifier() :: Code.t()
+  def issuer_of_specimen_identifier,
+    do: Code.new("111724", "DCM", "Issuer of Specimen Identifier")
+
+  @spec specimen_type() :: Code.t()
+  def specimen_type, do: Code.new("371439000", "SCT", "Specimen type")
+
+  @spec specimen_container_identifier() :: Code.t()
+  def specimen_container_identifier,
+    do: Code.new("111700", "DCM", "Specimen Container Identifier")
 end
