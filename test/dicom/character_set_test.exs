@@ -39,8 +39,14 @@ defmodule Dicom.CharacterSetTest do
       assert {:ok, "MÜLLER^HANS"} = CharacterSet.decode(binary, "ISO_IR 100")
     end
 
-    test "accepts ISO 2022 IR 100 when no escape sequences are present" do
+    test "accepts ISO 2022 IR 100 without escape sequences" do
       assert {:ok, "ÄÖÜ"} = CharacterSet.decode(<<0xC4, 0xD6, 0xDC>>, "ISO 2022 IR 100")
+    end
+
+    test "accepts ISO 2022 IR 100 with escape sequence switching to Latin-1" do
+      # ESC - A (switch to Latin-1 G1) followed by 0xC4 (Ä)
+      binary = <<0x1B, 0x2D, 0x41, 0xC4>>
+      assert {:ok, "Ä"} = CharacterSet.decode(binary, "ISO 2022 IR 100")
     end
 
     test "handles accented characters" do
@@ -179,29 +185,34 @@ defmodule Dicom.CharacterSetTest do
   end
 
   describe "decode/2 — unsupported charsets" do
-    test "returns error for ISO 2022 escape sequences in IR 100" do
-      assert {:error, {:unsupported_iso2022_escape_sequences, "ISO 2022 IR 100"}} =
-               CharacterSet.decode(<<0x1B, 0x2D, 0x41, 0xC4>>, "ISO 2022 IR 100")
+    test "returns unsupported_charset for truly unknown labels" do
+      assert {:error, {:unsupported_charset, "UNKNOWN_CHARSET"}} =
+               CharacterSet.decode("test", "UNKNOWN_CHARSET")
+    end
+  end
+
+  describe "decode/2 — ISO 2022 charsets with multi-byte tables not yet implemented" do
+    test "returns not_yet_implemented for JIS X 0208 with data" do
+      # "ISO 2022 IR 87" as default charset, with non-empty data
+      # The default encoding is :jis_x0208, and any data triggers not_yet_implemented
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode(<<0x30, 0x21>>, "ISO 2022 IR 87")
     end
 
-    test "returns error for ISO 2022 escape sequences in IR 6" do
-      assert {:error, {:unsupported_iso2022_escape_sequences, "ISO 2022 IR 6"}} =
-               CharacterSet.decode(<<0x1B, 0x28, 0x42, ?A>>, "ISO 2022 IR 6")
+    test "returns not_yet_implemented for Korean charset with data" do
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode(<<0xB0, 0xA1>>, "ISO 2022 IR 149")
     end
 
-    test "returns error for JIS X 0208 (multibyte)" do
-      assert {:error, {:unsupported_charset, "ISO 2022 IR 87"}} =
-               CharacterSet.decode("test", "ISO 2022 IR 87")
+    test "returns not_yet_implemented for GB18030 with data" do
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode(<<0xC4, 0xE3>>, "GB18030")
     end
 
-    test "returns error for Korean charset" do
-      assert {:error, {:unsupported_charset, "ISO 2022 IR 149"}} =
-               CharacterSet.decode("test", "ISO 2022 IR 149")
-    end
-
-    test "returns error for GB18030" do
-      assert {:error, {:unsupported_charset, "GB18030"}} =
-               CharacterSet.decode("test", "GB18030")
+    test "decodes empty binary for multi-byte charset labels" do
+      assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 87")
+      assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 149")
+      assert {:ok, ""} = CharacterSet.decode(<<>>, "GB18030")
     end
   end
 
@@ -210,9 +221,14 @@ defmodule Dicom.CharacterSetTest do
       assert "ÄÖÜ" = CharacterSet.decode_lossy(<<0xC4, 0xD6, 0xDC>>, "ISO_IR 100")
     end
 
-    test "returns raw binary for unsupported charset" do
+    test "returns raw binary when decode fails (multi-byte not yet implemented)" do
       binary = <<0xAB, 0xCD>>
       assert ^binary = CharacterSet.decode_lossy(binary, "ISO 2022 IR 87")
+    end
+
+    test "returns raw binary for truly unsupported charset" do
+      binary = <<0xAB, 0xCD>>
+      assert ^binary = CharacterSet.decode_lossy(binary, "UNKNOWN_CHARSET")
     end
   end
 
@@ -251,10 +267,24 @@ defmodule Dicom.CharacterSetTest do
       assert CharacterSet.supported?("ISO_IR 13")
     end
 
-    test "JIS/Korean/GB multibyte charsets are not yet supported" do
-      refute CharacterSet.supported?("ISO 2022 IR 87")
-      refute CharacterSet.supported?("ISO 2022 IR 149")
-      refute CharacterSet.supported?("GB18030")
+    test "ISO 2022 multi-byte charsets are recognized" do
+      assert CharacterSet.supported?("ISO 2022 IR 87")
+      assert CharacterSet.supported?("ISO 2022 IR 149")
+      assert CharacterSet.supported?("ISO 2022 IR 159")
+      assert CharacterSet.supported?("ISO 2022 IR 58")
+      assert CharacterSet.supported?("GB18030")
+    end
+
+    test "ISO 2022 single-byte variants are recognized" do
+      assert CharacterSet.supported?("ISO 2022 IR 6")
+      assert CharacterSet.supported?("ISO 2022 IR 100")
+      assert CharacterSet.supported?("ISO 2022 IR 101")
+      assert CharacterSet.supported?("ISO 2022 IR 13")
+    end
+
+    test "truly unknown charsets are not supported" do
+      refute CharacterSet.supported?("UNKNOWN_CHARSET")
+      refute CharacterSet.supported?("ISO_IR 999")
     end
   end
 
@@ -400,6 +430,207 @@ defmodule Dicom.CharacterSetTest do
     test "LO with default charset preserves content" do
       assert {:ok, "Some Description "} =
                CharacterSet.decode("Some Description ", nil)
+    end
+  end
+
+  # ----------------------------------------------------------------
+  # ISO 2022 escape sequence support
+  # ----------------------------------------------------------------
+
+  describe "decode_iso2022/2 — escape-free text (passthrough)" do
+    test "ASCII text with :ascii default passes through" do
+      assert {:ok, "HELLO"} = CharacterSet.decode_iso2022("HELLO", :ascii)
+    end
+
+    test "Latin-1 text with :latin1 default decodes correctly" do
+      assert {:ok, "ÄÖÜ"} =
+               CharacterSet.decode_iso2022(<<0xC4, 0xD6, 0xDC>>, :latin1)
+    end
+
+    test "JIS X 0201 text with :jis_x0201 default decodes katakana" do
+      assert {:ok, "ｱｶ"} =
+               CharacterSet.decode_iso2022(<<0xB1, 0xB6>>, :jis_x0201)
+    end
+
+    test "empty binary returns empty string" do
+      assert {:ok, ""} = CharacterSet.decode_iso2022(<<>>, :ascii)
+    end
+  end
+
+  describe "decode_iso2022/2 — G0 escape sequences" do
+    test "ESC ( B switches to ASCII" do
+      # Start in JIS X 0201, switch to ASCII via ESC ( B, then ASCII text
+      binary = <<0xB1, 0x1B, 0x28, 0x42, ?A, ?B>>
+      assert {:ok, "ｱAB"} = CharacterSet.decode_iso2022(binary, :jis_x0201)
+    end
+
+    test "ESC ( J switches to JIS X 0201 Roman" do
+      # Start in ASCII, switch to JIS X 0201 via ESC ( J
+      # 0x5C in JIS X 0201 = Yen sign
+      binary = <<0x41, 0x1B, 0x28, 0x4A, 0x5C>>
+      assert {:ok, "A¥"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "decode_iso2022/2 — G1 escape sequences (single-byte)" do
+    test "ESC - A switches to Latin-1" do
+      # Start in ASCII, switch to Latin-1 via ESC - A
+      binary = <<0x41, 0x1B, 0x2D, 0x41, 0xC4>>
+      assert {:ok, "AÄ"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - F switches to Greek (ISO 8859-7)" do
+      # Start in ASCII, switch to Greek via ESC - F
+      # 0xC1 in ISO 8859-7 = Alpha (U+0391)
+      binary = <<0x41, 0x1B, 0x2D, 0x46, 0xC1>>
+      assert {:ok, "AΑ"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - H switches to Hebrew (ISO 8859-8)" do
+      # 0xE0 in ISO 8859-8 = Alef (U+05D0)
+      binary = <<0x1B, 0x2D, 0x48, 0xE0>>
+      assert {:ok, "א"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC ) I switches to JIS X 0201 Katakana" do
+      # Start in ASCII, switch to katakana via ESC ) I
+      binary = <<0x41, 0x1B, 0x29, 0x49, 0xB1>>
+      assert {:ok, "Aｱ"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - B switches to Latin-2 (ISO 8859-2)" do
+      # 0xA1 in ISO 8859-2 = Ą (U+0104)
+      binary = <<0x1B, 0x2D, 0x42, 0xA1>>
+      assert {:ok, "Ą"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - C switches to Latin-3 (ISO 8859-3)" do
+      # 0xA1 in ISO 8859-3 = Ħ (U+0126)
+      binary = <<0x1B, 0x2D, 0x43, 0xA1>>
+      assert {:ok, "Ħ"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - D switches to Latin-4 (ISO 8859-4)" do
+      # 0xA1 in ISO 8859-4 = Ą (U+0104)
+      binary = <<0x1B, 0x2D, 0x44, 0xA1>>
+      assert {:ok, "Ą"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - L switches to Cyrillic (ISO 8859-5)" do
+      # 0xB0 in ISO 8859-5 = А (U+0410)
+      binary = <<0x1B, 0x2D, 0x4C, 0xB0>>
+      assert {:ok, "А"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - G switches to Arabic (ISO 8859-6)" do
+      # 0xC1 in ISO 8859-6 = Hamza (U+0621)
+      binary = <<0x1B, 0x2D, 0x47, 0xC1>>
+      assert {:ok, "ء"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC - M switches to Latin-5 (ISO 8859-9)" do
+      # 0xDE in ISO 8859-9 = Ş (U+015E)
+      binary = <<0x1B, 0x2D, 0x4D, 0xDE>>
+      assert {:ok, "Ş"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "decode_iso2022/2 — multi-byte escape sequences" do
+    test "ESC $ B (JIS X 0208) returns not_yet_implemented" do
+      binary = <<0x1B, 0x24, 0x42, 0x30, 0x21>>
+
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC $ ( D (JIS X 0212) returns not_yet_implemented" do
+      binary = <<0x1B, 0x24, 0x28, 0x44, 0x30, 0x21>>
+
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC $ ) C (KS X 1001) returns not_yet_implemented" do
+      binary = <<0x1B, 0x24, 0x29, 0x43, 0xB0, 0xA1>>
+
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ESC $ ) A (GB2312) returns not_yet_implemented" do
+      binary = <<0x1B, 0x24, 0x29, 0x41, 0xC4, 0xE3>>
+
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "decode_iso2022/2 — multiple switches" do
+    test "ASCII -> Latin-1 -> back to ASCII" do
+      # A, ESC - A, 0xC4 (Ä), ESC ( B, B
+      binary = <<0x41, 0x1B, 0x2D, 0x41, 0xC4, 0x1B, 0x28, 0x42, 0x42>>
+      assert {:ok, "AÄB"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "JIS X 0201 -> ASCII -> JIS X 0201" do
+      # 0xB1 (ｱ), ESC ( B, A, ESC ( J, 0x5C (¥)
+      binary = <<0xB1, 0x1B, 0x28, 0x42, 0x41, 0x1B, 0x28, 0x4A, 0x5C>>
+      assert {:ok, "ｱA¥"} = CharacterSet.decode_iso2022(binary, :jis_x0201)
+    end
+
+    test "ASCII -> Greek -> Hebrew" do
+      # A, ESC - F, 0xC1 (Alpha), ESC - H, 0xE0 (Alef)
+      binary =
+        <<0x41, 0x1B, 0x2D, 0x46, 0xC1, 0x1B, 0x2D, 0x48, 0xE0>>
+
+      assert {:ok, "AΑא"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "decode_iso2022/2 — unknown escape sequences" do
+    test "unknown ESC bytes are included verbatim in current segment" do
+      # ESC followed by unknown bytes (0x3F = ?) — not a valid ISO 2022 sequence
+      # Should include ESC in the output as a raw byte (0x1B is <= 0x7F so valid ASCII)
+      binary = <<0x41, 0x1B, 0x3F, 0x42>>
+      assert {:ok, result} = CharacterSet.decode_iso2022(binary, :ascii)
+      # The ESC byte (0x1B) is within ASCII range, so it passes through
+      assert result == <<0x41, 0x1B, 0x3F, 0x42>>
+    end
+  end
+
+  describe "decode/2 — ISO 2022 routing via charset labels" do
+    test "ISO 2022 IR 6 with escape to Latin-1 decodes correctly" do
+      binary = <<0x41, 0x1B, 0x2D, 0x41, 0xC4>>
+      assert {:ok, "AÄ"} = CharacterSet.decode(binary, "ISO 2022 IR 6")
+    end
+
+    test "ISO 2022 IR 6 without escapes decodes as ASCII" do
+      assert {:ok, "TEST"} = CharacterSet.decode("TEST", "ISO 2022 IR 6")
+    end
+
+    test "ISO 2022 IR 13 decodes JIS X 0201 without escapes" do
+      assert {:ok, "ｱ"} = CharacterSet.decode(<<0xB1>>, "ISO 2022 IR 13")
+    end
+
+    test "ISO 2022 IR 13 with escape to ASCII" do
+      binary = <<0xB1, 0x1B, 0x28, 0x42, 0x41>>
+      assert {:ok, "ｱA"} = CharacterSet.decode(binary, "ISO 2022 IR 13")
+    end
+
+    test "ISO 2022 IR 87 with ASCII-only text returns not_yet_implemented" do
+      # Default encoding is :jis_x0208, any non-empty data triggers it
+      assert {:error, :not_yet_implemented} =
+               CharacterSet.decode(<<0x30, 0x21>>, "ISO 2022 IR 87")
+    end
+
+    test "ISO 2022 IR 101 decodes Latin-2 without escapes" do
+      # 0xA1 in ISO 8859-2 = Ą (U+0104)
+      assert {:ok, "Ą"} = CharacterSet.decode(<<0xA1>>, "ISO 2022 IR 101")
+    end
+
+    test "ISO 2022 IR 126 decodes Greek without escapes" do
+      # 0xC1 in ISO 8859-7 = Alpha (U+0391)
+      assert {:ok, "Α"} = CharacterSet.decode(<<0xC1>>, "ISO 2022 IR 126")
     end
   end
 end

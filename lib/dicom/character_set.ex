@@ -20,46 +20,85 @@ defmodule Dicom.CharacterSet do
   - `ISO_IR 13` (JIS X 0201 — Roman + half-width Katakana)
   - `ISO_IR 192` (UTF-8)
 
-  The labels `ISO 2022 IR 6` and `ISO 2022 IR 100` are accepted only when the
-  value contains no ISO 2022 escape sequences. Actual code-extension switching
-  is not implemented.
+  ## ISO 2022 Code Extension Support
 
-  Multi-valued Specific Character Set declarations can be extracted from a
-  data set, but this module does not implement full repertoire switching across
-  multiple declared character sets.
+  The labels `ISO 2022 IR 6` and `ISO 2022 IR 100` are accepted both with and
+  without ISO 2022 escape sequences.
+
+  ISO 2022 escape sequence parsing is supported per DICOM PS3.5 Section 6.1.2.5.
+  Multi-valued Specific Character Set declarations (e.g. `"ISO 2022 IR 13\\ISO 2022 IR 87"`)
+  use escape sequences to switch between character repertoires within a single
+  text value. The following ISO 2022 charsets are recognized:
+
+  - `ISO 2022 IR 6` (ASCII, G0)
+  - `ISO 2022 IR 13` (JIS X 0201 — Roman G0 + Katakana G1)
+  - `ISO 2022 IR 87` (JIS X 0208 — multi-byte, not yet decodable)
+  - `ISO 2022 IR 100` through `ISO 2022 IR 148` (ISO 8859 variants, G1)
+  - `ISO 2022 IR 149` (KS X 1001 — multi-byte, not yet decodable)
+  - `ISO 2022 IR 159` (JIS X 0212 — multi-byte, not yet decodable)
+  - `ISO 2022 IR 58` (GB2312-80 — multi-byte, not yet decodable)
+  - `GB18030` (Chinese national standard — not yet decodable)
+
+  Multi-byte charsets (JIS X 0208, JIS X 0212, KS X 1001, GB2312) are parsed
+  at the escape-sequence level but return `{:error, :not_yet_implemented}` when
+  actual decoding of their code points is needed. Lookup tables for these will
+  be added in future iterations.
 
   All other character sets return `{:error, {:unsupported_charset, term}}`.
   """
 
   @type charset :: String.t()
 
-  # Maps DICOM Specific Character Set values to Erlang encoding atoms
+  # Maps DICOM Specific Character Set values to encoding descriptors.
+  #
+  # Single-value charsets map to atoms or tuples used by decode/2.
+  # ISO 2022 charsets map to {:iso2022, descriptor} tuples handled by
+  # decode_iso2022/2 and the escape-sequence parser.
   @charset_map %{
     # Default repertoire (ISO IR 6 = ASCII subset of UTF-8)
     "" => :ascii,
     "ISO_IR 6" => :ascii,
-    "ISO 2022 IR 6" => {:iso2022_single, :ascii},
+    "ISO 2022 IR 6" => {:iso2022, :ascii},
     # Latin-1 (Western European)
     "ISO_IR 100" => :latin1,
-    "ISO 2022 IR 100" => {:iso2022_single, :latin1},
+    "ISO 2022 IR 100" => {:iso2022, :latin1},
     # Latin-2 (Central European)
     "ISO_IR 101" => {:iso8859, 2},
+    "ISO 2022 IR 101" => {:iso2022, {:iso8859, 2}},
     # Latin-3 (South European)
     "ISO_IR 109" => {:iso8859, 3},
+    "ISO 2022 IR 109" => {:iso2022, {:iso8859, 3}},
     # Latin-4 (North European)
     "ISO_IR 110" => {:iso8859, 4},
+    "ISO 2022 IR 110" => {:iso2022, {:iso8859, 4}},
     # Cyrillic
     "ISO_IR 144" => {:iso8859, 5},
+    "ISO 2022 IR 144" => {:iso2022, {:iso8859, 5}},
     # Arabic
     "ISO_IR 127" => {:iso8859, 6},
+    "ISO 2022 IR 127" => {:iso2022, {:iso8859, 6}},
     # Greek
     "ISO_IR 126" => {:iso8859, 7},
+    "ISO 2022 IR 126" => {:iso2022, {:iso8859, 7}},
     # Hebrew
     "ISO_IR 138" => {:iso8859, 8},
+    "ISO 2022 IR 138" => {:iso2022, {:iso8859, 8}},
     # Latin-5 (Turkish)
     "ISO_IR 148" => {:iso8859, 9},
+    "ISO 2022 IR 148" => {:iso2022, {:iso8859, 9}},
     # JIS X 0201 (Roman + half-width Katakana)
     "ISO_IR 13" => :jis_x0201,
+    "ISO 2022 IR 13" => {:iso2022, :jis_x0201},
+    # JIS X 0208 (multi-byte, G0)
+    "ISO 2022 IR 87" => {:iso2022, :jis_x0208},
+    # JIS X 0212 (multi-byte, G0)
+    "ISO 2022 IR 159" => {:iso2022, :jis_x0212},
+    # KS X 1001 (Korean, multi-byte, G1)
+    "ISO 2022 IR 149" => {:iso2022, :ks_x1001},
+    # GB2312-80 (Chinese, multi-byte, G1)
+    "ISO 2022 IR 58" => {:iso2022, :gb2312},
+    # GB18030 (Chinese national standard)
+    "GB18030" => {:iso2022, :gb18030},
     # UTF-8
     "ISO_IR 192" => :utf8
   }
@@ -101,8 +140,8 @@ defmodule Dicom.CharacterSet do
       :latin1 ->
         {:ok, :unicode.characters_to_binary(binary, :latin1)}
 
-      {:iso2022_single, encoding} ->
-        decode_iso2022_single(binary, charset_key, encoding)
+      {:iso2022, default_encoding} ->
+        decode_iso2022(binary, default_encoding)
 
       {:iso8859, _n} = encoding ->
         decode_iso8859(binary, encoding)
@@ -131,9 +170,10 @@ defmodule Dicom.CharacterSet do
   @doc """
   Returns true if the given character set label is recognized by the decoder.
 
-  For `ISO 2022 IR 6` and `ISO 2022 IR 100`, this means only the non-switching
-  single-byte subset is accepted. Values containing ISO 2022 escape sequences
-  still return an error from `decode/2`.
+  ISO 2022 labels (e.g. `"ISO 2022 IR 87"`) are recognized even when their
+  multi-byte lookup tables are not yet implemented. `decode/2` will return
+  `{:error, :not_yet_implemented}` for those, but `supported?/1` returns true
+  because the charset is known and the escape-sequence infrastructure exists.
   """
   @spec supported?(charset() | nil) :: boolean()
   def supported?(charset) do
@@ -173,21 +213,159 @@ defmodule Dicom.CharacterSet do
 
   alias Dicom.CharacterSet.Tables
 
-  defp decode_iso2022_single(binary, charset_key, :ascii) do
-    if contains_iso2022_escape?(binary) do
-      {:error, {:unsupported_iso2022_escape_sequences, charset_key}}
-    else
-      decode_ascii(binary)
+  @doc """
+  Decodes a binary containing ISO 2022 escape sequences.
+
+  Takes a binary and a default encoding (from the first value of a
+  multi-valued Specific Character Set). Parses ESC sequences per
+  DICOM PS3.5 Table C.12-3, splits the text into segments, and decodes
+  each segment with the appropriate charset.
+
+  Returns `{:ok, utf8_string}` or `{:error, reason}`.
+
+  ## Examples
+
+      iex> Dicom.CharacterSet.decode_iso2022("HELLO", :ascii)
+      {:ok, "HELLO"}
+
+      iex> Dicom.CharacterSet.decode_iso2022(<<0xB1, 0xB6>>, :jis_x0201)
+      {:ok, "ｱｶ"}
+  """
+  @spec decode_iso2022(binary(), atom() | tuple()) :: {:ok, String.t()} | {:error, term()}
+  def decode_iso2022(binary, default_encoding) do
+    segments = parse_iso2022_segments(binary, default_encoding)
+    decode_iso2022_segments(segments, [])
+  end
+
+  # --- ISO 2022 escape sequence mapping ---
+  # Per DICOM PS3.5 Table C.12-3.
+  #
+  # ESC sequences designate character sets into G0 or G1.
+  # G0: invoked by GL (0x21-0x7E), G1: invoked by GR (0xA1-0xFE).
+  #
+  # Format: {escape_bytes_after_ESC, encoding_atom}
+
+  # G0 designations (single-byte 94-char sets via ESC 02/08 F)
+  @esc_g0_ascii <<0x28, 0x42>>
+  @esc_g0_jis_roman <<0x28, 0x4A>>
+
+  # G1 designations (single-byte 96-char sets via ESC 02/13 F)
+  @esc_g1_latin1 <<0x2D, 0x41>>
+  @esc_g1_latin2 <<0x2D, 0x42>>
+  @esc_g1_latin3 <<0x2D, 0x43>>
+  @esc_g1_latin4 <<0x2D, 0x44>>
+  @esc_g1_cyrillic <<0x2D, 0x4C>>
+  @esc_g1_arabic <<0x2D, 0x47>>
+  @esc_g1_greek <<0x2D, 0x46>>
+  @esc_g1_hebrew <<0x2D, 0x48>>
+  @esc_g1_latin5 <<0x2D, 0x4D>>
+  @esc_g1_katakana <<0x29, 0x49>>
+
+  # G0 multi-byte designations (ESC 02/04 F or ESC 02/04 02/08 F)
+  @esc_g0_jis_x0208 <<0x24, 0x42>>
+  @esc_g0_jis_x0212 <<0x24, 0x28, 0x44>>
+
+  # G1 multi-byte designations (ESC 02/04 02/09 F)
+  @esc_g1_ks_x1001 <<0x24, 0x29, 0x43>>
+  @esc_g1_gb2312 <<0x24, 0x29, 0x41>>
+
+  @multibyte_encodings [:jis_x0208, :jis_x0212, :ks_x1001, :gb2312, :gb18030]
+
+  # --- ISO 2022 segment decoding ---
+
+  defp decode_iso2022_segments([], acc) do
+    {:ok, acc |> Enum.reverse() |> IO.iodata_to_binary()}
+  end
+
+  defp decode_iso2022_segments([{encoding, bytes} | rest], acc) do
+    case decode_segment(encoding, bytes) do
+      {:ok, decoded} -> decode_iso2022_segments(rest, [decoded | acc])
+      {:error, _} = err -> err
     end
   end
 
-  defp decode_iso2022_single(binary, charset_key, :latin1) do
-    if contains_iso2022_escape?(binary) do
-      {:error, {:unsupported_iso2022_escape_sequences, charset_key}}
-    else
-      {:ok, :unicode.characters_to_binary(binary, :latin1)}
+  defp decode_segment(_encoding, <<>>), do: {:ok, <<>>}
+
+  defp decode_segment(:ascii, bytes) do
+    if ascii_binary?(bytes), do: {:ok, bytes}, else: {:error, {:decode_failed, :ascii}}
+  end
+
+  defp decode_segment(:latin1, bytes) do
+    {:ok, :unicode.characters_to_binary(bytes, :latin1)}
+  end
+
+  defp decode_segment(:jis_x0201, bytes) do
+    decode_bytewise(bytes, &Tables.jis_x0201/1, :jis_x0201)
+  end
+
+  defp decode_segment({:iso8859, n}, bytes) do
+    decode_bytewise(bytes, &iso8859_to_unicode(&1, n), {:iso8859, n})
+  end
+
+  defp decode_segment(encoding, _bytes) when encoding in @multibyte_encodings do
+    {:error, :not_yet_implemented}
+  end
+
+  # --- ISO 2022 escape sequence parser ---
+  #
+  # Splits a binary into [{encoding, bytes}] segments by parsing ESC sequences.
+  # Each ESC switches the active encoding for subsequent bytes until the next ESC.
+
+  defp parse_iso2022_segments(binary, default_encoding) do
+    do_parse_segments(binary, default_encoding, default_encoding, <<>>, [])
+  end
+
+  # End of input: flush current segment
+  defp do_parse_segments(<<>>, _default, current, buf, acc) do
+    [{current, buf} | acc] |> Enum.reverse()
+  end
+
+  # ESC detected: try to match a known escape sequence
+  defp do_parse_segments(<<0x1B, rest::binary>>, default, current, buf, acc) do
+    case match_escape(rest) do
+      {encoding, remaining} ->
+        # Flush current segment, switch encoding
+        new_acc = if buf == <<>>, do: acc, else: [{current, buf} | acc]
+        do_parse_segments(remaining, default, encoding, <<>>, new_acc)
+
+      :nomatch ->
+        # Unknown ESC sequence — include ESC byte in current segment
+        do_parse_segments(rest, default, current, <<buf::binary, 0x1B>>, acc)
     end
   end
+
+  # Regular byte: accumulate in current segment
+  defp do_parse_segments(<<byte, rest::binary>>, default, current, buf, acc) do
+    do_parse_segments(rest, default, current, <<buf::binary, byte>>, acc)
+  end
+
+  # Match known escape sequences (longest first for 4-byte sequences)
+  # 4-byte ESC sequences (after ESC): ESC $ ( D and ESC $ ) C and ESC $ ) A
+  defp match_escape(<<@esc_g0_jis_x0212, rest::binary>>), do: {:jis_x0212, rest}
+  defp match_escape(<<@esc_g1_ks_x1001, rest::binary>>), do: {:ks_x1001, rest}
+  defp match_escape(<<@esc_g1_gb2312, rest::binary>>), do: {:gb2312, rest}
+
+  # 2-byte ESC sequences (after ESC): G0 single-byte
+  defp match_escape(<<@esc_g0_ascii, rest::binary>>), do: {:ascii, rest}
+  defp match_escape(<<@esc_g0_jis_roman, rest::binary>>), do: {:jis_x0201, rest}
+
+  # 2-byte ESC sequences (after ESC): G0 multi-byte
+  defp match_escape(<<@esc_g0_jis_x0208, rest::binary>>), do: {:jis_x0208, rest}
+
+  # 2-byte ESC sequences (after ESC): G1 single-byte
+  defp match_escape(<<@esc_g1_latin1, rest::binary>>), do: {:latin1, rest}
+  defp match_escape(<<@esc_g1_latin2, rest::binary>>), do: {{:iso8859, 2}, rest}
+  defp match_escape(<<@esc_g1_latin3, rest::binary>>), do: {{:iso8859, 3}, rest}
+  defp match_escape(<<@esc_g1_latin4, rest::binary>>), do: {{:iso8859, 4}, rest}
+  defp match_escape(<<@esc_g1_cyrillic, rest::binary>>), do: {{:iso8859, 5}, rest}
+  defp match_escape(<<@esc_g1_arabic, rest::binary>>), do: {{:iso8859, 6}, rest}
+  defp match_escape(<<@esc_g1_greek, rest::binary>>), do: {{:iso8859, 7}, rest}
+  defp match_escape(<<@esc_g1_hebrew, rest::binary>>), do: {{:iso8859, 8}, rest}
+  defp match_escape(<<@esc_g1_latin5, rest::binary>>), do: {{:iso8859, 9}, rest}
+  defp match_escape(<<@esc_g1_katakana, rest::binary>>), do: {:jis_x0201, rest}
+
+  # Unknown escape sequence
+  defp match_escape(_), do: :nomatch
 
   defp decode_ascii(binary) do
     if ascii_binary?(binary) do
@@ -222,8 +400,6 @@ defmodule Dicom.CharacterSet do
   defp iso8859_to_unicode(byte, _n) when byte <= 0x9F, do: byte
   # For ISO 8859-{2..9}, use full lookup tables
   defp iso8859_to_unicode(byte, n), do: Tables.lookup(byte, n)
-
-  defp contains_iso2022_escape?(binary), do: :binary.match(binary, <<0x1B>>) != :nomatch
 
   defp ascii_binary?(binary), do: Enum.all?(:binary.bin_to_list(binary), &(&1 <= 0x7F))
 
