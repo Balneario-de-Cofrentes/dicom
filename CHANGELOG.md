@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CID (Context Group) validation** — `Dicom.SR.ContextGroup` module with compile-time registry of all 1223 PS3.16 Context Groups (23,646 resolved codes). Supports BCID (extensible/advisory) and DCID (non-extensible/strict) validation semantics.
 - `Dicom.SR.ContextGroup.Registry` — generated O(1) lookup for CID membership, extensibility, and metadata
-- `validate_code!/3` helper in `Dicom.SR.Templates.Helpers` for optional CID enforcement in template builders
+- `validate_code!/3` helper in the shared templates helpers module for optional CID enforcement in template builders
 - `mix dicom.gen_context_groups` task for regenerating the CID registry from `priv/context_groups.json`
 - `scripts/scrape_context_groups.py` scraper for PS3.16 CID data
 
@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **LogEntry helper** — `Dicom.SR.LogEntry` struct for procedure log event construction
 - **334 new normative codes** in `Dicom.SR.Codes` (total: 372) covering all domains
 - **3 new SOP class UIDs** — mammography CAD SR, chest CAD SR, X-ray radiation dose SR
-- **Shared template helpers** — `Dicom.SR.Templates.Helpers` eliminates duplication across all builders
+- **Shared template helpers** — internal helpers module eliminates duplication across all builders
 - **PS3.16 conformance plan** — `docs/sr_template_conformance.md`
 - 257 new tests (total: 1716), 98.12% coverage
 
