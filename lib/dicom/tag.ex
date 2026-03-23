@@ -126,6 +126,7 @@ defmodule Dicom.Tag do
   def pixel_representation, do: {0x0028, 0x0103}
   def samples_per_pixel, do: {0x0028, 0x0002}
   def photometric_interpretation, do: {0x0028, 0x0004}
+  def planar_configuration, do: {0x0028, 0x0006}
   def pixel_data, do: {0x7FE0, 0x0010}
   def number_of_frames, do: {0x0028, 0x0008}
 
