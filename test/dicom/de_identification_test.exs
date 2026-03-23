@@ -261,15 +261,15 @@ defmodule Dicom.DeIdentificationTest do
       assert String.contains?(DataSet.get(result, {0x0012, 0x0063}), "retain_uids")
     end
 
-    test "marker uses retain_private_tags wording for the compatibility alias" do
+    test "marker uses retain_safe_private wording when safe private option is set" do
       ds = sample_data_set()
       profile = %DeIdentification.Profile{retain_safe_private: true}
 
       {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
 
       method = DataSet.get(result, {0x0012, 0x0063})
-      assert String.contains?(method, "retain_private_tags")
-      refute String.contains?(method, "retain_safe_private")
+      assert String.contains?(method, "retain_safe_private")
+      refute String.contains?(method, "retain_private_tags")
     end
 
     test "DeidentificationMethod stays within LO component limits when many options are enabled" do
@@ -536,7 +536,7 @@ defmodule Dicom.DeIdentificationTest do
       assert DataSet.get(result, {0x0009, 0x1001}) == "PrivateValue"
     end
 
-    test "retain_safe_private remains a compatibility alias for retaining all private tags" do
+    test "retain_safe_private removes unknown private creators" do
       ds =
         sample_data_set()
         |> DataSet.put({0x0009, 0x0010}, :LO, "PrivateCreator")
@@ -545,8 +545,8 @@ defmodule Dicom.DeIdentificationTest do
       profile = %DeIdentification.Profile{retain_safe_private: true}
       {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
 
-      assert DataSet.get(result, {0x0009, 0x0010}) == "PrivateCreator"
-      assert DataSet.get(result, {0x0009, 0x1001}) == "PrivateValue"
+      refute DataSet.has_tag?(result, {0x0009, 0x0010})
+      refute DataSet.has_tag?(result, {0x0009, 0x1001})
     end
   end
 
@@ -2053,6 +2053,332 @@ defmodule Dicom.DeIdentificationTest do
       profile = %DeIdentification.Profile{retain_long_modified_dates: true}
       {:ok, result, _} = DeIdentification.apply(ds, profile: profile)
       assert DataSet.get(result, {0x0008, 0x0020}) == ""
+    end
+  end
+
+  # ── Feature: Recursive sequence cleaning ───────────────────────
+
+  describe "apply/2 - recursive sequence cleaning" do
+    test "de-identifies patient data nested inside a kept sequence" do
+      inner_item = %{
+        Tag.patient_name() => DataElement.new(Tag.patient_name(), :PN, "HIDDEN^PATIENT"),
+        {0x0008, 0x0060} => DataElement.new({0x0008, 0x0060}, :CS, "MR")
+      }
+
+      ds = sample_data_set()
+      sq_elem = DataElement.new({0x0028, 0x9145}, :SQ, [inner_item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9145}, sq_elem)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+      sq = DataSet.get_element(result, {0x0028, 0x9145})
+      assert sq != nil
+      [item] = sq.value
+      # Patient name inside must be de-identified (replaced with ANONYMOUS)
+      assert item[Tag.patient_name()].value == "ANONYMOUS"
+      # Modality should be kept
+      assert item[{0x0008, 0x0060}].value == "MR"
+    end
+
+    test "UID mapping is consistent across top-level and nested sequences" do
+      shared_uid = "1.2.3.4.5.6.99.100"
+
+      inner_item = %{
+        {0x0008, 0x1155} => DataElement.new({0x0008, 0x1155}, :UI, shared_uid)
+      }
+
+      ds =
+        sample_data_set()
+        |> DataSet.put(Tag.sop_instance_uid(), :UI, shared_uid)
+
+      sq_elem = DataElement.new({0x0028, 0x9145}, :SQ, [inner_item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9145}, sq_elem)}
+
+      {:ok, result, uid_map} = DeIdentification.apply(ds)
+
+      # Top-level SOP Instance UID replacement
+      top_uid = DataSet.get(result, Tag.sop_instance_uid())
+      # Nested UID replacement
+      [item] = DataSet.get_element(result, {0x0028, 0x9145}).value
+      nested_uid = item[{0x0008, 0x1155}].value
+
+      # Both must map to the same replacement
+      assert top_uid == nested_uid
+      assert uid_map[shared_uid] == top_uid
+    end
+
+    test "deeply nested sequences (3 levels) are recursed" do
+      # Level 3
+      level3_item = %{
+        Tag.patient_name() => DataElement.new(Tag.patient_name(), :PN, "DEEP^PATIENT")
+      }
+
+      level3_sq = DataElement.new({0x0028, 0x9145}, :SQ, [level3_item])
+
+      # Level 2
+      level2_item = %{
+        {0x0028, 0x9145} => level3_sq,
+        Tag.patient_id() => DataElement.new(Tag.patient_id(), :LO, "DEEP_ID")
+      }
+
+      level2_sq = DataElement.new({0x0028, 0x9145}, :SQ, [level2_item])
+
+      # Level 1 (top-level)
+      ds = sample_data_set()
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9145}, level2_sq)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+
+      [l2_item] = DataSet.get_element(result, {0x0028, 0x9145}).value
+      # Level 2 patient ID should be zeroed (action :Z)
+      assert l2_item[Tag.patient_id()].value == ""
+
+      [l3_item] = l2_item[{0x0028, 0x9145}].value
+      # Level 3 patient name should be replaced with dummy
+      assert l3_item[Tag.patient_name()].value == "ANONYMOUS"
+    end
+
+    test "private tags inside nested sequences are removed by default" do
+      inner_item = %{
+        {0x0009, 0x0010} => DataElement.new({0x0009, 0x0010}, :LO, "PRIVATE_CREATOR"),
+        {0x0009, 0x1001} => DataElement.new({0x0009, 0x1001}, :LO, "PHI data"),
+        {0x0008, 0x0060} => DataElement.new({0x0008, 0x0060}, :CS, "CT")
+      }
+
+      ds = sample_data_set()
+      sq_elem = DataElement.new({0x0028, 0x9145}, :SQ, [inner_item])
+      ds = %{ds | elements: Map.put(ds.elements, {0x0028, 0x9145}, sq_elem)}
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+      [item] = DataSet.get_element(result, {0x0028, 0x9145}).value
+
+      # Private tags should be removed
+      refute Map.has_key?(item, {0x0009, 0x0010})
+      refute Map.has_key?(item, {0x0009, 0x1001})
+      # Non-private tag should be kept
+      assert Map.has_key?(item, {0x0008, 0x0060})
+    end
+  end
+
+  # ── Feature: Safe private tag detection (PS3.15 E.3.10) ───────
+
+  describe "apply/2 - safe private tag detection" do
+    test "safe_private_creators/0 returns a MapSet" do
+      creators = DeIdentification.safe_private_creators()
+      assert %MapSet{} = creators
+      assert MapSet.member?(creators, "GEMS_GENIE_1")
+      assert MapSet.member?(creators, "SIEMENS MR HEADER")
+      assert MapSet.member?(creators, "Philips MR Imaging DD 001")
+      assert MapSet.member?(creators, "ELSCINT1")
+    end
+
+    test "retain_safe_private keeps safe creator block, removes unsafe" do
+      # Block 0x10 = safe (SIEMENS MR HEADER)
+      # Block 0x11 = unsafe (UNKNOWN_VENDOR)
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0009, 0x0010}, :LO, "SIEMENS MR HEADER")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "safe MR data")
+        |> DataSet.put({0x0009, 0x1002}, :LO, "more safe data")
+        |> DataSet.put({0x0009, 0x0011}, :LO, "UNKNOWN_VENDOR")
+        |> DataSet.put({0x0009, 0x1101}, :LO, "unsafe data")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_safe_private: true)
+
+      # Safe block retained
+      assert DataSet.get(result, {0x0009, 0x0010}) == "SIEMENS MR HEADER"
+      assert DataSet.get(result, {0x0009, 0x1001}) == "safe MR data"
+      assert DataSet.get(result, {0x0009, 0x1002}) == "more safe data"
+
+      # Unsafe block removed
+      refute DataSet.has_tag?(result, {0x0009, 0x0011})
+      refute DataSet.has_tag?(result, {0x0009, 0x1101})
+    end
+
+    test "retain_safe_private removes all private tags when no safe creators present" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0009, 0x0010}, :LO, "MY_CUSTOM_TOOL")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "custom data")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_safe_private: true)
+
+      refute DataSet.has_tag?(result, {0x0009, 0x0010})
+      refute DataSet.has_tag?(result, {0x0009, 0x1001})
+    end
+
+    test "retain_safe_private with multiple groups and mixed creators" do
+      ds =
+        sample_data_set()
+        # Group 0x0009, block 0x10 = safe (GE)
+        |> DataSet.put({0x0009, 0x0010}, :LO, "GEMS_ACQU_01")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "ge_data")
+        # Group 0x0011, block 0x10 = unsafe
+        |> DataSet.put({0x0011, 0x0010}, :LO, "CUSTOM_PHI")
+        |> DataSet.put({0x0011, 0x1001}, :LO, "phi_data")
+        # Group 0x0011, block 0x11 = safe (Philips)
+        |> DataSet.put({0x0011, 0x0011}, :LO, "Philips Imaging DD 001")
+        |> DataSet.put({0x0011, 0x1101}, :LO, "philips_data")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_safe_private: true)
+
+      # GE block retained
+      assert DataSet.get(result, {0x0009, 0x0010}) == "GEMS_ACQU_01"
+      assert DataSet.get(result, {0x0009, 0x1001}) == "ge_data"
+
+      # Custom block removed
+      refute DataSet.has_tag?(result, {0x0011, 0x0010})
+      refute DataSet.has_tag?(result, {0x0011, 0x1001})
+
+      # Philips block retained
+      assert DataSet.get(result, {0x0011, 0x0011}) == "Philips Imaging DD 001"
+      assert DataSet.get(result, {0x0011, 0x1101}) == "philips_data"
+    end
+
+    test "retain_private_tags still keeps ALL private tags regardless of creator" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0009, 0x0010}, :LO, "UNKNOWN_VENDOR")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "any data")
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, retain_private_tags: true)
+
+      assert DataSet.get(result, {0x0009, 0x0010}) == "UNKNOWN_VENDOR"
+      assert DataSet.get(result, {0x0009, 0x1001}) == "any data"
+    end
+
+    test "retain_private_tags takes precedence over retain_safe_private" do
+      ds =
+        sample_data_set()
+        |> DataSet.put({0x0009, 0x0010}, :LO, "UNKNOWN_VENDOR")
+        |> DataSet.put({0x0009, 0x1001}, :LO, "any data")
+
+      profile = %DeIdentification.Profile{
+        retain_private_tags: true,
+        retain_safe_private: true
+      }
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      # retain_private_tags wins -- all private tags kept
+      assert DataSet.get(result, {0x0009, 0x0010}) == "UNKNOWN_VENDOR"
+      assert DataSet.get(result, {0x0009, 0x1001}) == "any data"
+    end
+  end
+
+  # ── Feature: CID 7050 de-identification method code sequence ──
+
+  describe "apply/2 - CID 7050 code sequence" do
+    test "basic profile produces (0012,0064) with basic profile code" do
+      ds = sample_data_set()
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+
+      seq_elem = DataSet.get_element(result, {0x0012, 0x0064})
+      assert seq_elem != nil
+      assert seq_elem.vr == :SQ
+      [item] = seq_elem.value
+
+      # Code Value = 113100
+      assert item[{0x0008, 0x0100}].value == "113100"
+      # Coding Scheme Designator = DCM
+      assert item[{0x0008, 0x0102}].value == "DCM"
+      # Code Meaning
+      assert item[{0x0008, 0x0104}].value ==
+               "Basic Application Level Confidentiality Profile"
+    end
+
+    test "profile options add corresponding CID 7050 codes" do
+      ds = sample_data_set()
+
+      profile = %DeIdentification.Profile{
+        retain_uids: true,
+        clean_descriptions: true,
+        retain_device_identity: true
+      }
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      seq_elem = DataSet.get_element(result, {0x0012, 0x0064})
+      items = seq_elem.value
+
+      # 1 basic + 3 option codes = 4 items
+      assert length(items) == 4
+
+      codes = Enum.map(items, fn item -> item[{0x0008, 0x0100}].value end)
+      assert "113100" in codes
+      assert "113110" in codes
+      assert "113105" in codes
+      assert "113109" in codes
+    end
+
+    test "all profile option flags produce correct CID 7050 codes" do
+      ds = sample_data_set()
+
+      profile = %DeIdentification.Profile{
+        retain_uids: true,
+        retain_device_identity: true,
+        retain_patient_characteristics: true,
+        retain_institution_identity: true,
+        retain_long_full_dates: true,
+        clean_descriptions: true,
+        clean_structured_content: true,
+        clean_graphics: true,
+        retain_safe_private: true
+      }
+
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      seq_elem = DataSet.get_element(result, {0x0012, 0x0064})
+      codes = Enum.map(seq_elem.value, fn item -> item[{0x0008, 0x0100}].value end)
+
+      expected_codes = [
+        "113100",
+        "113103",
+        "113104",
+        "113105",
+        "113106",
+        "113108",
+        "113109",
+        "113110",
+        "113111",
+        "113112"
+      ]
+
+      for code <- expected_codes do
+        assert code in codes, "Expected CID 7050 code #{code} in sequence"
+      end
+    end
+
+    test "code sequence items have proper Code Sequence Macro structure" do
+      ds = sample_data_set()
+      {:ok, result, _uid_map} = DeIdentification.apply(ds)
+
+      [item] = DataSet.get_element(result, {0x0012, 0x0064}).value
+
+      # Each item must have CodeValue, CodingSchemeDesignator, CodeMeaning
+      assert Map.has_key?(item, {0x0008, 0x0100})
+      assert Map.has_key?(item, {0x0008, 0x0102})
+      assert Map.has_key?(item, {0x0008, 0x0104})
+
+      assert item[{0x0008, 0x0100}].vr == :SH
+      assert item[{0x0008, 0x0102}].vr == :SH
+      assert item[{0x0008, 0x0104}].vr == :LO
+    end
+
+    test "(0012,0064) tag has action :K to survive re-de-identification" do
+      profile = DeIdentification.basic_profile()
+      assert DeIdentification.action_for({0x0012, 0x0064}, profile) == :K
+    end
+
+    test "retain_long_modified_dates produces code 113107" do
+      ds = sample_data_set()
+      profile = %DeIdentification.Profile{retain_long_modified_dates: true}
+      {:ok, result, _uid_map} = DeIdentification.apply(ds, profile: profile)
+
+      codes =
+        DataSet.get_element(result, {0x0012, 0x0064}).value
+        |> Enum.map(fn item -> item[{0x0008, 0x0100}].value end)
+
+      assert "113107" in codes
     end
   end
 end

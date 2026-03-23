@@ -6,9 +6,10 @@ defmodule Dicom.DeIdentification do
   for the supported tag set, with 10 profile flags that affect behavior.
   Supports action codes D, Z, X, K, C, and U.
 
-  `retain_private_tags` retains all private tags. The older
-  `retain_safe_private` flag is supported as a compatibility alias for the
-  same behavior, but it does not implement PS3.15 safe-private semantics.
+  `retain_private_tags` retains all private tags unconditionally.
+  `retain_safe_private` implements PS3.15 Annex E.3.10: only private blocks
+  whose creator element value matches a known safe creator are retained;
+  all other private tags are removed.
 
   When multiple profile flags overlap, the implementation prefers the more
   conservative override. For temporal tags, `retain_long_full_dates` wins over
@@ -39,6 +40,76 @@ defmodule Dicom.DeIdentification do
   """
 
   alias Dicom.{DataSet, DataElement, Tag, UID}
+
+  import Bitwise, only: [>>>: 2, &&&: 2]
+
+  # PS3.15 Annex E.3.10 -- well-known private creators whose blocks are
+  # considered safe (no PHI). When `retain_safe_private: true`, only private
+  # tags whose creator element value is in this list are retained.
+  @safe_private_creators MapSet.new([
+                           "GEMS_GENIE_1",
+                           "GEMS_ACQU_01",
+                           "GEMS_IMAG_01",
+                           "GEMS_SENO_02",
+                           "GEMS_DL_FRAME_01",
+                           "GEMS_PARM_01",
+                           "GEMS_STDY_01",
+                           "GEMS_SERS_01",
+                           "SIEMENS MR HEADER",
+                           "SIEMENS CT VA0 CMSINFO",
+                           "SIEMENS CT VA0 GEN",
+                           "SIEMENS MED",
+                           "SIEMENS MED DISPLAY",
+                           "SIEMENS MED NM",
+                           "SIEMENS MED PT",
+                           "SIEMENS CSA HEADER",
+                           "SIEMENS CSA NON-IMAGE",
+                           "Philips MR Imaging DD 001",
+                           "Philips MR Imaging DD 002",
+                           "Philips MR Imaging DD 003",
+                           "Philips MR Imaging DD 004",
+                           "Philips MR Imaging DD 005",
+                           "Philips Imaging DD 001",
+                           "Philips Imaging DD 002",
+                           "PHILIPS MR SPECTRO;1",
+                           "ELSCINT1",
+                           "TOSHIBA_MEC_CT_01",
+                           "TOSHIBA_MEC_MR3_01",
+                           "CANON_MEC_CT_01",
+                           "AGFA",
+                           "AGFA-AG_HPState",
+                           "FUJI FILM",
+                           "FUJIFILM",
+                           "Hologic",
+                           "MITRA OBJECT UTF8 ATTRIBUTES 1.0",
+                           "dcm4che/archive"
+                         ])
+
+  # CID 7050 (PS3.16) -- de-identification method code values.
+  @cid_7050_codes %{
+    basic_profile: {"113100", "DCM", "Basic Application Level Confidentiality Profile"},
+    clean_pixel_data: {"113101", "DCM", "Clean Pixel Data Option"},
+    clean_recognizable_visual_features:
+      {"113102", "DCM", "Clean Recognizable Visual Features Option"},
+    clean_graphics: {"113103", "DCM", "Clean Graphics Option"},
+    clean_structured_content: {"113104", "DCM", "Clean Structured Content Option"},
+    clean_descriptions: {"113105", "DCM", "Clean Descriptors Option"},
+    retain_long_full_dates:
+      {"113106", "DCM", "Retain Longitudinal Temporal Information Full Dates Option"},
+    retain_long_modified_dates:
+      {"113107", "DCM", "Retain Longitudinal Temporal Information Modified Dates Option"},
+    retain_patient_characteristics: {"113108", "DCM", "Retain Patient Characteristics Option"},
+    retain_device_identity: {"113109", "DCM", "Retain Device Identity Option"},
+    retain_uids: {"113110", "DCM", "Retain UIDs"},
+    retain_safe_private: {"113111", "DCM", "Retain Safe Private Option"},
+    retain_institution_identity: {"113112", "DCM", "Retain Institution Identity Option"}
+  }
+
+  @doc """
+  Returns the set of known safe private creators (PS3.15 Annex E.3.10).
+  """
+  @spec safe_private_creators() :: MapSet.t(String.t())
+  def safe_private_creators, do: @safe_private_creators
 
   @doc """
   Returns the default de-identification profile.
@@ -307,6 +378,7 @@ defmodule Dicom.DeIdentification do
   # De-identification markers: keep
   defp tag_action({0x0012, 0x0062}), do: :K
   defp tag_action({0x0012, 0x0063}), do: :K
+  defp tag_action({0x0012, 0x0064}), do: :K
   defp tag_action({0x0012, _}), do: :X
 
   # ── Dates and times ─────────────────────────────────────────
@@ -438,6 +510,7 @@ defmodule Dicom.DeIdentification do
   defp process_element_map(elements, profile, uid_map) do
     Enum.reduce(elements, {%{}, uid_map}, fn {tag, elem}, {acc, umap} ->
       action = action_for(tag, profile)
+      {elem, umap} = recurse_sequence(elem, profile, umap)
       {new_elem, umap} = apply_action(action, elem, profile, umap)
 
       case new_elem do
@@ -446,6 +519,17 @@ defmodule Dicom.DeIdentification do
       end
     end)
   end
+
+  # Recurse into SQ elements before applying the parent action.
+  # PS3.15 requires de-identification of nested items regardless of the
+  # sequence tag's own action code.
+  defp recurse_sequence(%DataElement{vr: :SQ, value: items} = elem, profile, uid_map)
+       when is_list(items) do
+    {new_items, uid_map} = deidentify_sequence(items, profile, uid_map)
+    {%{elem | value: new_items}, uid_map}
+  end
+
+  defp recurse_sequence(elem, _profile, uid_map), do: {elem, uid_map}
 
   defp apply_action(:D, %DataElement{} = elem, _profile, uid_map) do
     dummy = dummy_value(elem.vr)
@@ -458,12 +542,6 @@ defmodule Dicom.DeIdentification do
 
   defp apply_action(:X, _elem, _profile, uid_map) do
     {nil, uid_map}
-  end
-
-  defp apply_action(:K, %DataElement{vr: :SQ, value: items} = elem, profile, uid_map)
-       when is_list(items) do
-    {new_items, uid_map} = deidentify_sequence(items, profile, uid_map)
-    {%{elem | value: new_items}, uid_map}
   end
 
   defp apply_action(:K, elem, _profile, uid_map) do
@@ -506,6 +584,7 @@ defmodule Dicom.DeIdentification do
       {new_item, umap} =
         Enum.reduce(item, {%{}, umap}, fn {tag, elem}, {acc, umap} ->
           action = action_for(tag, profile)
+          {elem, umap} = recurse_sequence(elem, profile, umap)
           {new_elem, umap} = apply_action(action, elem, profile, umap)
 
           case new_elem do
@@ -518,18 +597,97 @@ defmodule Dicom.DeIdentification do
     end)
   end
 
-  defp strip_private_tags(%DataSet{} = ds, profile) do
-    if retain_private_tags?(profile) do
-      ds
-    else
-      %{ds | elements: Map.filter(ds.elements, fn {tag, _} -> not Tag.private?(tag) end)}
-    end
+  defp strip_private_tags(%DataSet{} = ds, %__MODULE__.Profile{retain_private_tags: true}) do
+    ds
   end
+
+  defp strip_private_tags(%DataSet{} = ds, %__MODULE__.Profile{retain_safe_private: true}) do
+    safe_blocks = safe_private_block_numbers(ds.elements)
+
+    filtered =
+      Map.filter(ds.elements, fn {tag, _} ->
+        not Tag.private?(tag) or private_tag_in_safe_block?(tag, safe_blocks)
+      end)
+
+    %{ds | elements: filtered}
+  end
+
+  defp strip_private_tags(%DataSet{} = ds, _profile) do
+    %{ds | elements: Map.filter(ds.elements, fn {tag, _} -> not Tag.private?(tag) end)}
+  end
+
+  defp safe_private_block_numbers(elements) do
+    elements
+    |> Enum.reduce(%{}, fn
+      {{group, element}, %DataElement{value: creator}}, acc
+      when rem(group, 2) == 1 and element >= 0x0010 and element <= 0x00FF and
+             is_binary(creator) ->
+        trimmed = String.trim(creator)
+
+        if MapSet.member?(@safe_private_creators, trimmed) do
+          Map.put(acc, {group, element}, trimmed)
+        else
+          acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp private_tag_in_safe_block?({group, element}, safe_blocks) when rem(group, 2) == 1 do
+    block_number = if element <= 0x00FF, do: element, else: (element &&& 0xFF00) >>> 8
+    Map.has_key?(safe_blocks, {group, block_number})
+  end
+
+  defp private_tag_in_safe_block?(_tag, _safe_blocks), do: false
 
   defp add_deidentification_markers(%DataSet{} = ds, profile) do
     ds
     |> DataSet.put({0x0012, 0x0062}, :CS, patient_identity_removed_marker(profile))
     |> DataSet.put({0x0012, 0x0063}, :LO, deidentification_method_marker(profile))
+    |> add_method_code_sequence(profile)
+  end
+
+  # (0012,0064) De-identification Method Code Sequence -- CID 7050 coded
+  # entries indicating which profile options were applied.
+  defp add_method_code_sequence(%DataSet{} = ds, profile) do
+    items = cid_7050_sequence_items(profile)
+
+    case items do
+      [] -> ds
+      _ -> DataSet.put(ds, {0x0012, 0x0064}, :SQ, items)
+    end
+  end
+
+  defp cid_7050_sequence_items(profile) do
+    base = [code_sequence_item(@cid_7050_codes[:basic_profile])]
+
+    option_items =
+      [
+        :clean_graphics,
+        :clean_structured_content,
+        :clean_descriptions,
+        :retain_long_full_dates,
+        :retain_long_modified_dates,
+        :retain_patient_characteristics,
+        :retain_device_identity,
+        :retain_uids,
+        :retain_safe_private,
+        :retain_institution_identity
+      ]
+      |> Enum.filter(fn field -> Map.get(profile, field, false) end)
+      |> Enum.map(fn field -> code_sequence_item(@cid_7050_codes[field]) end)
+
+    base ++ option_items
+  end
+
+  defp code_sequence_item({code_value, scheme, meaning}) do
+    %{
+      {0x0008, 0x0100} => DataElement.new({0x0008, 0x0100}, :SH, code_value),
+      {0x0008, 0x0102} => DataElement.new({0x0008, 0x0102}, :SH, scheme),
+      {0x0008, 0x0104} => DataElement.new({0x0008, 0x0104}, :LO, meaning)
+    }
   end
 
   defp patient_identity_removed_marker(profile) do
@@ -558,7 +716,7 @@ defmodule Dicom.DeIdentification do
       clean_structured_content: "clean_structured_content",
       clean_graphics: "clean_graphics",
       retain_private_tags: "retain_private_tags",
-      retain_safe_private: "retain_private_tags"
+      retain_safe_private: "retain_safe_private"
     ]
     |> Enum.flat_map(fn {field, label} ->
       if Map.get(profile, field), do: [label], else: []
