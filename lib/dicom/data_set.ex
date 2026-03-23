@@ -196,6 +196,16 @@ defmodule Dicom.DataSet do
   end
 
   @doc """
+  Validates that every private data element has a corresponding creator element.
+
+  Delegates to `Dicom.PrivateTag.validate_creators/1`.
+  See `Dicom.PrivateTag` for details on PS3.6 Section 6.1.2.1.
+  """
+  @spec validate_private_tags(t()) ::
+          {:ok, t()} | {:error, [{Dicom.DataElement.tag(), :missing_creator}]}
+  defdelegate validate_private_tags(ds), to: Dicom.PrivateTag, as: :validate_creators
+
+  @doc """
   Gets a VR-decoded value for a tag using `Dicom.Value.decode/2`.
 
   Returns `nil` if the tag is absent or if a fixed-width numeric payload
