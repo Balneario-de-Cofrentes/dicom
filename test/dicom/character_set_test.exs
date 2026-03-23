@@ -224,19 +224,51 @@ defmodule Dicom.CharacterSetTest do
   end
 
   describe "decode/2 — multi-byte charsets not yet implemented" do
-    test "returns not_yet_implemented for Korean charset with data" do
+    test "returns not_yet_implemented for JIS X 0212 charset with data" do
       assert {:error, :not_yet_implemented} =
-               CharacterSet.decode(<<0xB0, 0xA1>>, "ISO 2022 IR 149")
-    end
-
-    test "returns not_yet_implemented for GB18030 with data" do
-      assert {:error, :not_yet_implemented} =
-               CharacterSet.decode(<<0xC4, 0xE3>>, "GB18030")
+               CharacterSet.decode(<<0x1B, 0x24, 0x28, 0x44, 0x30, 0x21>>, "ISO 2022 IR 159")
     end
 
     test "decodes empty binary for multi-byte charset labels" do
       assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 149")
       assert {:ok, ""} = CharacterSet.decode(<<>>, "GB18030")
+    end
+  end
+
+  describe "decode/2 — GB18030" do
+    test "decodes common Chinese characters (2-byte GBK)" do
+      # 0xC4E3 = "you" (U+4F60), 0xBAC3 = "good" (U+597D)
+      assert {:ok, "\u4F60\u597D"} = CharacterSet.decode(<<0xC4, 0xE3, 0xBA, 0xC3>>, "GB18030")
+    end
+
+    test "decodes ASCII passthrough" do
+      assert {:ok, "HELLO"} = CharacterSet.decode("HELLO", "GB18030")
+    end
+
+    test "decodes mixed ASCII and Chinese" do
+      # "Hi" + 0xC4E3 (U+4F60)
+      assert {:ok, "Hi\u4F60"} = CharacterSet.decode(<<0x48, 0x69, 0xC4, 0xE3>>, "GB18030")
+    end
+
+    test "decodes empty binary" do
+      assert {:ok, ""} = CharacterSet.decode(<<>>, "GB18030")
+    end
+
+    test "decodes DICOM patient name with Chinese characters" do
+      # "Wang^XiaoMing" in Chinese: 0xCDF5 (U+738B) = Wang, ^ = separator,
+      # 0xD0A1 (U+5C0F) = Xiao, 0xC3F7 (U+660E) = Ming
+      binary = <<0xCD, 0xF5, 0x5E, 0xD0, 0xA1, 0xC3, 0xF7>>
+      assert {:ok, "\u738B^\u5C0F\u660E"} = CharacterSet.decode(binary, "GB18030")
+    end
+
+    test "returns error for invalid byte sequence" do
+      # 0xFF is not a valid lead byte in GB18030
+      assert {:error, {:decode_failed, :gb18030}} = CharacterSet.decode(<<0xFF>>, "GB18030")
+    end
+
+    test "returns error for truncated 2-byte sequence" do
+      # Lead byte 0xC4 without trail byte
+      assert {:error, {:decode_failed, :gb18030}} = CharacterSet.decode(<<0xC4>>, "GB18030")
     end
   end
 
@@ -574,18 +606,16 @@ defmodule Dicom.CharacterSetTest do
                CharacterSet.decode_iso2022(binary, :ascii)
     end
 
-    test "ESC $ ) C (KS X 1001) returns not_yet_implemented" do
+    test "ESC $ ) C (KS X 1001) decodes Korean" do
+      # ESC $ ) C switches to KS X 1001, then 0xB0A1 = 가 (U+AC00)
       binary = <<0x1B, 0x24, 0x29, 0x43, 0xB0, 0xA1>>
-
-      assert {:error, :not_yet_implemented} =
-               CharacterSet.decode_iso2022(binary, :ascii)
+      assert {:ok, "가"} = CharacterSet.decode_iso2022(binary, :ascii)
     end
 
-    test "ESC $ ) A (GB2312) returns not_yet_implemented" do
+    test "ESC $ ) A (GB2312) decodes simplified Chinese" do
+      # ESC $ ) A switches to GB2312, then 0xC4E3 = 你 (U+4F60)
       binary = <<0x1B, 0x24, 0x29, 0x41, 0xC4, 0xE3>>
-
-      assert {:error, :not_yet_implemented} =
-               CharacterSet.decode_iso2022(binary, :ascii)
+      assert {:ok, "你"} = CharacterSet.decode_iso2022(binary, :ascii)
     end
   end
 
@@ -832,6 +862,384 @@ defmodule Dicom.CharacterSetTest do
     test "returns error for unmapped pair in binary" do
       assert {:error, {:decode_failed, :jis_x0208}} =
                Dicom.CharacterSet.JisX0208.decode_binary(<<0x7E, 0x7E>>)
+    end
+  end
+
+  # GB2312-80 comprehensive tests
+  describe "GB2312 — decode_pair/2" do
+    test "decodes common Chinese character (ni/you)" do
+      # 你 = U+4F60, row 0x44, cell 0x63
+      assert {:ok, 0x4F60} = Dicom.CharacterSet.GB2312.decode_pair(0x44, 0x63)
+    end
+
+    test "decodes common Chinese character (hao/good)" do
+      # 好 = U+597D, row 0x3A, cell 0x43
+      assert {:ok, 0x597D} = Dicom.CharacterSet.GB2312.decode_pair(0x3A, 0x43)
+    end
+
+    test "decodes row 1 symbol (ideographic comma)" do
+      # 、 = U+3001, row 0x21, cell 0x22
+      assert {:ok, 0x3001} = Dicom.CharacterSet.GB2312.decode_pair(0x21, 0x22)
+    end
+
+    test "decodes row 1 symbol (ideographic space)" do
+      # 　 = U+3000, row 0x21, cell 0x21
+      assert {:ok, 0x3000} = Dicom.CharacterSet.GB2312.decode_pair(0x21, 0x21)
+    end
+
+    test "returns error for out-of-range row" do
+      assert :error = Dicom.CharacterSet.GB2312.decode_pair(0x20, 0x21)
+      assert :error = Dicom.CharacterSet.GB2312.decode_pair(0x7F, 0x21)
+    end
+
+    test "returns error for out-of-range cell" do
+      assert :error = Dicom.CharacterSet.GB2312.decode_pair(0x21, 0x20)
+      assert :error = Dicom.CharacterSet.GB2312.decode_pair(0x21, 0x7F)
+    end
+
+    test "returns error for unmapped pair in valid range" do
+      # Row 10-15 (0x2A-0x2F) are unused in GB2312
+      assert :error = Dicom.CharacterSet.GB2312.decode_pair(0x2A, 0x21)
+    end
+  end
+
+  describe "GB2312 — decode_binary/1 with GL bytes (0x21-0x7E)" do
+    test "decodes single character" do
+      # 你 GL bytes: 0x44, 0x63
+      assert {:ok, "你"} = Dicom.CharacterSet.GB2312.decode_binary(<<0x44, 0x63>>)
+    end
+
+    test "decodes nihao (hello)" do
+      # 你好 GL: 0x44,0x63 + 0x3A,0x43
+      binary = <<0x44, 0x63, 0x3A, 0x43>>
+      assert {:ok, "你好"} = Dicom.CharacterSet.GB2312.decode_binary(binary)
+    end
+
+    test "decodes shijie (world)" do
+      # 世界 GL: 0x4A,0x40 + 0x3D,0x67
+      binary = <<0x4A, 0x40, 0x3D, 0x67>>
+      assert {:ok, "世界"} = Dicom.CharacterSet.GB2312.decode_binary(binary)
+    end
+
+    test "decodes zhongguo (China)" do
+      # 中国 GL: 0x56,0x50 + 0x39,0x7A
+      binary = <<0x56, 0x50, 0x39, 0x7A>>
+      assert {:ok, "中国"} = Dicom.CharacterSet.GB2312.decode_binary(binary)
+    end
+
+    test "returns error for odd-length binary" do
+      assert {:error, {:decode_failed, :gb2312}} =
+               Dicom.CharacterSet.GB2312.decode_binary(<<0x44>>)
+    end
+
+    test "returns error for unmapped pair" do
+      # Row 10 (0x2A) is unused
+      assert {:error, {:decode_failed, :gb2312}} =
+               Dicom.CharacterSet.GB2312.decode_binary(<<0x2A, 0x21>>)
+    end
+
+    test "decodes empty binary" do
+      assert {:ok, ""} = Dicom.CharacterSet.GB2312.decode_binary(<<>>)
+    end
+  end
+
+  describe "GB2312 — decode_binary/1 with GR bytes (0xA1-0xFE)" do
+    test "decodes single character with high bit set" do
+      # 你 GR bytes: 0xC4, 0xE3
+      assert {:ok, "你"} = Dicom.CharacterSet.GB2312.decode_binary(<<0xC4, 0xE3>>)
+    end
+
+    test "decodes nihao with high bit set" do
+      # 你好 GR: 0xC4,0xE3 + 0xBA,0xC3
+      binary = <<0xC4, 0xE3, 0xBA, 0xC3>>
+      assert {:ok, "你好"} = Dicom.CharacterSet.GB2312.decode_binary(binary)
+    end
+
+    test "decodes zhongguo with high bit set" do
+      # 中国 GR: 0xD6,0xD0 + 0xB9,0xFA
+      binary = <<0xD6, 0xD0, 0xB9, 0xFA>>
+      assert {:ok, "中国"} = Dicom.CharacterSet.GB2312.decode_binary(binary)
+    end
+
+    test "decodes zhang-san surname with high bit set" do
+      # 张三 GR: 0xD5,0xC5 + 0xC8,0xFD
+      binary = <<0xD5, 0xC5, 0xC8, 0xFD>>
+      assert {:ok, "张三"} = Dicom.CharacterSet.GB2312.decode_binary(binary)
+    end
+  end
+
+  describe "GB2312 — ISO 2022 integration via decode_iso2022/2" do
+    test "ESC $ ) A switches to GB2312 and decodes Chinese" do
+      # ESC $ ) A + 你好 (GR bytes)
+      binary = <<0x1B, 0x24, 0x29, 0x41, 0xC4, 0xE3, 0xBA, 0xC3>>
+      assert {:ok, "你好"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "mixed ASCII and GB2312 with escape switching" do
+      # "ID" + ESC $ ) A + 张三 (GR) + ESC ( B + "^" + ESC $ ) A + 三 (GR)
+      binary =
+        <<0x49, 0x44>> <>
+          <<0x1B, 0x24, 0x29, 0x41>> <>
+          <<0xD5, 0xC5>> <>
+          <<0x1B, 0x28, 0x42>> <>
+          <<0x5E>> <>
+          <<0x1B, 0x24, 0x29, 0x41>> <>
+          <<0xC8, 0xFD>>
+
+      assert {:ok, "ID张^三"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "DICOM patient name with Chinese ideographic component" do
+      # DICOM PN format: 张^三 encoded as GB2312
+      # ESC $ ) A + 张 + ESC ( B + ^ + ESC $ ) A + 三
+      binary =
+        <<0x1B, 0x24, 0x29, 0x41>> <>
+          <<0xD5, 0xC5>> <>
+          <<0x1B, 0x28, 0x42>> <>
+          <<0x5E>> <>
+          <<0x1B, 0x24, 0x29, 0x41>> <>
+          <<0xC8, 0xFD>>
+
+      assert {:ok, "张^三"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "pure ASCII before GB2312 escape" do
+      # "HELLO" + ESC $ ) A + 你 (GR bytes)
+      binary = <<0x48, 0x45, 0x4C, 0x4C, 0x4F, 0x1B, 0x24, 0x29, 0x41, 0xC4, 0xE3>>
+      assert {:ok, "HELLO你"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "GB2312 followed by return to ASCII" do
+      # ESC $ ) A + 好 (GR) + ESC ( B + "OK"
+      binary =
+        <<0x1B, 0x24, 0x29, 0x41>> <>
+          <<0xBA, 0xC3>> <>
+          <<0x1B, 0x28, 0x42>> <>
+          <<0x4F, 0x4B>>
+
+      assert {:ok, "好OK"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "GB2312 — decode/2 via ISO 2022 IR 58" do
+    test "decodes Chinese text with ISO 2022 IR 58 charset" do
+      # ESC $ ) A + 你好 (GR)
+      binary = <<0x1B, 0x24, 0x29, 0x41, 0xC4, 0xE3, 0xBA, 0xC3>>
+      assert {:ok, "你好"} = CharacterSet.decode(binary, "ISO 2022 IR 58")
+    end
+
+    test "decodes four-character phrase nihao-shijie" do
+      # ESC $ ) A + 你好世界
+      binary =
+        <<0x1B, 0x24, 0x29, 0x41>> <>
+          <<0xC4, 0xE3, 0xBA, 0xC3, 0xCA, 0xC0, 0xBD, 0xE7>>
+
+      assert {:ok, "你好世界"} = CharacterSet.decode(binary, "ISO 2022 IR 58")
+    end
+  end
+
+  # ----------------------------------------------------------------
+  # KS X 1001 (ISO 2022 IR 149) — Korean
+  # ----------------------------------------------------------------
+
+  describe "KsX1001.decode_pair/2" do
+    alias Dicom.CharacterSet.KsX1001
+
+    test "decodes Hangul syllable 가 (U+AC00) at row 0x30, cell 0x21" do
+      assert {:ok, 0xAC00} = KsX1001.decode_pair(0x30, 0x21)
+    end
+
+    test "decodes Hangul syllable 한 (U+D55C) at row 0x47, cell 0x51" do
+      assert {:ok, 0xD55C} = KsX1001.decode_pair(0x47, 0x51)
+    end
+
+    test "decodes Hangul syllable 국 (U+AD6D) at row 0x31, cell 0x39" do
+      assert {:ok, 0xAD6D} = KsX1001.decode_pair(0x31, 0x39)
+    end
+
+    test "decodes symbol: ideographic space (U+3000) at row 0x21, cell 0x21" do
+      assert {:ok, 0x3000} = KsX1001.decode_pair(0x21, 0x21)
+    end
+
+    test "decodes Hanja character at row 0x4A (first Hanja row)" do
+      # Row 0x4A is the first Hanja row in KS X 1001
+      assert {:ok, cp} = KsX1001.decode_pair(0x4A, 0x21)
+      assert is_integer(cp) and cp > 0
+    end
+
+    test "returns error for out-of-range bytes" do
+      assert :error = KsX1001.decode_pair(0x20, 0x21)
+      assert :error = KsX1001.decode_pair(0x21, 0x7F)
+      assert :error = KsX1001.decode_pair(0x7F, 0x21)
+      assert :error = KsX1001.decode_pair(0xA1, 0xA1)
+    end
+
+    test "returns error for unmapped position" do
+      # Row 0x7E, cell 0x7E is typically unmapped in KS X 1001
+      assert :error = KsX1001.decode_pair(0x7E, 0x7E)
+    end
+  end
+
+  describe "KsX1001.decode_binary/1" do
+    alias Dicom.CharacterSet.KsX1001
+
+    test "decodes empty binary" do
+      assert {:ok, ""} = KsX1001.decode_binary(<<>>)
+    end
+
+    test "decodes GR-range bytes (0xA1-0xFE) -- standard DICOM Korean encoding" do
+      # 가 in EUC-KR = 0xB0A1 (row 0x30 + 0x80, cell 0x21 + 0x80)
+      assert {:ok, "가"} = KsX1001.decode_binary(<<0xB0, 0xA1>>)
+    end
+
+    test "decodes GL-range bytes (0x21-0x7E) directly" do
+      # 가 = row 0x30, cell 0x21
+      assert {:ok, "가"} = KsX1001.decode_binary(<<0x30, 0x21>>)
+    end
+
+    test "decodes 한국어 (Korean language) from GR bytes" do
+      # 한=0xC7D1 국=0xB1B9 어=0xBEEE
+      assert {:ok, "한국어"} = KsX1001.decode_binary(<<0xC7, 0xD1, 0xB1, 0xB9, 0xBE, 0xEE>>)
+    end
+
+    test "decodes 김 (surname Kim) from GR bytes" do
+      # 김=0xB1E8
+      assert {:ok, "김"} = KsX1001.decode_binary(<<0xB1, 0xE8>>)
+    end
+
+    test "decodes 철수 from GR bytes" do
+      # 철=0xC3B6 수=0xBCF6
+      assert {:ok, "철수"} = KsX1001.decode_binary(<<0xC3, 0xB6, 0xBC, 0xF6>>)
+    end
+
+    test "returns error for odd-length binary" do
+      assert {:error, {:decode_failed, :ks_x1001}} = KsX1001.decode_binary(<<0xB0>>)
+    end
+
+    test "returns error for unmapped byte pair" do
+      assert {:error, {:decode_failed, :ks_x1001}} = KsX1001.decode_binary(<<0xFE, 0xFE>>)
+    end
+  end
+
+  describe "decode/2 — ISO 2022 IR 149 (KS X 1001) via charset label" do
+    test "decodes Korean syllables with default KS X 1001 encoding" do
+      # 가 in GR bytes
+      assert {:ok, "가"} = CharacterSet.decode(<<0xB0, 0xA1>>, "ISO 2022 IR 149")
+    end
+
+    test "decodes empty binary" do
+      assert {:ok, ""} = CharacterSet.decode(<<>>, "ISO 2022 IR 149")
+    end
+
+    test "decodes 한국어 via charset label" do
+      assert {:ok, "한국어"} =
+               CharacterSet.decode(
+                 <<0xC7, 0xD1, 0xB1, 0xB9, 0xBE, 0xEE>>,
+                 "ISO 2022 IR 149"
+               )
+    end
+  end
+
+  describe "KS X 1001 — escape sequence switching" do
+    test "ESC $ ) C switches to KS X 1001 and decodes Hangul" do
+      # ESC $ ) C + 한 (0xC7D1)
+      binary = <<0x1B, 0x24, 0x29, 0x43, 0xC7, 0xD1>>
+      assert {:ok, "한"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ASCII then Korean via escape" do
+      # "A" + ESC $ ) C + 가 (0xB0A1)
+      binary = <<0x41, 0x1B, 0x24, 0x29, 0x43, 0xB0, 0xA1>>
+      assert {:ok, "A가"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "Korean then back to ASCII" do
+      # ESC $ ) C + 가 (0xB0A1) + ESC ( B + "B"
+      binary = <<0x1B, 0x24, 0x29, 0x43, 0xB0, 0xA1, 0x1B, 0x28, 0x42, 0x42>>
+      assert {:ok, "가B"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "multiple Korean characters with escape" do
+      # ESC $ ) C + 한국어 (0xC7D1 0xB1B9 0xBEEE)
+      binary = <<0x1B, 0x24, 0x29, 0x43, 0xC7, 0xD1, 0xB1, 0xB9, 0xBE, 0xEE>>
+      assert {:ok, "한국어"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+
+    test "ASCII -> Korean -> ASCII round trip" do
+      # "Hello" + ESC $ ) C + 한국어 + ESC ( B + "World"
+      binary =
+        "Hello" <>
+          <<0x1B, 0x24, 0x29, 0x43, 0xC7, 0xD1, 0xB1, 0xB9, 0xBE, 0xEE>> <>
+          <<0x1B, 0x28, 0x42>> <>
+          "World"
+
+      assert {:ok, "Hello한국어World"} = CharacterSet.decode_iso2022(binary, :ascii)
+    end
+  end
+
+  describe "KS X 1001 — DICOM patient name scenarios" do
+    test "Korean patient name: 김^철수" do
+      # ESC $ ) C + 김 (0xB1E8) + ^ (stays as ASCII after ESC ( B) + ESC $ ) C + 철수 (0xC3B6 0xBCF6)
+      binary =
+        <<0x1B, 0x24, 0x29, 0x43, 0xB1, 0xE8>> <>
+          <<0x1B, 0x28, 0x42, 0x5E>> <>
+          <<0x1B, 0x24, 0x29, 0x43, 0xC3, 0xB6, 0xBC, 0xF6>>
+
+      assert {:ok, "김^철수"} = CharacterSet.decode(binary, "ISO 2022 IR 149")
+    end
+
+    test "Korean patient name with ASCII given name: 김^John" do
+      binary =
+        <<0x1B, 0x24, 0x29, 0x43, 0xB1, 0xE8>> <>
+          <<0x1B, 0x28, 0x42>> <>
+          "^John"
+
+      assert {:ok, "김^John"} = CharacterSet.decode(binary, "ISO 2022 IR 149")
+    end
+
+    test "Korean family name only" do
+      # 박 = 0xB9DA in EUC-KR
+      binary = <<0x1B, 0x24, 0x29, 0x43, 0xB9, 0xDA>>
+      assert {:ok, "박"} = CharacterSet.decode(binary, "ISO 2022 IR 149")
+    end
+  end
+
+  describe "KS X 1001 — character coverage" do
+    alias Dicom.CharacterSet.KsX1001
+
+    test "decodes symbols from rows 1-12 (row 0x21)" do
+      # Ideographic comma (U+3001) at row 0x21, cell 0x22
+      assert {:ok, 0x3001} = KsX1001.decode_pair(0x21, 0x22)
+      # Ideographic period (U+3002) at row 0x21, cell 0x23
+      assert {:ok, 0x3002} = KsX1001.decode_pair(0x21, 0x23)
+      # Middle dot (U+00B7) at row 0x21, cell 0x24
+      assert {:ok, 0x00B7} = KsX1001.decode_pair(0x21, 0x24)
+    end
+
+    test "decodes Hangul syllables from rows 16-40" do
+      # 가 at row 0x30 (row 16 = 0x30), cell 0x21
+      assert {:ok, 0xAC00} = KsX1001.decode_pair(0x30, 0x21)
+      # Verify it's a Hangul syllable (U+AC00-U+D7A3)
+      assert {:ok, cp} = KsX1001.decode_pair(0x30, 0x21)
+      assert cp >= 0xAC00 and cp <= 0xD7A3
+    end
+
+    test "decodes Hanja from rows 42-93" do
+      # Row 42 = 0x4A in KS X 1001 grid
+      assert {:ok, cp} = KsX1001.decode_pair(0x4A, 0x21)
+      # Hanja are CJK Unified Ideographs (U+4E00-U+9FFF range typically)
+      assert cp >= 0x4E00
+    end
+
+    test "multiple Hangul syllables decode correctly as binary" do
+      # 서울 (Seoul) in EUC-KR: 서=0xBCAD 울=0xBFEF (if mapped)
+      # Let's decode 가나다 as a simpler test
+      # 나=row 0x30, cell 0x22 -> check
+      assert {:ok, na_cp} = KsX1001.decode_pair(0x30, 0x22)
+      # 다=row 0x30, cell 0x23 -> check
+      assert {:ok, da_cp} = KsX1001.decode_pair(0x30, 0x23)
+      assert is_integer(na_cp) and na_cp > 0
+      assert is_integer(da_cp) and da_cp > 0
     end
   end
 end

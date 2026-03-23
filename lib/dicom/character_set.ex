@@ -34,16 +34,21 @@ defmodule Dicom.CharacterSet do
   - `ISO 2022 IR 13` (JIS X 0201 — Roman G0 + Katakana G1)
   - `ISO 2022 IR 87` (JIS X 0208 — multi-byte Kanji/Kana)
   - `ISO 2022 IR 100` through `ISO 2022 IR 148` (ISO 8859 variants, G1)
-  - `ISO 2022 IR 149` (KS X 1001 — multi-byte, not yet decodable)
+  - `ISO 2022 IR 149` (KS X 1001 — multi-byte Korean)
   - `ISO 2022 IR 159` (JIS X 0212 — multi-byte, not yet decodable)
-  - `ISO 2022 IR 58` (GB2312-80 — multi-byte, not yet decodable)
-  - `GB18030` (Chinese national standard — not yet decodable)
+  - `ISO 2022 IR 58` (GB2312-80 — multi-byte Simplified Chinese)
+  - `GB18030` (Chinese national standard — 1/2/4-byte variable-length encoding)
 
   JIS X 0208 (ISO 2022 IR 87) is fully decodable with a 6879-entry lookup
-  table from the Unicode consortium's JIS0208.TXT mapping. The remaining
-  multi-byte charsets (JIS X 0212, KS X 1001, GB2312) are parsed at the
-  escape-sequence level but return `{:error, :not_yet_implemented}` when
-  actual decoding of their code points is needed.
+  table from the Unicode consortium's JIS0208.TXT mapping. GB2312-80
+  (ISO 2022 IR 58) is fully decodable with a 7478-entry lookup table from
+  the Unicode consortium's CP936.TXT mapping (GB2312 subset). KS X 1001
+  (ISO 2022 IR 149) is fully decodable with an 8225-entry lookup table
+  generated from Python's euc-kr codec. GB18030 is fully decodable with a
+  21791-entry GBK 2-byte lookup table plus algorithmic 4-byte decoding for
+  BMP gaps and supplementary planes. The remaining multi-byte charset
+  (JIS X 0212) is parsed at the escape-sequence level but returns
+  `{:error, :not_yet_implemented}` when actual decoding is needed.
 
   All other character sets return `{:error, {:unsupported_charset, term}}`.
   """
@@ -98,11 +103,13 @@ defmodule Dicom.CharacterSet do
     "ISO 2022 IR 149" => {:iso2022, :ks_x1001},
     # GB2312-80 (Chinese, multi-byte, G1)
     "ISO 2022 IR 58" => {:iso2022, :gb2312},
-    # GB18030 (Chinese national standard)
-    "GB18030" => {:iso2022, :gb18030},
+    # GB18030 (Chinese national standard — standalone variable-length encoding)
+    "GB18030" => :gb18030,
     # UTF-8
     "ISO_IR 192" => :utf8
   }
+
+  alias Dicom.CharacterSet.{GB18030, GB2312, JisX0208, KsX1001, Tables}
 
   @doc """
   Decodes a binary value according to the given character set.
@@ -149,6 +156,9 @@ defmodule Dicom.CharacterSet do
 
       :jis_x0201 ->
         decode_jis_x0201(binary)
+
+      :gb18030 ->
+        GB18030.decode(binary)
     end
   end
 
@@ -212,8 +222,6 @@ defmodule Dicom.CharacterSet do
     end
   end
 
-  alias Dicom.CharacterSet.{JisX0208, Tables}
-
   @doc """
   Decodes a binary containing ISO 2022 escape sequences.
 
@@ -270,7 +278,7 @@ defmodule Dicom.CharacterSet do
   @esc_g1_ks_x1001 <<0x24, 0x29, 0x43>>
   @esc_g1_gb2312 <<0x24, 0x29, 0x41>>
 
-  @multibyte_encodings [:jis_x0212, :ks_x1001, :gb2312, :gb18030]
+  @multibyte_encodings [:jis_x0212]
 
   # --- ISO 2022 segment decoding ---
 
@@ -305,6 +313,14 @@ defmodule Dicom.CharacterSet do
 
   defp decode_segment(:jis_x0208, bytes) do
     JisX0208.decode_binary(bytes)
+  end
+
+  defp decode_segment(:gb2312, bytes) do
+    GB2312.decode_binary(bytes)
+  end
+
+  defp decode_segment(:ks_x1001, bytes) do
+    KsX1001.decode_binary(bytes)
   end
 
   defp decode_segment(encoding, _bytes) when encoding in @multibyte_encodings do
