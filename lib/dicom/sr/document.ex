@@ -4,7 +4,7 @@ defmodule Dicom.SR.Document do
   """
 
   alias Dicom.{DataElement, DataSet, Tag, UID, Value}
-  alias Dicom.SR.ContentItem
+  alias Dicom.SR.{ContentConstraint, ContentItem}
 
   @enforce_keys [:root_content, :study_instance_uid, :series_instance_uid, :sop_instance_uid]
   defstruct [
@@ -62,31 +62,41 @@ defmodule Dicom.SR.Document do
          {:ok, series_instance_uid} <- fetch_uid(opts, :series_instance_uid),
          {:ok, sop_instance_uid} <- fetch_uid(opts, :sop_instance_uid),
          :ok <- validate_verification_opts(opts) do
-      {:ok,
-       %__MODULE__{
-         root_content: root_content,
-         study_instance_uid: study_instance_uid,
-         series_instance_uid: series_instance_uid,
-         sop_instance_uid: sop_instance_uid,
-         template_identifier: opts[:template_identifier],
-         mapping_resource: opts[:mapping_resource] || "DCMR",
-         content_datetime:
-           opts[:content_datetime] || NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
-         series_number: opts[:series_number] || 1,
-         instance_number: opts[:instance_number] || 1,
-         series_description: opts[:series_description],
-         completion_flag: opts[:completion_flag] || "COMPLETE",
-         completion_flag_description: opts[:completion_flag_description],
-         verification_flag: opts[:verification_flag] || "UNVERIFIED",
-         verifying_observer_name: opts[:verifying_observer_name],
-         verification_datetime: opts[:verification_datetime],
-         patient_id: opts[:patient_id],
-         patient_name: opts[:patient_name],
-         study_id: opts[:study_id],
-         accession_number: opts[:accession_number],
-         study_description: opts[:study_description],
-         sop_class_uid: opts[:sop_class_uid] || UID.comprehensive_sr_storage()
-       }}
+      document =
+        %__MODULE__{
+          root_content: root_content,
+          study_instance_uid: study_instance_uid,
+          series_instance_uid: series_instance_uid,
+          sop_instance_uid: sop_instance_uid,
+          template_identifier: opts[:template_identifier],
+          mapping_resource: opts[:mapping_resource] || "DCMR",
+          content_datetime:
+            opts[:content_datetime] ||
+              NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
+          series_number: opts[:series_number] || 1,
+          instance_number: opts[:instance_number] || 1,
+          series_description: opts[:series_description],
+          completion_flag: opts[:completion_flag] || "COMPLETE",
+          completion_flag_description: opts[:completion_flag_description],
+          verification_flag: opts[:verification_flag] || "UNVERIFIED",
+          verifying_observer_name: opts[:verifying_observer_name],
+          verification_datetime: opts[:verification_datetime],
+          patient_id: opts[:patient_id],
+          patient_name: opts[:patient_name],
+          study_id: opts[:study_id],
+          accession_number: opts[:accession_number],
+          study_description: opts[:study_description],
+          sop_class_uid: opts[:sop_class_uid] || UID.comprehensive_sr_storage()
+        }
+
+      if opts[:validate] do
+        case maybe_validate_content(document) do
+          :ok -> {:ok, document}
+          {:error, _} = error -> error
+        end
+      else
+        {:ok, document}
+      end
     end
   end
 
@@ -235,4 +245,17 @@ defmodule Dicom.SR.Document do
   defp content_date(%DateTime{} = dt), do: DateTime.to_date(dt)
   defp content_time(%NaiveDateTime{} = dt), do: NaiveDateTime.to_time(dt)
   defp content_time(%DateTime{} = dt), do: DateTime.to_time(dt)
+
+  @constraint_registry %{
+    "1500" => Dicom.SR.Constraints.MeasurementReport,
+    "2000" => Dicom.SR.Constraints.KeyObjectSelection
+  }
+
+  defp maybe_validate_content(%__MODULE__{template_identifier: tid, root_content: root})
+       when is_map_key(@constraint_registry, tid) do
+    constraint_mod = Map.fetch!(@constraint_registry, tid)
+    ContentConstraint.validate_tree(root.children, constraint_mod.constraints())
+  end
+
+  defp maybe_validate_content(_document), do: :ok
 end
