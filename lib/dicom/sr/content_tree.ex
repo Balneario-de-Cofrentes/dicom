@@ -268,21 +268,23 @@ defmodule Dicom.SR.ContentTree do
 
   defp extract_children(%DataSet{} = ds) do
     case DataSet.get(ds, Tag.content_sequence()) do
-      items when is_list(items) -> Enum.map(items, &item_to_content_item/1)
+      items when is_list(items) -> Enum.flat_map(items, &maybe_content_item/1)
       _ -> []
     end
   end
 
   defp extract_children(item) when is_map(item) do
     case get_item_value(item, Tag.content_sequence()) do
-      items when is_list(items) -> Enum.map(items, &item_to_content_item/1)
+      items when is_list(items) -> Enum.flat_map(items, &maybe_content_item/1)
       _ -> []
     end
   end
 
-  defp item_to_content_item(item) do
-    {:ok, content_item} = from_sequence_item(item)
-    content_item
+  defp maybe_content_item(item) do
+    case from_sequence_item(item) do
+      {:ok, content_item} -> [content_item]
+      {:error, _reason} -> []
+    end
   end
 
   # -- Code Extraction --------------------------------------------------------
@@ -313,8 +315,10 @@ defmodule Dicom.SR.ContentTree do
   defp extract_code_value(source) do
     case get_sequence(source, Tag.concept_code_sequence()) do
       [item | _] ->
-        {:ok, code} = code_from_item(item)
-        code
+        case code_from_item(item) do
+          {:ok, code} -> code
+          {:error, _} -> nil
+        end
 
       _ ->
         nil
@@ -340,8 +344,10 @@ defmodule Dicom.SR.ContentTree do
   defp extract_units(mv_item) do
     case get_item_value(mv_item, Tag.measurement_units_code_sequence()) do
       [units_item | _] ->
-        {:ok, code} = code_from_item(units_item)
-        code
+        case code_from_item(units_item) do
+          {:ok, code} -> code
+          {:error, _} -> nil
+        end
 
       _ ->
         nil
@@ -351,8 +357,10 @@ defmodule Dicom.SR.ContentTree do
   defp extract_qualifier(source) do
     case get_sequence(source, Tag.numeric_value_qualifier_code_sequence()) do
       [item | _] ->
-        {:ok, code} = code_from_item(item)
-        code
+        case code_from_item(item) do
+          {:ok, code} -> code
+          {:error, _} -> nil
+        end
 
       _ ->
         nil
@@ -417,8 +425,10 @@ defmodule Dicom.SR.ContentTree do
   defp extract_purpose(source) do
     case get_sequence(source, Tag.purpose_of_reference_code_sequence()) do
       [item | _] ->
-        {:ok, code} = code_from_item(item)
-        code
+        case code_from_item(item) do
+          {:ok, code} -> code
+          {:error, _} -> nil
+        end
 
       _ ->
         nil

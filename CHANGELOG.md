@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-04-13
+
+### Fixed
+
+- **SR ContentTree crash on items without concept name** — `item_to_content_item/1` hard-matched `{:ok, _}` from `from_sequence_item/1`, causing a `MatchError` when child content items lacked a Concept Name Code Sequence (0040,A043). This is valid in DICOM SR (e.g., by-reference items). Children that cannot be parsed are now skipped instead of crashing the tree reconstruction.
+- **Defensive code extraction helpers** — `extract_code_value/1`, `extract_units/1`, `extract_qualifier/1`, and `extract_purpose/1` now handle malformed code sequence items gracefully (return `nil`) instead of crashing on `{:ok, _}` match failures.
+
 ## [0.9.1] - 2026-03-22
 
 ### Added

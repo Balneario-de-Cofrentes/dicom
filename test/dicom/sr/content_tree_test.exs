@@ -1034,6 +1034,82 @@ defmodule Dicom.SR.ContentTreeTest do
 
       assert {:error, :missing_concept_name} = ContentTree.from_sequence_item(item)
     end
+
+    test "children without concept name are skipped instead of crashing" do
+      # A child content item without ConceptNameCodeSequence (0040,A043) is valid
+      # in DICOM SR — e.g., by-reference items. extract_children must not crash.
+      child_with_name = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "TEXT"),
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "121071"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+              Tag.code_meaning() =>
+                Dicom.DataElement.new(Tag.code_meaning(), :LO, "Finding")
+            }
+          ]),
+        Tag.text_value() => Dicom.DataElement.new(Tag.text_value(), :UT, "Normal")
+      }
+
+      child_without_name = %{
+        Tag.value_type() => Dicom.DataElement.new(Tag.value_type(), :CS, "TEXT"),
+        Tag.text_value() => Dicom.DataElement.new(Tag.text_value(), :UT, "Orphan")
+      }
+
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.value_type(), :CS, "CONTAINER")
+        |> DataSet.put(Tag.concept_name_code_sequence(), :SQ, [
+          %{
+            Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "126000"),
+            Tag.coding_scheme_designator() =>
+              Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+            Tag.code_meaning() =>
+              Dicom.DataElement.new(Tag.code_meaning(), :LO, "Imaging Report")
+          }
+        ])
+        |> DataSet.put(Tag.content_sequence(), :SQ, [child_with_name, child_without_name])
+
+      {:ok, tree} = ContentTree.from_data_set(ds)
+
+      # The child without concept name should be skipped, not crash
+      assert length(tree.children) == 1
+      assert hd(tree.children).value == "Normal"
+    end
+
+    test "child with missing value type is skipped" do
+      child_no_vt = %{
+        Tag.concept_name_code_sequence() =>
+          Dicom.DataElement.new(Tag.concept_name_code_sequence(), :SQ, [
+            %{
+              Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "121071"),
+              Tag.coding_scheme_designator() =>
+                Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+              Tag.code_meaning() =>
+                Dicom.DataElement.new(Tag.code_meaning(), :LO, "Finding")
+            }
+          ])
+      }
+
+      ds =
+        DataSet.new()
+        |> DataSet.put(Tag.value_type(), :CS, "CONTAINER")
+        |> DataSet.put(Tag.concept_name_code_sequence(), :SQ, [
+          %{
+            Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "126000"),
+            Tag.coding_scheme_designator() =>
+              Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
+            Tag.code_meaning() =>
+              Dicom.DataElement.new(Tag.code_meaning(), :LO, "Imaging Report")
+          }
+        ])
+        |> DataSet.put(Tag.content_sequence(), :SQ, [child_no_vt])
+
+      {:ok, tree} = ContentTree.from_data_set(ds)
+      assert tree.children == []
+    end
   end
 
   # -- DocumentReader ---------------------------------------------------------
