@@ -1046,8 +1046,7 @@ defmodule Dicom.SR.ContentTreeTest do
               Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "121071"),
               Tag.coding_scheme_designator() =>
                 Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
-              Tag.code_meaning() =>
-                Dicom.DataElement.new(Tag.code_meaning(), :LO, "Finding")
+              Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Finding")
             }
           ]),
         Tag.text_value() => Dicom.DataElement.new(Tag.text_value(), :UT, "Normal")
@@ -1066,8 +1065,7 @@ defmodule Dicom.SR.ContentTreeTest do
             Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "126000"),
             Tag.coding_scheme_designator() =>
               Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
-            Tag.code_meaning() =>
-              Dicom.DataElement.new(Tag.code_meaning(), :LO, "Imaging Report")
+            Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Imaging Report")
           }
         ])
         |> DataSet.put(Tag.content_sequence(), :SQ, [child_with_name, child_without_name])
@@ -1087,8 +1085,7 @@ defmodule Dicom.SR.ContentTreeTest do
               Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "121071"),
               Tag.coding_scheme_designator() =>
                 Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
-              Tag.code_meaning() =>
-                Dicom.DataElement.new(Tag.code_meaning(), :LO, "Finding")
+              Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Finding")
             }
           ])
       }
@@ -1101,8 +1098,7 @@ defmodule Dicom.SR.ContentTreeTest do
             Tag.code_value() => Dicom.DataElement.new(Tag.code_value(), :SH, "126000"),
             Tag.coding_scheme_designator() =>
               Dicom.DataElement.new(Tag.coding_scheme_designator(), :SH, "DCM"),
-            Tag.code_meaning() =>
-              Dicom.DataElement.new(Tag.code_meaning(), :LO, "Imaging Report")
+            Tag.code_meaning() => Dicom.DataElement.new(Tag.code_meaning(), :LO, "Imaging Report")
           }
         ])
         |> DataSet.put(Tag.content_sequence(), :SQ, [child_no_vt])
