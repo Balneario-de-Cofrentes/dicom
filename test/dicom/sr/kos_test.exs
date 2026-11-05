@@ -372,7 +372,7 @@ defmodule Dicom.SR.KOSTest do
 
     test "raises on empty list (FunctionClauseError)" do
       assert_raise FunctionClauseError, fn ->
-        ImageLibrary.build([])
+        apply(ImageLibrary, :build, [[]])
       end
     end
 

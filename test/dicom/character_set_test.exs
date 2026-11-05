@@ -1063,8 +1063,7 @@ defmodule Dicom.CharacterSetTest do
 
     test "decodes Hanja character at row 0x4A (first Hanja row)" do
       # Row 0x4A is the first Hanja row in KS X 1001
-      assert {:ok, cp} = KsX1001.decode_pair(0x4A, 0x21)
-      assert is_integer(cp) and cp > 0
+      assert {:ok, 0x4F3D} = KsX1001.decode_pair(0x4A, 0x21)
     end
 
     test "returns error for out-of-range bytes" do
@@ -1232,14 +1231,9 @@ defmodule Dicom.CharacterSetTest do
     end
 
     test "multiple Hangul syllables decode correctly as binary" do
-      # 서울 (Seoul) in EUC-KR: 서=0xBCAD 울=0xBFEF (if mapped)
-      # Let's decode 가나다 as a simpler test
-      # 나=row 0x30, cell 0x22 -> check
-      assert {:ok, na_cp} = KsX1001.decode_pair(0x30, 0x22)
-      # 다=row 0x30, cell 0x23 -> check
-      assert {:ok, da_cp} = KsX1001.decode_pair(0x30, 0x23)
-      assert is_integer(na_cp) and na_cp > 0
-      assert is_integer(da_cp) and da_cp > 0
+      # 각 (U+AC01) and 간 (U+AC04) follow 가 in row 0x30
+      assert {:ok, 0xAC01} = KsX1001.decode_pair(0x30, 0x22)
+      assert {:ok, 0xAC04} = KsX1001.decode_pair(0x30, 0x23)
     end
   end
 end

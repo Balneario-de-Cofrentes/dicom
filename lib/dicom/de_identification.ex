@@ -652,12 +652,7 @@ defmodule Dicom.DeIdentification do
   # (0012,0064) De-identification Method Code Sequence -- CID 7050 coded
   # entries indicating which profile options were applied.
   defp add_method_code_sequence(%DataSet{} = ds, profile) do
-    items = cid_7050_sequence_items(profile)
-
-    case items do
-      [] -> ds
-      _ -> DataSet.put(ds, {0x0012, 0x0064}, :SQ, items)
-    end
+    DataSet.put(ds, {0x0012, 0x0064}, :SQ, cid_7050_sequence_items(profile))
   end
 
   defp cid_7050_sequence_items(profile) do
@@ -812,8 +807,6 @@ defmodule Dicom.DeIdentification do
       override -> override
     end
   end
-
-  defp apply_profile_overrides(action, _tag, _profile), do: action
 
   defp retain_private_tags?(%__MODULE__.Profile{
          retain_private_tags: retain_private_tags,

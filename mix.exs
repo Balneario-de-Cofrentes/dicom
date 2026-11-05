@@ -17,18 +17,19 @@ defmodule Dicom.MixProject do
       package: package(),
       docs: docs(),
       source_url: @source_url,
+      test_ignore_filters: [&String.starts_with?(&1, "test/support/")],
       test_coverage: [
         ignore_modules: [
           Mix.Tasks.Dicom.GenSopClasses,
           Mix.Tasks.Dicom.GenDictionary,
           Mix.Tasks.Dicom.GenContextGroups
         ]
-      ],
-      preferred_cli_env: [
-        test: :test,
-        "test.all": :test
       ]
     ]
+  end
+
+  def cli do
+    [preferred_envs: [test: :test, "test.all": :test]]
   end
 
   def application do

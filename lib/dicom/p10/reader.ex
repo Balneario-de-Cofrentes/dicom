@@ -273,7 +273,7 @@ defmodule Dicom.P10.Reader do
 
   defp read_sequence_items(binary, length, vr_enc, endian)
        when is_integer(length) and byte_size(binary) >= length do
-    <<seq_data::binary-size(length), rest::binary>> = binary
+    <<seq_data::binary-size(^length), rest::binary>> = binary
 
     case read_items_from_binary(seq_data, vr_enc, endian, []) do
       {:ok, items, _remaining} -> {:ok, items, rest}
@@ -338,7 +338,7 @@ defmodule Dicom.P10.Reader do
 
       {:ok, length, rest} ->
         if byte_size(rest) >= length do
-          <<item_data::binary-size(length), remaining::binary>> = rest
+          <<item_data::binary-size(^length), remaining::binary>> = rest
 
           case read_all_elements(item_data, vr_enc, endian, []) do
             {:ok, elements} -> {:ok, elements, remaining}
@@ -433,7 +433,7 @@ defmodule Dicom.P10.Reader do
         <<_tag::32, length::little-32, rest::binary>> = binary
 
         if byte_size(rest) >= length do
-          <<fragment::binary-size(length), remaining::binary>> = rest
+          <<fragment::binary-size(^length), remaining::binary>> = rest
           read_encapsulated_fragments(remaining, [fragment | acc])
         else
           {:error, :unexpected_end}
@@ -458,7 +458,7 @@ defmodule Dicom.P10.Reader do
   end
 
   defp read_value_by_length(binary, tag, vr, length) when byte_size(binary) >= length do
-    <<value::binary-size(length), rest::binary>> = binary
+    <<value::binary-size(^length), rest::binary>> = binary
     {:ok, DataElement.new(tag, vr, value), rest}
   end
 
@@ -468,7 +468,7 @@ defmodule Dicom.P10.Reader do
     # Search for sequence delimiter tag
     case find_seq_delimiter(binary, 0) do
       {:ok, offset} ->
-        <<value::binary-size(offset), _delim_tag::32, _delim_length::32, rest::binary>> = binary
+        <<value::binary-size(^offset), _delim_tag::32, _delim_length::32, rest::binary>> = binary
         {:ok, DataElement.new(tag, vr, value), rest}
 
       :error ->
