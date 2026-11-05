@@ -231,7 +231,7 @@ defmodule Dicom.PixelData do
          acc
        )
        when byte_size(rest) >= length do
-    <<fragment::binary-size(length), remaining::binary>> = rest
+    <<fragment::binary-size(^length), remaining::binary>> = rest
     parse_encapsulated_fragments(remaining, [fragment | acc])
   end
 

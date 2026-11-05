@@ -97,7 +97,7 @@ defmodule Dicom.P10.Stream.Source do
   @spec consume(t(), non_neg_integer()) :: {:ok, binary(), t()}
   def consume(%__MODULE__{buffer: buffer, offset: offset} = source, n)
       when byte_size(buffer) >= n do
-    <<data::binary-size(n), rest::binary>> = buffer
+    <<data::binary-size(^n), rest::binary>> = buffer
     {:ok, data, %{source | buffer: rest, offset: offset + n}}
   end
 
@@ -106,7 +106,7 @@ defmodule Dicom.P10.Stream.Source do
   """
   @spec peek(t(), non_neg_integer()) :: {:ok, binary()} | {:error, :unexpected_end}
   def peek(%__MODULE__{buffer: buffer}, n) when byte_size(buffer) >= n do
-    <<data::binary-size(n), _::binary>> = buffer
+    <<data::binary-size(^n), _::binary>> = buffer
     {:ok, data}
   end
 
@@ -128,7 +128,7 @@ defmodule Dicom.P10.Stream.Source do
       when is_binary(marker) and byte_size(marker) > 0 do
     case :binary.match(source.buffer, marker) do
       {position, marker_size} ->
-        <<data::binary-size(position), _marker::binary-size(marker_size), rest::binary>> =
+        <<data::binary-size(^position), _marker::binary-size(^marker_size), rest::binary>> =
           source.buffer
 
         {:ok, data, %{source | buffer: rest, offset: source.offset + position + marker_size}}
@@ -148,7 +148,7 @@ defmodule Dicom.P10.Stream.Source do
       when is_binary(marker) and byte_size(marker) > 0 do
     case :binary.match(source.buffer, marker) do
       {position, marker_size} ->
-        <<data::binary-size(position), _marker::binary-size(marker_size), rest::binary>> =
+        <<data::binary-size(^position), _marker::binary-size(^marker_size), rest::binary>> =
           source.buffer
 
         {:ok, data, %{source | buffer: rest, offset: source.offset + position + marker_size}}

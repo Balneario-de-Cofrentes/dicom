@@ -451,14 +451,14 @@ defmodule Dicom.P10.ComplianceTest do
   defp split_at_non_group2(binary), do: split_at_non_group2(binary, 0)
 
   defp split_at_non_group2(binary, offset) when offset + 4 <= byte_size(binary) do
-    <<_before::binary-size(offset), group::little-16, _::binary>> = binary
+    <<_before::binary-size(^offset), group::little-16, _::binary>> = binary
 
     if group != 0x0002 do
-      <<meta::binary-size(offset), rest::binary>> = binary
+      <<meta::binary-size(^offset), rest::binary>> = binary
       {meta, rest}
     else
       # Skip this element: read VR and length to find next element
-      <<_before::binary-size(offset), _tag::binary-size(4), vr_bytes::binary-size(2),
+      <<_before::binary-size(^offset), _tag::binary-size(4), vr_bytes::binary-size(2),
         after_vr::binary>> = binary
 
       elem_size =
@@ -492,7 +492,7 @@ defmodule Dicom.P10.ComplianceTest do
   end
 
   defp split_at_non_group2(binary, offset) do
-    <<meta::binary-size(offset), rest::binary>> = binary
+    <<meta::binary-size(^offset), rest::binary>> = binary
     {meta, rest}
   end
 

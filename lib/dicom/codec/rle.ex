@@ -184,7 +184,7 @@ defmodule Dicom.Codec.RLE do
     count = n + 1
 
     if byte_size(rest) >= count do
-      <<literal::binary-size(count), remaining::binary>> = rest
+      <<literal::binary-size(^count), remaining::binary>> = rest
       do_decode_segment(remaining, [literal | acc])
     else
       # Emit what we have

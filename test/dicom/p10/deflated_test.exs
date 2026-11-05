@@ -71,7 +71,7 @@ defmodule Dicom.P10.DeflatedTest do
       <<_preamble::binary-size(128), "DICM", _tag::binary-size(4), _vr::binary-size(2),
         _length::little-16, group_length::little-32, rest::binary>> = binary
 
-      <<_file_meta::binary-size(group_length), payload::binary>> = rest
+      <<_file_meta::binary-size(^group_length), payload::binary>> = rest
 
       refute binary_part(payload, 0, 2) == <<0x78, 0x9C>>
       assert {:ok, _} = Deflated.decompress(payload)
